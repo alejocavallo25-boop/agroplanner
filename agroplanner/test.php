@@ -1,0 +1,1 @@
+<?php require 'config/database.php'; try { $stmt = $pdo->prepare('SELECT id, username, password_hash, role, status, has_agricultura, has_tambo, has_ganaderia FROM users WHERE email = ?'); $stmt->execute(['admin@admin.com']); print_r($stmt->fetch()); echo 'OK'; } catch (Exception $e) { echo $e->getMessage(); } ?>

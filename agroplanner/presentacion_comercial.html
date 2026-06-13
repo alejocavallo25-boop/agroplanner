@@ -1,0 +1,1602 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgroPlanner — Presentación Comercial</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <style>
+        /* ═══════════════════════════════════════════════════════════════
+           RESET & BASE
+           ═══════════════════════════════════════════════════════════════ */
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg-dark: #0a0f1a;
+            --bg-card: #111827;
+            --bg-card-alt: #1a2236;
+            --accent: #10b981;
+            --accent-light: #34d399;
+            --accent-glow: rgba(16, 185, 129, 0.25);
+            --gold: #f59e0b;
+            --gold-light: #fbbf24;
+            --rose: #f43f5e;
+            --blue: #3b82f6;
+            --purple: #8b5cf6;
+            --text-primary: #f1f5f9;
+            --text-muted: #94a3b8;
+            --border: rgba(255,255,255,0.08);
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        /* ═══════════════════════════════════════════════════════════════
+           PAGE STRUCTURE — Each .slide = 1 A4 Landscape page
+           ═══════════════════════════════════════════════════════════════ */
+        .slide {
+            width: 297mm;
+            height: 210mm;
+            padding: 0;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            page-break-after: always;
+            margin: 0 auto 30px;
+            background: var(--bg-dark);
+        }
+
+        .slide:last-child { page-break-after: avoid; }
+
+        @media print {
+            @page {
+                size: A4 landscape;
+                margin: 0;
+            }
+            body { margin: 0; background: #000; }
+            .slide {
+                margin: 0;
+                box-shadow: none;
+                border-radius: 0;
+            }
+            .no-print { display: none !important; }
+        }
+
+        @media screen {
+            .slide {
+                border-radius: 12px;
+                box-shadow: 0 30px 80px rgba(0,0,0,0.7);
+                margin-top: 30px;
+            }
+        }
+
+        /* ═══════════════════════════════════════════════════════════════
+           UTILITIES
+           ═══════════════════════════════════════════════════════════════ */
+        .slide-inner {
+            padding: 40px 55px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            z-index: 2;
+        }
+
+        .slide-number {
+            position: absolute;
+            bottom: 18px;
+            right: 30px;
+            font-size: 11px;
+            color: var(--text-muted);
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            z-index: 5;
+        }
+
+        .brand-watermark {
+            position: absolute;
+            bottom: 18px;
+            left: 30px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            font-weight: 700;
+            color: rgba(255,255,255,0.15);
+            z-index: 5;
+        }
+        .brand-watermark svg { width: 16px; height: 16px; opacity: 0.3; }
+
+        .section-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            padding: 6px 16px;
+            border-radius: 30px;
+            margin-bottom: 18px;
+        }
+
+        .badge-green { background: rgba(16,185,129,0.12); color: var(--accent-light); border: 1px solid rgba(16,185,129,0.25); }
+        .badge-gold  { background: rgba(245,158,11,0.12); color: var(--gold-light); border: 1px solid rgba(245,158,11,0.25); }
+        .badge-blue  { background: rgba(59,130,246,0.12); color: #60a5fa; border: 1px solid rgba(59,130,246,0.25); }
+        .badge-rose  { background: rgba(244,63,94,0.12);  color: #fb7185; border: 1px solid rgba(244,63,94,0.25); }
+        .badge-purple{ background: rgba(139,92,246,0.12);  color: #a78bfa; border: 1px solid rgba(139,92,246,0.25); }
+
+        .gradient-text {
+            background: linear-gradient(135deg, var(--accent-light), #6ee7b7, var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .gold-gradient {
+            background: linear-gradient(135deg, #fbbf24, #f59e0b, #d97706);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* ═══════════════════════════════════════════════════════════════
+           SLIDE 1 — COVER
+           ═══════════════════════════════════════════════════════════════ */
+        .cover-slide {
+            background: linear-gradient(135deg, #040812 0%, #0a1628 40%, #0f1f35 100%);
+        }
+
+        .cover-bg-pattern {
+            position: absolute;
+            inset: 0;
+            z-index: 0;
+            overflow: hidden;
+        }
+
+        .cover-bg-pattern::before {
+            content: '';
+            position: absolute;
+            width: 700px;
+            height: 700px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(16,185,129,0.08) 0%, transparent 70%);
+            top: -200px;
+            right: -150px;
+        }
+        .cover-bg-pattern::after {
+            content: '';
+            position: absolute;
+            width: 500px;
+            height: 500px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(59,130,246,0.05) 0%, transparent 70%);
+            bottom: -150px;
+            left: -100px;
+        }
+
+        .cover-grid-lines {
+            position: absolute;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+            background-size: 60px 60px;
+        }
+
+        .cover-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex: 1;
+            gap: 50px;
+        }
+
+        .cover-left {
+            flex: 1.2;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .cover-logo {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 30px;
+        }
+        .cover-logo-icon {
+            width: 52px;
+            height: 52px;
+            background: linear-gradient(135deg, var(--accent), #059669);
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 8px 25px rgba(16,185,129,0.3);
+        }
+        .cover-logo-icon svg { width: 30px; height: 30px; }
+        .cover-logo-text {
+            font-size: 28px;
+            font-weight: 900;
+            letter-spacing: -0.03em;
+        }
+
+        .cover-title {
+            font-family: 'Playfair Display', serif;
+            font-size: 46px;
+            font-weight: 800;
+            line-height: 1.1;
+            margin-bottom: 18px;
+            letter-spacing: -0.02em;
+        }
+
+        .cover-subtitle {
+            font-size: 17px;
+            color: var(--text-muted);
+            line-height: 1.65;
+            max-width: 500px;
+            font-weight: 400;
+        }
+
+        .cover-right {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .cover-mockup {
+            width: 100%;
+            max-width: 440px;
+            border-radius: 16px;
+            box-shadow: 0 30px 70px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .cover-stats {
+            display: flex;
+            gap: 30px;
+            margin-top: 35px;
+        }
+        .cover-stat {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .cover-stat-value {
+            font-size: 26px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+        }
+        .cover-stat-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        /* ═══════════════════════════════════════════════════════════════
+           SLIDE 2 — PROBLEMA
+           ═══════════════════════════════════════════════════════════════ */
+        .problema-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-top: auto;
+            margin-bottom: auto;
+        }
+
+        .problema-card {
+            background: linear-gradient(145deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 28px 24px;
+            position: relative;
+            overflow: hidden;
+        }
+        .problema-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--rose), #fb923c);
+        }
+
+        .problema-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            margin-bottom: 16px;
+        }
+        .problema-icon.red   { background: rgba(244,63,94,0.12); color: #fb7185; }
+        .problema-icon.amber { background: rgba(245,158,11,0.12); color: #fbbf24; }
+        .problema-icon.slate { background: rgba(100,116,139,0.15); color: #94a3b8; }
+
+        .problema-card h3 {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 10px;
+            color: white;
+        }
+        .problema-card p {
+            font-size: 13px;
+            color: var(--text-muted);
+            line-height: 1.6;
+        }
+
+        /* ═══════════════════════════════════════════════════════════════
+           SLIDE 3 — SOLUCIÓN
+           ═══════════════════════════════════════════════════════════════ */
+        .solucion-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            flex: 1;
+        }
+
+        .solucion-left {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 20px;
+        }
+
+        .feature-item {
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+        }
+        .feature-icon {
+            width: 44px;
+            height: 44px;
+            min-width: 44px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+        .feature-icon.green  { background: rgba(16,185,129,0.12); color: var(--accent-light); }
+        .feature-icon.blue   { background: rgba(59,130,246,0.12);  color: #60a5fa; }
+        .feature-icon.purple { background: rgba(139,92,246,0.12);  color: #a78bfa; }
+        .feature-icon.amber  { background: rgba(245,158,11,0.12);  color: #fbbf24; }
+
+        .feature-text h4 {
+            font-size: 14px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        .feature-text p {
+            font-size: 12.5px;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+
+        .solucion-right {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .solucion-mockup {
+            width: 100%;
+            max-width: 420px;
+            border-radius: 14px;
+            box-shadow: 0 25px 60px rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+
+        /* ═══════════════════════════════════════════════════════════════
+           SLIDES 4, 5, 6 — SECTORES
+           ═══════════════════════════════════════════════════════════════ */
+        .sector-slide {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sector-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+
+        .sector-header-left h2 {
+            font-family: 'Playfair Display', serif;
+            font-size: 34px;
+            font-weight: 800;
+            margin-bottom: 6px;
+        }
+        .sector-header-left p {
+            font-size: 14px;
+            color: var(--text-muted);
+            max-width: 450px;
+        }
+
+        .sector-icon-box {
+            width: 70px;
+            height: 70px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 30px;
+        }
+        .sector-icon-box.green  { background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(16,185,129,0.05)); color: var(--accent-light); border: 1px solid rgba(16,185,129,0.2); }
+        .sector-icon-box.blue   { background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(59,130,246,0.05));  color: #60a5fa; border: 1px solid rgba(59,130,246,0.2); }
+        .sector-icon-box.rose   { background: linear-gradient(135deg, rgba(244,63,94,0.15), rgba(244,63,94,0.05));   color: #fb7185; border: 1px solid rgba(244,63,94,0.2); }
+
+        .sector-body {
+            display: grid;
+            grid-template-columns: 1.1fr 0.9fr;
+            gap: 24px;
+            flex: 1;
+        }
+
+        .sector-features {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .sf-card {
+            background: rgba(255,255,255,0.025);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        .sf-card i {
+            font-size: 18px;
+            width: 24px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+        .sf-card .sf-info h4 {
+            font-size: 13.5px;
+            font-weight: 700;
+            margin-bottom: 2px;
+        }
+        .sf-card .sf-info p {
+            font-size: 11.5px;
+            color: var(--text-muted);
+            line-height: 1.45;
+        }
+
+        .sector-mockup-wrap {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .sector-mockup {
+            width: 100%;
+            max-width: 380px;
+            border-radius: 14px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.45);
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+
+        /* ═══════════════════════════════════════════════════════════════
+           SLIDE 7 — PRICING
+           ═══════════════════════════════════════════════════════════════ */
+        .pricing-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 22px;
+            flex: 1;
+            align-items: center;
+        }
+
+        .price-card {
+            background: linear-gradient(145deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));
+            border: 1px solid var(--border);
+            border-radius: 22px;
+            padding: 32px 28px;
+            text-align: center;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            height: 100%;
+        }
+
+        .price-card.featured {
+            background: linear-gradient(145deg, rgba(16,185,129,0.08), rgba(16,185,129,0.02));
+            border: 2px solid rgba(16,185,129,0.3);
+            box-shadow: 0 15px 40px rgba(16,185,129,0.1);
+            transform: scale(1.04);
+        }
+
+        .price-card.featured::before {
+            content: '⭐ MÁS ELEGIDO';
+            position: absolute;
+            top: -14px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, var(--accent), #059669);
+            color: white;
+            font-size: 10px;
+            font-weight: 800;
+            padding: 5px 18px;
+            border-radius: 20px;
+            letter-spacing: 0.1em;
+            white-space: nowrap;
+        }
+
+        .price-plan-name {
+            font-size: 13px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--text-muted);
+        }
+
+        .price-sectors {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .price-sector-tag {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 12px;
+            border-radius: 20px;
+            border: 1px solid;
+        }
+        .price-sector-tag.active {
+            background: rgba(16,185,129,0.1);
+            color: var(--accent-light);
+            border-color: rgba(16,185,129,0.25);
+        }
+        .price-sector-tag.inactive {
+            background: rgba(100,116,139,0.05);
+            color: rgba(148,163,184,0.4);
+            border-color: rgba(100,116,139,0.1);
+        }
+
+        .price-amount {
+            display: flex;
+            align-items: flex-start;
+            gap: 4px;
+            line-height: 1;
+        }
+        .price-currency {
+            font-size: 20px;
+            font-weight: 700;
+            margin-top: 8px;
+            color: var(--accent-light);
+        }
+        .price-value {
+            font-size: 54px;
+            font-weight: 900;
+            letter-spacing: -0.03em;
+        }
+        .price-period {
+            font-size: 13px;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .price-features {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            width: 100%;
+            text-align: left;
+            padding-top: 14px;
+            border-top: 1px solid var(--border);
+        }
+        .price-feature {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 12.5px;
+            color: var(--text-muted);
+        }
+        .price-feature i {
+            color: var(--accent);
+            font-size: 12px;
+            width: 16px;
+            text-align: center;
+        }
+
+        .price-savings {
+            background: rgba(245,158,11,0.1);
+            color: var(--gold-light);
+            font-size: 11px;
+            font-weight: 800;
+            padding: 5px 14px;
+            border-radius: 20px;
+            border: 1px solid rgba(245,158,11,0.2);
+        }
+
+        /* ═══════════════════════════════════════════════════════════════
+           SLIDE 8 — CTA / CIERRE
+           ═══════════════════════════════════════════════════════════════ */
+        .cta-slide {
+            background: linear-gradient(135deg, #040812 0%, #0a1a28 50%, #0a2018 100%);
+        }
+
+        .cta-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 50px;
+            flex: 1;
+            align-items: center;
+        }
+
+        .cta-left {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .cta-title {
+            font-family: 'Playfair Display', serif;
+            font-size: 40px;
+            font-weight: 800;
+            line-height: 1.15;
+        }
+
+        .cta-description {
+            font-size: 15px;
+            color: var(--text-muted);
+            line-height: 1.7;
+        }
+
+        .cta-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            background: linear-gradient(135deg, var(--accent), #059669);
+            color: white;
+            padding: 16px 36px;
+            border-radius: 14px;
+            font-size: 16px;
+            font-weight: 700;
+            text-decoration: none;
+            box-shadow: 0 8px 25px rgba(16,185,129,0.35);
+            align-self: flex-start;
+        }
+
+        .advisor-card {
+            background: linear-gradient(145deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));
+            border: 1px solid var(--border);
+            border-radius: 22px;
+            padding: 35px 30px;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .advisor-photo {
+            width: 110px;
+            height: 110px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 3px solid var(--accent);
+            box-shadow: 0 0 30px rgba(16,185,129,0.2);
+        }
+
+        .advisor-name {
+            font-size: 22px;
+            font-weight: 800;
+        }
+
+        .advisor-role {
+            font-size: 13px;
+            color: var(--accent-light);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .advisor-bio {
+            font-size: 13px;
+            color: var(--text-muted);
+            line-height: 1.6;
+            max-width: 320px;
+        }
+
+        .advisor-includes {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            width: 100%;
+            text-align: left;
+            padding-top: 16px;
+            border-top: 1px solid var(--border);
+        }
+        .advisor-includes-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 12.5px;
+            color: var(--text-muted);
+        }
+        .advisor-includes-item i {
+            color: var(--accent);
+            font-size: 12px;
+            width: 16px;
+        }
+
+        /* ═══════════════════════════════════════════════════════════════
+           SLIDE ACCENTS — Top border strips
+           ═══════════════════════════════════════════════════════════════ */
+        .top-accent {
+            height: 4px;
+            width: 100%;
+            flex-shrink: 0;
+        }
+        .top-accent.green  { background: linear-gradient(90deg, var(--accent), var(--accent-light), var(--accent)); }
+        .top-accent.multi  { background: linear-gradient(90deg, var(--accent), var(--blue), var(--purple), var(--gold)); }
+        .top-accent.gold   { background: linear-gradient(90deg, var(--gold), var(--gold-light), var(--gold)); }
+
+        /* ═══════════════════════════════════════════════════════════════
+           PRINT BUTTON (screen only)
+           ═══════════════════════════════════════════════════════════════ */
+        .print-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 999;
+            background: rgba(10,15,26,0.95);
+            backdrop-filter: blur(12px);
+            padding: 14px 30px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border);
+        }
+        .print-bar-info {
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+        .print-bar-info strong { color: white; }
+
+        .btn-print {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: linear-gradient(135deg, var(--accent), #059669);
+            color: white;
+            padding: 10px 24px;
+            border-radius: 10px;
+            border: none;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            font-family: inherit;
+            box-shadow: 0 4px 15px rgba(16,185,129,0.3);
+            transition: transform 0.2s;
+        }
+        .btn-print:hover { transform: translateY(-2px); }
+
+        .spacer-top { height: 70px; }
+    </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     PRINT BAR (Screen Only)
+     ═══════════════════════════════════════════════════════════════════ -->
+<div class="print-bar no-print">
+    <div class="print-bar-info">
+        <strong>AgroPlanner</strong> — Presentación Comercial · 8 páginas
+    </div>
+    <button class="btn-print" onclick="window.print()">
+        <i class="fas fa-file-pdf"></i> Descargar PDF
+    </button>
+</div>
+<div class="spacer-top no-print"></div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SLIDE 1 — COVER
+     ═══════════════════════════════════════════════════════════════════ -->
+<div class="slide cover-slide">
+    <div class="cover-bg-pattern">
+        <div class="cover-grid-lines"></div>
+    </div>
+
+    <div class="slide-inner">
+        <div class="cover-content">
+            <div class="cover-left">
+                <div class="cover-logo">
+                    <div class="cover-logo-icon">
+                        <svg viewBox="0 0 512 512" fill="white">
+                            <path d="M471.3 6.7C477.7 .6 487-1.6 495.6 1.2 505.4 4.5 512 13.7 512 24l0 186.9c0 131.2-108.1 237.1-238.8 237.1-77 0-143.4-49.5-167.5-118.7-35.4 30.8-57.7 76.1-57.7 126.7 0 13.3-10.7 24-24 24S0 469.3 0 456C0 381.1 38.2 315.1 96.1 276.3 131.4 252.7 173.5 240 216 240l80 0c13.3 0 24-10.7 24-24s-10.7-24-24-24l-80 0c-39.7 0-77.3 8.8-111 24.5 23.3-70 89.2-120.5 167-120.5 66.4 0 115.8-22.1 148.7-44 19.2-12.8 35.5-28.1 50.7-45.3z"/>
+                        </svg>
+                    </div>
+                    <span class="cover-logo-text"><span class="gradient-text">AgroPlanner</span></span>
+                </div>
+
+                <h1 class="cover-title">
+                    Gestión inteligente<br>
+                    para el <span class="gradient-text">campo</span><br>
+                    <span style="font-size: 0.65em; color: var(--text-muted); font-family: Inter; font-weight: 400;">que quiere crecer</span>
+                </h1>
+
+                <p class="cover-subtitle">
+                    La plataforma integral que unifica <strong style="color:white;">Agricultura</strong>,
+                    <strong style="color:white;">Tambo</strong> y <strong style="color:white;">Ganadería</strong>
+                    en un solo lugar. Tomá decisiones basadas en datos reales, no en intuición.
+                </p>
+
+                <div class="cover-stats">
+                    <div class="cover-stat">
+                        <span class="cover-stat-value gradient-text">3</span>
+                        <span class="cover-stat-label">Sectores integrados</span>
+                    </div>
+                    <div class="cover-stat">
+                        <span class="cover-stat-value" style="color: #60a5fa;">24/7</span>
+                        <span class="cover-stat-label">Acceso desde cualquier lugar</span>
+                    </div>
+                    <div class="cover-stat">
+                        <span class="cover-stat-value" style="color: #fbbf24;">100%</span>
+                        <span class="cover-stat-label">Datos en tiempo real</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="cover-right">
+                <img src="dashboard_agricultura_mockup.png" alt="AgroPlanner Dashboard" class="cover-mockup"
+                     onerror="this.style.display='none'">
+            </div>
+        </div>
+    </div>
+
+    <div class="brand-watermark">
+        <svg viewBox="0 0 512 512" fill="currentColor"><path d="M471.3 6.7C477.7 .6 487-1.6 495.6 1.2 505.4 4.5 512 13.7 512 24l0 186.9c0 131.2-108.1 237.1-238.8 237.1-77 0-143.4-49.5-167.5-118.7-35.4 30.8-57.7 76.1-57.7 126.7 0 13.3-10.7 24-24 24S0 469.3 0 456C0 381.1 38.2 315.1 96.1 276.3 131.4 252.7 173.5 240 216 240l80 0c13.3 0 24-10.7 24-24s-10.7-24-24-24l-80 0c-39.7 0-77.3 8.8-111 24.5 23.3-70 89.2-120.5 167-120.5 66.4 0 115.8-22.1 148.7-44 19.2-12.8 35.5-28.1 50.7-45.3z"/></svg>
+        AgroPlanner 2026
+    </div>
+    <div class="slide-number">01 / 08</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SLIDE 2 — EL PROBLEMA
+     ═══════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+    <div class="top-accent multi"></div>
+    <div class="slide-inner">
+        <div>
+            <span class="section-badge badge-rose"><i class="fas fa-triangle-exclamation"></i> El Desafío</span>
+            <h2 style="font-family: 'Playfair Display', serif; font-size: 34px; font-weight: 800; margin-bottom: 6px;">
+                ¿Por qué necesitás <span style="color: #fb7185;">AgroPlanner</span>?
+            </h2>
+            <p style="font-size: 14px; color: var(--text-muted); max-width: 600px;">
+                El productor agropecuario argentino enfrenta desafíos únicos que las planillas de Excel no resuelven.
+            </p>
+        </div>
+
+        <div class="problema-grid">
+            <div class="problema-card">
+                <div class="problema-icon red"><i class="fas fa-calculator"></i></div>
+                <h3>Costos invisibles</h3>
+                <p>Sin un seguimiento detallado, los costos de labores, insumos y alquileres se pierden. No sabés cuánto te cuesta realmente producir un kilo de soja o un litro de leche.</p>
+            </div>
+            <div class="problema-card">
+                <div class="problema-icon amber"><i class="fas fa-chart-line"></i></div>
+                <h3>Decisiones a ciegas</h3>
+                <p>¿Cuál es tu rinde de indiferencia? ¿Tu ROI por lote? ¿El margen de cada cultivo? Sin datos consolidados, cada decisión es una apuesta al azar.</p>
+            </div>
+            <div class="problema-card">
+                <div class="problema-icon slate"><i class="fas fa-clock"></i></div>
+                <h3>Tiempo perdido</h3>
+                <p>Horas armando planillas, cruzando datos de distintos sectores, buscando precios de mercado. Tiempo que podrías dedicar a lo que importa: producir.</p>
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 20px; margin-top: auto; padding-top: 12px;">
+            <div style="flex: 1; background: rgba(244,63,94,0.06); border: 1px solid rgba(244,63,94,0.15); border-radius: 14px; padding: 18px 22px; display: flex; align-items: center; gap: 14px;">
+                <i class="fas fa-exclamation-circle" style="font-size: 24px; color: #fb7185;"></i>
+                <div>
+                    <div style="font-size: 22px; font-weight: 800; color: #fb7185;">68%</div>
+                    <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">de productores no conocen su costo real por hectárea</div>
+                </div>
+            </div>
+            <div style="flex: 1; background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.15); border-radius: 14px; padding: 18px 22px; display: flex; align-items: center; gap: 14px;">
+                <i class="fas fa-hourglass-half" style="font-size: 24px; color: #fbbf24;"></i>
+                <div>
+                    <div style="font-size: 22px; font-weight: 800; color: #fbbf24;">+15 hs</div>
+                    <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">mensuales se pierden gestionando datos en planillas manuales</div>
+                </div>
+            </div>
+            <div style="flex: 1; background: rgba(100,116,139,0.08); border: 1px solid rgba(100,116,139,0.15); border-radius: 14px; padding: 18px 22px; display: flex; align-items: center; gap: 14px;">
+                <i class="fas fa-puzzle-piece" style="font-size: 24px; color: #94a3b8;"></i>
+                <div>
+                    <div style="font-size: 22px; font-weight: 800; color: #94a3b8;">3+</div>
+                    <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">herramientas desconectadas para manejar un solo campo</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="brand-watermark">
+        <svg viewBox="0 0 512 512" fill="currentColor"><path d="M471.3 6.7C477.7 .6 487-1.6 495.6 1.2 505.4 4.5 512 13.7 512 24l0 186.9c0 131.2-108.1 237.1-238.8 237.1-77 0-143.4-49.5-167.5-118.7-35.4 30.8-57.7 76.1-57.7 126.7 0 13.3-10.7 24-24 24S0 469.3 0 456C0 381.1 38.2 315.1 96.1 276.3 131.4 252.7 173.5 240 216 240l80 0c13.3 0 24-10.7 24-24s-10.7-24-24-24l-80 0c-39.7 0-77.3 8.8-111 24.5 23.3-70 89.2-120.5 167-120.5 66.4 0 115.8-22.1 148.7-44 19.2-12.8 35.5-28.1 50.7-45.3z"/></svg>
+        AgroPlanner 2026
+    </div>
+    <div class="slide-number">02 / 08</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SLIDE 3 — LA SOLUCIÓN
+     ═══════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+    <div class="top-accent green"></div>
+    <div class="slide-inner">
+        <div style="margin-bottom: 16px;">
+            <span class="section-badge badge-green"><i class="fas fa-rocket"></i> La Solución</span>
+            <h2 style="font-family: 'Playfair Display', serif; font-size: 34px; font-weight: 800;">
+                Todo tu campo en <span class="gradient-text">una sola pantalla</span>
+            </h2>
+        </div>
+
+        <div class="solucion-grid">
+            <div class="solucion-left">
+                <div class="feature-item">
+                    <div class="feature-icon green"><i class="fas fa-chart-pie"></i></div>
+                    <div class="feature-text">
+                        <h4>Tableros en tiempo real</h4>
+                        <p>Visualizá margen neto, ROI por lote, costos por hectárea y rinde de indiferencia al instante. Todo se actualiza con cada registro.</p>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon blue"><i class="fas fa-dollar-sign"></i></div>
+                    <div class="feature-text">
+                        <h4>Precios de mercado integrados</h4>
+                        <p>Cotizaciones SIO-Granos y dólar BNA en vivo. Cambiá entre ARS y USD con un click para ver tus números en la moneda que prefieras.</p>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon purple"><i class="fas fa-mobile-screen"></i></div>
+                    <div class="feature-text">
+                        <h4>App progresiva (PWA)</h4>
+                        <p>Instalala en tu celular como una app nativa. Funciona offline y se sincroniza cuando volvés a tener señal. Ideal para el campo.</p>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon amber"><i class="fas fa-cloud-sun"></i></div>
+                    <div class="feature-text">
+                        <h4>Clima e historial meteorológico</h4>
+                        <p>Datos climáticos de tu zona con historial de lluvias, temperaturas y alertas. Planificá labores con información real.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="solucion-right" style="flex-direction: column; gap: 20px;">
+                <!-- Three sector mini previews -->
+                <div style="display: flex; gap: 14px; width: 100%; justify-content: center;">
+                    <div style="flex:1; background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.15); border-radius: 14px; padding: 20px 16px; text-align: center;">
+                        <i class="fas fa-seedling" style="font-size: 28px; color: var(--accent-light); margin-bottom: 10px;"></i>
+                        <div style="font-size: 13px; font-weight: 700;">Agricultura</div>
+                        <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Cultivos · Lotes · Campañas</div>
+                    </div>
+                    <div style="flex:1; background: rgba(59,130,246,0.06); border: 1px solid rgba(59,130,246,0.15); border-radius: 14px; padding: 20px 16px; text-align: center;">
+                        <i class="fas fa-cow" style="font-size: 28px; color: #60a5fa; margin-bottom: 10px;"></i>
+                        <div style="font-size: 13px; font-weight: 700;">Tambo</div>
+                        <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Leche · Rodeo · Calidad</div>
+                    </div>
+                    <div style="flex:1; background: rgba(244,63,94,0.06); border: 1px solid rgba(244,63,94,0.15); border-radius: 14px; padding: 20px 16px; text-align: center;">
+                        <i class="fas fa-horse" style="font-size: 28px; color: #fb7185; margin-bottom: 10px;"></i>
+                        <div style="font-size: 13px; font-weight: 700;">Ganadería</div>
+                        <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Feedlot · Simulador · Engorde</div>
+                    </div>
+                </div>
+
+                <!-- Key differentiator -->
+                <div style="background: linear-gradient(135deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01)); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 22px 24px; width: 100%;">
+                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px;">
+                        <div style="width: 40px; height: 40px; border-radius: 12px; background: rgba(16,185,129,0.12); color: var(--accent-light); display: flex; align-items: center; justify-content: center; font-size: 18px;">
+                            <i class="fas fa-user-tie"></i>
+                        </div>
+                        <div>
+                            <div style="font-size: 14px; font-weight: 700;">Asesoría incluida</div>
+                            <div style="font-size: 11px; color: var(--text-muted);">Con Agustín Fraire, experto agropecuario</div>
+                        </div>
+                    </div>
+                    <p style="font-size: 12px; color: var(--text-muted); line-height: 1.6;">
+                        No es solo software. Cada plan incluye <strong style="color: white;">seguimiento personalizado y asesoría</strong> de un profesional que conoce tu realidad productiva. Te ayudamos a interpretar los datos y tomar las mejores decisiones.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="brand-watermark">
+        <svg viewBox="0 0 512 512" fill="currentColor"><path d="M471.3 6.7C477.7 .6 487-1.6 495.6 1.2 505.4 4.5 512 13.7 512 24l0 186.9c0 131.2-108.1 237.1-238.8 237.1-77 0-143.4-49.5-167.5-118.7-35.4 30.8-57.7 76.1-57.7 126.7 0 13.3-10.7 24-24 24S0 469.3 0 456C0 381.1 38.2 315.1 96.1 276.3 131.4 252.7 173.5 240 216 240l80 0c13.3 0 24-10.7 24-24s-10.7-24-24-24l-80 0c-39.7 0-77.3 8.8-111 24.5 23.3-70 89.2-120.5 167-120.5 66.4 0 115.8-22.1 148.7-44 19.2-12.8 35.5-28.1 50.7-45.3z"/></svg>
+        AgroPlanner 2026
+    </div>
+    <div class="slide-number">03 / 08</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SLIDE 4 — SECTOR AGRICULTURA
+     ═══════════════════════════════════════════════════════════════════ -->
+<div class="slide sector-slide">
+    <div class="top-accent" style="background: linear-gradient(90deg, #10b981, #34d399, #6ee7b7);"></div>
+    <div class="slide-inner">
+        <div class="sector-header">
+            <div class="sector-header-left">
+                <span class="section-badge badge-green"><i class="fas fa-seedling"></i> Sector 1</span>
+                <h2><span class="gradient-text">Agricultura</span></h2>
+                <p>Gestioná tus cultivos campaña por campaña. Controlá costos, rindes y márgenes de cada lote con precisión quirúrgica.</p>
+            </div>
+            <div class="sector-icon-box green"><i class="fas fa-seedling"></i></div>
+        </div>
+
+        <div class="sector-body">
+            <div class="sector-features">
+                <div class="sf-card">
+                    <i class="fas fa-map" style="color: var(--accent-light);"></i>
+                    <div class="sf-info">
+                        <h4>Gestión de Lotes y Cultivos</h4>
+                        <p>Registrá cada lote con su superficie, ubicación y cultivo asignado. Organizá por campaña agrícola.</p>
+                    </div>
+                </div>
+                <div class="sf-card">
+                    <i class="fas fa-tractor" style="color: #60a5fa;"></i>
+                    <div class="sf-info">
+                        <h4>Operaciones y Labores</h4>
+                        <p>Cargá cada labor con su costo: siembra, fumigación, cosecha. Sabé exactamente cuánto invertiste por hectárea.</p>
+                    </div>
+                </div>
+                <div class="sf-card">
+                    <i class="fas fa-vial" style="color: #a78bfa;"></i>
+                    <div class="sf-info">
+                        <h4>Control de Insumos</h4>
+                        <p>Stock de agroquímicos, fertilizantes y semillas. Registrá aplicaciones por lote con dosis y costos unitarios.</p>
+                    </div>
+                </div>
+                <div class="sf-card">
+                    <i class="fas fa-chart-line" style="color: #fbbf24;"></i>
+                    <div class="sf-info">
+                        <h4>Dashboard Económico</h4>
+                        <p>Margen neto, ROI por lote, rinde de indiferencia, costo/ha y desglose de costos. Todo en un tablero interactivo.</p>
+                    </div>
+                </div>
+                <div class="sf-card">
+                    <i class="fas fa-file-invoice-dollar" style="color: #fb7185;"></i>
+                    <div class="sf-info">
+                        <h4>Alquileres y Producción</h4>
+                        <p>Controlá pagos de arrendamiento y registrá ventas de producción con precios reales de mercado.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sector-mockup-wrap">
+                <div style="position: relative;">
+                    <!-- Visual representation instead of screenshot -->
+                    <div style="width: 360px; background: linear-gradient(145deg, #111827, #0f172a); border: 1px solid rgba(16,185,129,0.2); border-radius: 18px; padding: 24px; box-shadow: 0 25px 60px rgba(0,0,0,0.5);">
+                        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
+                            <div style="width: 8px; height: 8px; border-radius: 50%; background: var(--accent);"></div>
+                            <span style="font-size: 12px; font-weight: 700; color: var(--accent-light);">DASHBOARD AGRÍCOLA</span>
+                        </div>
+                        <!-- Mini KPI cards -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px;">
+                            <div style="background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.15); border-radius: 12px; padding: 14px;">
+                                <div style="font-size: 9px; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Margen Neto</div>
+                                <div style="font-size: 20px; font-weight: 800; color: var(--accent-light);">$24,500</div>
+                            </div>
+                            <div style="background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.15); border-radius: 12px; padding: 14px;">
+                                <div style="font-size: 9px; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Rinde Prom.</div>
+                                <div style="font-size: 20px; font-weight: 800; color: #60a5fa;">3,850 <small style="font-size: 9px;">kg/ha</small></div>
+                            </div>
+                        </div>
+                        <!-- Mini bar chart visual -->
+                        <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 12px; padding: 14px;">
+                            <div style="font-size: 10px; color: var(--text-muted); font-weight: 700; margin-bottom: 10px;">INGRESOS VS COSTOS</div>
+                            <div style="display: flex; gap: 8px; align-items: flex-end; height: 60px;">
+                                <div style="flex:1; display: flex; flex-direction: column; gap: 3px; align-items: center;">
+                                    <div style="width: 100%; height: 50px; background: linear-gradient(180deg, rgba(16,185,129,0.6), rgba(16,185,129,0.2)); border-radius: 4px;"></div>
+                                    <span style="font-size: 8px; color: var(--text-muted);">Lote 1</span>
+                                </div>
+                                <div style="flex:1; display: flex; flex-direction: column; gap: 3px; align-items: center;">
+                                    <div style="width: 100%; height: 38px; background: linear-gradient(180deg, rgba(16,185,129,0.6), rgba(16,185,129,0.2)); border-radius: 4px;"></div>
+                                    <span style="font-size: 8px; color: var(--text-muted);">Lote 2</span>
+                                </div>
+                                <div style="flex:1; display: flex; flex-direction: column; gap: 3px; align-items: center;">
+                                    <div style="width: 100%; height: 55px; background: linear-gradient(180deg, rgba(16,185,129,0.6), rgba(16,185,129,0.2)); border-radius: 4px;"></div>
+                                    <span style="font-size: 8px; color: var(--text-muted);">Lote 3</span>
+                                </div>
+                                <div style="flex:1; display: flex; flex-direction: column; gap: 3px; align-items: center;">
+                                    <div style="width: 100%; height: 30px; background: linear-gradient(180deg, rgba(16,185,129,0.6), rgba(16,185,129,0.2)); border-radius: 4px;"></div>
+                                    <span style="font-size: 8px; color: var(--text-muted);">Lote 4</span>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Ticker -->
+                        <div style="margin-top: 10px; display: flex; gap: 12px;">
+                            <div style="background: rgba(245,158,11,0.08); border-radius: 8px; padding: 8px 10px; flex: 1;">
+                                <div style="font-size: 8px; color: #fbbf24; font-weight: 700;">SOJA</div>
+                                <div style="font-size: 13px; font-weight: 800;">$320 <small style="font-size: 8px; color: var(--text-muted);">USD/ton</small></div>
+                            </div>
+                            <div style="background: rgba(245,158,11,0.08); border-radius: 8px; padding: 8px 10px; flex: 1;">
+                                <div style="font-size: 8px; color: #fbbf24; font-weight: 700;">MAÍZ</div>
+                                <div style="font-size: 13px; font-weight: 800;">$185 <small style="font-size: 8px; color: var(--text-muted);">USD/ton</small></div>
+                            </div>
+                            <div style="background: rgba(245,158,11,0.08); border-radius: 8px; padding: 8px 10px; flex: 1;">
+                                <div style="font-size: 8px; color: #fbbf24; font-weight: 700;">TRIGO</div>
+                                <div style="font-size: 13px; font-weight: 800;">$230 <small style="font-size: 8px; color: var(--text-muted);">USD/ton</small></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="brand-watermark">
+        <svg viewBox="0 0 512 512" fill="currentColor"><path d="M471.3 6.7C477.7 .6 487-1.6 495.6 1.2 505.4 4.5 512 13.7 512 24l0 186.9c0 131.2-108.1 237.1-238.8 237.1-77 0-143.4-49.5-167.5-118.7-35.4 30.8-57.7 76.1-57.7 126.7 0 13.3-10.7 24-24 24S0 469.3 0 456C0 381.1 38.2 315.1 96.1 276.3 131.4 252.7 173.5 240 216 240l80 0c13.3 0 24-10.7 24-24s-10.7-24-24-24l-80 0c-39.7 0-77.3 8.8-111 24.5 23.3-70 89.2-120.5 167-120.5 66.4 0 115.8-22.1 148.7-44 19.2-12.8 35.5-28.1 50.7-45.3z"/></svg>
+        AgroPlanner 2026
+    </div>
+    <div class="slide-number">04 / 08</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SLIDE 5 — SECTOR TAMBO
+     ═══════════════════════════════════════════════════════════════════ -->
+<div class="slide sector-slide">
+    <div class="top-accent" style="background: linear-gradient(90deg, #3b82f6, #60a5fa, #93c5fd);"></div>
+    <div class="slide-inner">
+        <div class="sector-header">
+            <div class="sector-header-left">
+                <span class="section-badge badge-blue"><i class="fas fa-cow"></i> Sector 2</span>
+                <h2><span style="background: linear-gradient(135deg, #60a5fa, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Tambo</span></h2>
+                <p>El módulo más completo para el tambero moderno. Controlá producción, calidad, rodeo y rentabilidad mes a mes.</p>
+            </div>
+            <div class="sector-icon-box blue"><i class="fas fa-cow"></i></div>
+        </div>
+
+        <div class="sector-body">
+            <div class="sector-features">
+                <div class="sf-card">
+                    <i class="fas fa-droplet" style="color: #60a5fa;"></i>
+                    <div class="sf-info">
+                        <h4>Producción de Leche</h4>
+                        <p>Registrá litros diarios por destino. Calculá automáticamente el ingreso por leche con precio por litro actualizado.</p>
+                    </div>
+                </div>
+                <div class="sf-card">
+                    <i class="fas fa-sack-dollar" style="color: var(--accent-light);"></i>
+                    <div class="sf-info">
+                        <h4>Análisis por Litro</h4>
+                        <p>Costo bruto/litro, recupero por carne, costo final neto y rinde de indiferencia. El análisis que todo tambero necesita.</p>
+                    </div>
+                </div>
+                <div class="sf-card">
+                    <i class="fas fa-clipboard-check" style="color: #a78bfa;"></i>
+                    <div class="sf-info">
+                        <h4>Calidad de Leche</h4>
+                        <p>Registrá tenor graso, proteico, RCS y UFC. Seguí la evolución de calidad que impacta directamente en tu precio.</p>
+                    </div>
+                </div>
+                <div class="sf-card">
+                    <i class="fas fa-users" style="color: #fbbf24;"></i>
+                    <div class="sf-info">
+                        <h4>Composición del Rodeo</h4>
+                        <p>Vacas en ordeñe, vacas secas, vaquillonas y terneros. Controlá la evolución de tu rodeo mes a mes.</p>
+                    </div>
+                </div>
+                <div class="sf-card">
+                    <i class="fas fa-file-invoice-dollar" style="color: #fb7185;"></i>
+                    <div class="sf-info">
+                        <h4>Egresos por Categoría</h4>
+                        <p>Ranking de costos con alimentación, sanidad, personal y más. Identificá dónde se va cada peso.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sector-mockup-wrap">
+                <div style="width: 360px; background: linear-gradient(145deg, #111827, #0f172a); border: 1px solid rgba(59,130,246,0.2); border-radius: 18px; padding: 24px; box-shadow: 0 25px 60px rgba(0,0,0,0.5);">
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
+                        <div style="width: 8px; height: 8px; border-radius: 50%; background: #3b82f6;"></div>
+                        <span style="font-size: 12px; font-weight: 700; color: #60a5fa;">PANEL TAMBO</span>
+                    </div>
+                    <!-- KPI Row -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px;">
+                        <div style="background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.15); border-radius: 12px; padding: 14px;">
+                            <div style="font-size: 9px; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Margen Bruto</div>
+                            <div style="font-size: 20px; font-weight: 800; color: var(--accent-light);">U$S 3,200</div>
+                            <div style="font-size: 9px; color: var(--text-muted); margin-top: 4px;">Rent: <strong style="color: var(--accent-light);">18.5%</strong></div>
+                        </div>
+                        <div style="background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.15); border-radius: 12px; padding: 14px;">
+                            <div style="font-size: 9px; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Ingresos</div>
+                            <div style="font-size: 20px; font-weight: 800; color: #fbbf24;">U$S 18,400</div>
+                            <div style="font-size: 9px; color: var(--text-muted); margin-top: 4px;">Leche: 85% · Carne: 15%</div>
+                        </div>
+                    </div>
+                    <!-- Cost per liter -->
+                    <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 12px; padding: 14px;">
+                        <div style="font-size: 10px; color: var(--text-muted); font-weight: 700; margin-bottom: 10px;">ANÁLISIS POR LITRO</div>
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 12px;">
+                                <span style="color: var(--text-muted);">Ingreso Leche</span>
+                                <span style="color: var(--accent-light); font-weight: 700;">$185.40/L</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 12px;">
+                                <span style="color: var(--text-muted);">Costo Bruto</span>
+                                <span style="color: #fb7185; font-weight: 700;">$152.30/L</span>
+                            </div>
+                            <div style="height: 1px; background: var(--border);"></div>
+                            <div style="display: flex; justify-content: space-between; font-size: 13px;">
+                                <span style="color: white; font-weight: 700;">Costo Final/Lt</span>
+                                <span style="color: white; font-weight: 800;">$128.50</span>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Rodeo mini -->
+                    <div style="margin-top: 10px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;">
+                        <div style="background: rgba(255,255,255,0.03); border-radius: 8px; padding: 8px; text-align: center;">
+                            <div style="font-size: 15px; font-weight: 800;">180</div>
+                            <div style="font-size: 7px; color: var(--text-muted); font-weight: 600;">V.O.</div>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.03); border-radius: 8px; padding: 8px; text-align: center;">
+                            <div style="font-size: 15px; font-weight: 800;">45</div>
+                            <div style="font-size: 7px; color: var(--text-muted); font-weight: 600;">V.S.</div>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.03); border-radius: 8px; padding: 8px; text-align: center;">
+                            <div style="font-size: 15px; font-weight: 800;">62</div>
+                            <div style="font-size: 7px; color: var(--text-muted); font-weight: 600;">VQ</div>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.03); border-radius: 8px; padding: 8px; text-align: center;">
+                            <div style="font-size: 15px; font-weight: 800;">78</div>
+                            <div style="font-size: 7px; color: var(--text-muted); font-weight: 600;">TERN.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="brand-watermark">
+        <svg viewBox="0 0 512 512" fill="currentColor"><path d="M471.3 6.7C477.7 .6 487-1.6 495.6 1.2 505.4 4.5 512 13.7 512 24l0 186.9c0 131.2-108.1 237.1-238.8 237.1-77 0-143.4-49.5-167.5-118.7-35.4 30.8-57.7 76.1-57.7 126.7 0 13.3-10.7 24-24 24S0 469.3 0 456C0 381.1 38.2 315.1 96.1 276.3 131.4 252.7 173.5 240 216 240l80 0c13.3 0 24-10.7 24-24s-10.7-24-24-24l-80 0c-39.7 0-77.3 8.8-111 24.5 23.3-70 89.2-120.5 167-120.5 66.4 0 115.8-22.1 148.7-44 19.2-12.8 35.5-28.1 50.7-45.3z"/></svg>
+        AgroPlanner 2026
+    </div>
+    <div class="slide-number">05 / 08</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SLIDE 6 — SECTOR GANADERÍA
+     ═══════════════════════════════════════════════════════════════════ -->
+<div class="slide sector-slide">
+    <div class="top-accent" style="background: linear-gradient(90deg, #f43f5e, #fb7185, #fda4af);"></div>
+    <div class="slide-inner">
+        <div class="sector-header">
+            <div class="sector-header-left">
+                <span class="section-badge badge-rose"><i class="fas fa-horse"></i> Sector 3</span>
+                <h2><span style="background: linear-gradient(135deg, #fb7185, #f43f5e); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Ganadería</span></h2>
+                <p>Simulador de engorde y feedlot completo. Proyectá inversiones, estimá ganancias y tomá decisiones con números concretos.</p>
+            </div>
+            <div class="sector-icon-box rose"><i class="fas fa-horse"></i></div>
+        </div>
+
+        <div class="sector-body">
+            <div class="sector-features">
+                <div class="sf-card">
+                    <i class="fas fa-flask" style="color: #fb7185;"></i>
+                    <div class="sf-info">
+                        <h4>Simulador de Feedlot</h4>
+                        <p>Modelá escenarios de engorde: peso de entrada/salida, precios de compra/venta, días de ciclo y flete. Resultados instantáneos.</p>
+                    </div>
+                </div>
+                <div class="sf-card">
+                    <i class="fas fa-weight-scale" style="color: var(--accent-light);"></i>
+                    <div class="sf-info">
+                        <h4>Control de Peso y Engorde</h4>
+                        <p>Registrá kilos de entrada y salida por lote. Calculá ganancia diaria de peso y eficiencia de conversión.</p>
+                    </div>
+                </div>
+                <div class="sf-card">
+                    <i class="fas fa-scale-balanced" style="color: #60a5fa;"></i>
+                    <div class="sf-info">
+                        <h4>Análisis Inversión vs Retorno</h4>
+                        <p>Compará inversión inicial contra ingreso final por lote. Gráficos comparativos para tomar la mejor decisión.</p>
+                    </div>
+                </div>
+                <div class="sf-card">
+                    <i class="fas fa-coins" style="color: #fbbf24;"></i>
+                    <div class="sf-info">
+                        <h4>Costos Operativos</h4>
+                        <p>Alimentación, sanidad, flete de compra y venta. Todo desagregado por porcentaje para máxima transparencia.</p>
+                    </div>
+                </div>
+                <div class="sf-card">
+                    <i class="fas fa-layer-group" style="color: #a78bfa;"></i>
+                    <div class="sf-info">
+                        <h4>Multi-lote Simultáneo</h4>
+                        <p>Gestioná múltiples lotes en paralelo. Comparalos en el dashboard global con KPIs consolidados.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sector-mockup-wrap">
+                <div style="width: 360px; background: linear-gradient(145deg, #111827, #0f172a); border: 1px solid rgba(244,63,94,0.2); border-radius: 18px; padding: 24px; box-shadow: 0 25px 60px rgba(0,0,0,0.5);">
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
+                        <div style="width: 8px; height: 8px; border-radius: 50%; background: #f43f5e;"></div>
+                        <span style="font-size: 12px; font-weight: 700; color: #fb7185;">SIMULADOR GANADERO</span>
+                    </div>
+                    <!-- KPI Row -->
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px;">
+                        <div style="background: rgba(59,130,246,0.08); border-radius: 10px; padding: 12px 8px; text-align: center;">
+                            <div style="font-size: 18px; font-weight: 800; color: #60a5fa;">3</div>
+                            <div style="font-size: 8px; color: var(--text-muted); font-weight: 700;">LOTES</div>
+                        </div>
+                        <div style="background: rgba(245,158,11,0.08); border-radius: 10px; padding: 12px 8px; text-align: center;">
+                            <div style="font-size: 18px; font-weight: 800; color: #fbbf24;">450</div>
+                            <div style="font-size: 8px; color: var(--text-muted); font-weight: 700;">CABEZAS</div>
+                        </div>
+                        <div style="background: rgba(244,63,94,0.08); border-radius: 10px; padding: 12px 8px; text-align: center;">
+                            <div style="font-size: 14px; font-weight: 800; color: #fb7185;">$2.4M</div>
+                            <div style="font-size: 8px; color: var(--text-muted); font-weight: 700;">INVERSIÓN</div>
+                        </div>
+                        <div style="background: rgba(16,185,129,0.08); border-radius: 10px; padding: 12px 8px; text-align: center;">
+                            <div style="font-size: 14px; font-weight: 800; color: var(--accent-light);">$3.1M</div>
+                            <div style="font-size: 8px; color: var(--text-muted); font-weight: 700;">INGRESO</div>
+                        </div>
+                    </div>
+                    <!-- Bar chart -->
+                    <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 12px; padding: 14px;">
+                        <div style="font-size: 10px; color: var(--text-muted); font-weight: 700; margin-bottom: 12px;">COMPARATIVA POR LOTE</div>
+                        <div style="display: flex; gap: 16px; align-items: flex-end; height: 70px;">
+                            <div style="flex: 1; display: flex; flex-direction: column; gap: 4px; align-items: center;">
+                                <div style="display: flex; gap: 3px; width: 100%; height: 65px; align-items: flex-end;">
+                                    <div style="flex:1; height: 50px; background: rgba(244,63,94,0.5); border-radius: 3px;"></div>
+                                    <div style="flex:1; height: 65px; background: rgba(16,185,129,0.5); border-radius: 3px;"></div>
+                                </div>
+                                <span style="font-size: 8px; color: var(--text-muted);">Lote A</span>
+                            </div>
+                            <div style="flex: 1; display: flex; flex-direction: column; gap: 4px; align-items: center;">
+                                <div style="display: flex; gap: 3px; width: 100%; height: 55px; align-items: flex-end;">
+                                    <div style="flex:1; height: 40px; background: rgba(244,63,94,0.5); border-radius: 3px;"></div>
+                                    <div style="flex:1; height: 55px; background: rgba(16,185,129,0.5); border-radius: 3px;"></div>
+                                </div>
+                                <span style="font-size: 8px; color: var(--text-muted);">Lote B</span>
+                            </div>
+                            <div style="flex: 1; display: flex; flex-direction: column; gap: 4px; align-items: center;">
+                                <div style="display: flex; gap: 3px; width: 100%; height: 60px; align-items: flex-end;">
+                                    <div style="flex:1; height: 45px; background: rgba(244,63,94,0.5); border-radius: 3px;"></div>
+                                    <div style="flex:1; height: 60px; background: rgba(16,185,129,0.5); border-radius: 3px;"></div>
+                                </div>
+                                <span style="font-size: 8px; color: var(--text-muted);">Lote C</span>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 12px; margin-top: 8px; justify-content: center;">
+                            <span style="font-size: 8px; color: var(--text-muted); display: flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: rgba(244,63,94,0.5);"></span> Inversión</span>
+                            <span style="font-size: 8px; color: var(--text-muted); display: flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: rgba(16,185,129,0.5);"></span> Ingreso</span>
+                        </div>
+                    </div>
+                    <!-- Lote card preview -->
+                    <div style="margin-top: 10px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-top: 3px solid #10b981; border-radius: 10px; padding: 12px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                            <span style="font-size: 12px; font-weight: 700;">Lote Angus Norte</span>
+                            <span style="font-size: 10px; color: var(--accent-light); background: rgba(16,185,129,0.1); padding: 2px 8px; border-radius: 10px;">150 cab.</span>
+                        </div>
+                        <div style="font-size: 10px; color: var(--text-muted); display: flex; justify-content: space-between;">
+                            <span>Ciclo: 120 días</span>
+                            <span style="color: var(--accent-light); font-weight: 700;">+$340,000</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="brand-watermark">
+        <svg viewBox="0 0 512 512" fill="currentColor"><path d="M471.3 6.7C477.7 .6 487-1.6 495.6 1.2 505.4 4.5 512 13.7 512 24l0 186.9c0 131.2-108.1 237.1-238.8 237.1-77 0-143.4-49.5-167.5-118.7-35.4 30.8-57.7 76.1-57.7 126.7 0 13.3-10.7 24-24 24S0 469.3 0 456C0 381.1 38.2 315.1 96.1 276.3 131.4 252.7 173.5 240 216 240l80 0c13.3 0 24-10.7 24-24s-10.7-24-24-24l-80 0c-39.7 0-77.3 8.8-111 24.5 23.3-70 89.2-120.5 167-120.5 66.4 0 115.8-22.1 148.7-44 19.2-12.8 35.5-28.1 50.7-45.3z"/></svg>
+        AgroPlanner 2026
+    </div>
+    <div class="slide-number">06 / 08</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SLIDE 7 — PLANES Y PRECIOS
+     ═══════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+    <div class="top-accent gold"></div>
+    <div class="slide-inner">
+        <div style="text-align: center; margin-bottom: 10px;">
+            <span class="section-badge badge-gold"><i class="fas fa-crown"></i> Planes y Precios</span>
+            <h2 style="font-family: 'Playfair Display', serif; font-size: 34px; font-weight: 800;">
+                Elegí el plan que se <span class="gold-gradient">adapte a tu campo</span>
+            </h2>
+            <p style="font-size: 14px; color: var(--text-muted); max-width: 550px; margin: 8px auto 0;">
+                Cada plan incluye acceso completo a los sectores habilitados + asesoría personalizada con Agustín Fraire.
+            </p>
+        </div>
+
+        <div class="pricing-grid">
+            <!-- Plan 1 Sector -->
+            <div class="price-card">
+                <div class="price-plan-name">Esencial</div>
+                <div class="price-sectors">
+                    <span class="price-sector-tag active">1 Sector</span>
+                </div>
+                <p style="font-size: 12px; color: var(--text-muted); text-align: center;">
+                    Elegí <strong style="color: white;">Agricultura</strong>, <strong style="color: white;">Tambo</strong> o <strong style="color: white;">Ganadería</strong>
+                </p>
+                <div class="price-amount">
+                    <span class="price-currency">USD</span>
+                    <span class="price-value gradient-text">200</span>
+                </div>
+                <span class="price-period">por mes</span>
+
+                <div class="price-features">
+                    <div class="price-feature"><i class="fas fa-check"></i> Acceso completo al sector elegido</div>
+                    <div class="price-feature"><i class="fas fa-check"></i> Dashboard con KPIs en tiempo real</div>
+                    <div class="price-feature"><i class="fas fa-check"></i> Cotizaciones de mercado en vivo</div>
+                    <div class="price-feature"><i class="fas fa-check"></i> App móvil (PWA) con acceso offline</div>
+                    <div class="price-feature"><i class="fas fa-check"></i> Asesoría mensual con Agustín Fraire</div>
+                    <div class="price-feature"><i class="fas fa-check"></i> Soporte técnico prioritario</div>
+                </div>
+            </div>
+
+            <!-- Plan 2 Sectores -->
+            <div class="price-card featured">
+                <div class="price-plan-name">Profesional</div>
+                <div class="price-sectors">
+                    <span class="price-sector-tag active">2 Sectores</span>
+                </div>
+                <p style="font-size: 12px; color: var(--text-muted); text-align: center;">
+                    Combiná los sectores que necesites
+                </p>
+                <div class="price-amount">
+                    <span class="price-currency">USD</span>
+                    <span class="price-value gradient-text">300</span>
+                </div>
+                <span class="price-period">por mes</span>
+                <span class="price-savings"><i class="fas fa-tag"></i> Ahorrás USD 100/mes</span>
+
+                <div class="price-features">
+                    <div class="price-feature"><i class="fas fa-check"></i> Todo del plan Esencial</div>
+                    <div class="price-feature"><i class="fas fa-check"></i> <strong style="color: white;">2 sectores</strong> a elección</div>
+                    <div class="price-feature"><i class="fas fa-check"></i> Reportes cruzados entre sectores</div>
+                    <div class="price-feature"><i class="fas fa-check"></i> Asesoría quincenal personalizada</div>
+                    <div class="price-feature"><i class="fas fa-check"></i> Visión integral de tu operación</div>
+                    <div class="price-feature"><i class="fas fa-check"></i> Prioridad en nuevas funcionalidades</div>
+                </div>
+            </div>
+
+            <!-- Plan 3 Sectores -->
+            <div class="price-card">
+                <div class="price-plan-name">Integral</div>
+                <div class="price-sectors">
+                    <span class="price-sector-tag active">3 Sectores</span>
+                </div>
+                <p style="font-size: 12px; color: var(--text-muted); text-align: center;">
+                    <strong style="color: white;">Agricultura + Tambo + Ganadería</strong>
+                </p>
+                <div class="price-amount">
+                    <span class="price-currency">USD</span>
+                    <span class="price-value gradient-text">350</span>
+                </div>
+                <span class="price-period">por mes</span>
+                <span class="price-savings"><i class="fas fa-fire"></i> Ahorrás USD 250/mes</span>
+
+                <div class="price-features">
+                    <div class="price-feature"><i class="fas fa-check"></i> Todo del plan Profesional</div>
+                    <div class="price-feature"><i class="fas fa-check"></i> <strong style="color: white;">Los 3 sectores</strong> completos</div>
+                    <div class="price-feature"><i class="fas fa-check"></i> Dashboard unificado total</div>
+                    <div class="price-feature"><i class="fas fa-check"></i> Asesoría semanal personalizada</div>
+                    <div class="price-feature"><i class="fas fa-check"></i> Análisis global de la explotación</div>
+                    <div class="price-feature"><i class="fas fa-check"></i> Acceso anticipado a nuevos módulos</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="brand-watermark">
+        <svg viewBox="0 0 512 512" fill="currentColor"><path d="M471.3 6.7C477.7 .6 487-1.6 495.6 1.2 505.4 4.5 512 13.7 512 24l0 186.9c0 131.2-108.1 237.1-238.8 237.1-77 0-143.4-49.5-167.5-118.7-35.4 30.8-57.7 76.1-57.7 126.7 0 13.3-10.7 24-24 24S0 469.3 0 456C0 381.1 38.2 315.1 96.1 276.3 131.4 252.7 173.5 240 216 240l80 0c13.3 0 24-10.7 24-24s-10.7-24-24-24l-80 0c-39.7 0-77.3 8.8-111 24.5 23.3-70 89.2-120.5 167-120.5 66.4 0 115.8-22.1 148.7-44 19.2-12.8 35.5-28.1 50.7-45.3z"/></svg>
+        AgroPlanner 2026
+    </div>
+    <div class="slide-number">07 / 08</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SLIDE 8 — CTA / CIERRE
+     ═══════════════════════════════════════════════════════════════════ -->
+<div class="slide cta-slide">
+    <div class="top-accent green"></div>
+    <div class="cover-bg-pattern">
+        <div class="cover-grid-lines"></div>
+    </div>
+    <div class="slide-inner">
+        <div class="cta-content">
+            <div class="cta-left">
+                <span class="section-badge badge-green"><i class="fas fa-handshake"></i> Empezá Hoy</span>
+
+                <h2 class="cta-title">
+                    Tu campo merece<br>
+                    <span class="gradient-text">decisiones inteligentes</span>
+                </h2>
+
+                <p class="cta-description">
+                    Dejá de adivinar y empezá a gestionar con datos.
+                    AgroPlanner no es solo una herramienta: es un <strong style="color: white;">cambio de mentalidad</strong>
+                    para el productor que quiere profesionalizar su explotación.
+                </p>
+
+                <div style="display: flex; flex-direction: column; gap: 14px; margin-top: 10px;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(16,185,129,0.12); color: var(--accent-light); display: flex; align-items: center; justify-content: center;"><i class="fas fa-phone"></i></div>
+                        <div>
+                            <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">CONTACTANOS</div>
+                            <div style="font-size: 15px; font-weight: 700;">+54 9 356349-6577</div>
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(16,185,129,0.12); color: var(--accent-light); display: flex; align-items: center; justify-content: center;"><i class="fab fa-whatsapp"></i></div>
+                        <div>
+                            <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">WHATSAPP</div>
+                            <div style="font-size: 15px; font-weight: 700;">Escribinos para una demo gratuita</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 20px; align-items: center;">
+                <div class="advisor-card">
+                    <div style="width: 90px; height: 90px; border-radius: 50%; background: linear-gradient(135deg, rgba(16,185,129,0.2), rgba(16,185,129,0.05)); border: 3px solid var(--accent); display: flex; align-items: center; justify-content: center; font-size: 36px; color: var(--accent-light);">
+                        <i class="fas fa-user-tie"></i>
+                    </div>
+                    <div class="advisor-name">Agustín Fraire</div>
+                    <div class="advisor-role">Asesor Agropecuario & Co-Fundador</div>
+                    <p class="advisor-bio">
+                        Profesional con amplia experiencia en el sector agropecuario argentino.
+                        Co-creador de AgroPlanner, combina conocimiento técnico de campo con tecnología de vanguardia.
+                    </p>
+
+                    <div class="advisor-includes">
+                        <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent-light); margin-bottom: 4px;">
+                            Incluido en tu plan:
+                        </div>
+                        <div class="advisor-includes-item"><i class="fas fa-check-circle"></i> Seguimiento personalizado mensual</div>
+                        <div class="advisor-includes-item"><i class="fas fa-check-circle"></i> Análisis de tus indicadores clave</div>
+                        <div class="advisor-includes-item"><i class="fas fa-check-circle"></i> Recomendaciones de optimización</div>
+                        <div class="advisor-includes-item"><i class="fas fa-check-circle"></i> Soporte directo por WhatsApp</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="brand-watermark" style="color: rgba(255,255,255,0.25);">
+        <svg viewBox="0 0 512 512" fill="currentColor"><path d="M471.3 6.7C477.7 .6 487-1.6 495.6 1.2 505.4 4.5 512 13.7 512 24l0 186.9c0 131.2-108.1 237.1-238.8 237.1-77 0-143.4-49.5-167.5-118.7-35.4 30.8-57.7 76.1-57.7 126.7 0 13.3-10.7 24-24 24S0 469.3 0 456C0 381.1 38.2 315.1 96.1 276.3 131.4 252.7 173.5 240 216 240l80 0c13.3 0 24-10.7 24-24s-10.7-24-24-24l-80 0c-39.7 0-77.3 8.8-111 24.5 23.3-70 89.2-120.5 167-120.5 66.4 0 115.8-22.1 148.7-44 19.2-12.8 35.5-28.1 50.7-45.3z"/></svg>
+        AgroPlanner 2026 · Todos los derechos reservados
+    </div>
+    <div class="slide-number">08 / 08</div>
+</div>
+
+</body>
+</html>
