@@ -36,7 +36,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $password = $_POST['password'] ?? '';
 
         if ($email && $password) {
-            $stmt = $pdo->prepare("SELECT id, username, password_hash, role, status, has_agricultura, has_tambo, has_ganaderia, solo_lectura FROM users WHERE email = ?");
+            // SELECT * a proposito. Si se nombra solo_lectura explicitamente y esa columna
+            // todavia no existe en la base, PDO lanza excepcion y NADIE puede iniciar
+            // sesion. Con * la columna se aprovecha si esta y se ignora si no: el login
+            // deja de depender de que una migracion haya corrido.
+            $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ?");
             $stmt->execute([$email]);
             $user = $stmt->fetch();
 
