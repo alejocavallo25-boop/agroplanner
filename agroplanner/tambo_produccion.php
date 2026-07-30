@@ -261,6 +261,29 @@ usort($history, function ($a, $b) {
     return strcmp($b['fecha'], $a['fecha']);
 });
 
+// ─── Búsqueda universal sobre el historial unificado (leche + carne) ───────
+$q = trim($_GET['q'] ?? '');
+if ($q !== '') {
+    $needle = mb_strtolower($q);
+    $history = array_values(array_filter($history, function ($h) use ($needle) {
+        $parts = [
+            date('d/m/Y', strtotime($h['fecha'] ?? '')),
+            strip_tags($h['tipo'] ?? ''),
+            $h['tipo_raw'] ?? '',
+            $h['notas'] ?? '',
+            $h['categoria'] ?? '',
+            $h['categoria_animal'] ?? '',
+            (string)($h['litros'] ?? ''),
+            (string)($h['precio'] ?? ''),
+            (string)($h['total'] ?? ''),
+            (string)($h['cantidad_animales'] ?? ''),
+            (string)($h['kg_vivo'] ?? ''),
+            (string)($h['precio_kg'] ?? ''),
+        ];
+        return mb_strpos(mb_strtolower(implode(' ', $parts)), $needle) !== false;
+    }));
+}
+
 // ─── Paginación del Historial Unificado ───────────────────────────────────
 $limit = 30;
 $page  = isset($_GET['page']) ? (int)$_GET['page'] : 1;
@@ -663,10 +686,12 @@ require_once 'includes/header.php';
 <div class="chart-card" style="margin-top: 24px;">
     <div class="chart-title" style="justify-content: space-between; flex-wrap: wrap; gap:10px;">
         <div><i class="fas fa-list"></i> Detalle de Ingresos (ARS)</div>
+        <?php $buscador_placeholder = 'Buscar tipo, categoría, litros, monto, nota...'; include 'includes/buscador.php'; ?>
         <form method="GET"
             style="display:flex; gap:14px; align-items:center; flex-wrap:wrap; background:rgba(255,255,255,0.02); padding:10px 16px; border-radius:10px; border:1px solid rgba(255,255,255,0.05); margin-bottom:10px;">
             <input type="hidden" name="mes" value="<?= htmlspecialchars($mes_sel) ?>">
-            
+            <input type="hidden" name="q" value="<?= htmlspecialchars($q) ?>">
+
             <div style="display:flex; align-items:center; gap:8px;">
                 <label style="font-size:0.85rem; color:var(--text-muted); margin:0; font-weight:600;">Tipo:</label>
                 <select name="tipo_historial" onchange="this.form.submit()"
@@ -762,13 +787,13 @@ require_once 'includes/header.php';
     <?php if ($total_pages > 1): ?>
     <div style="display:flex; justify-content: center; gap:10px; margin:20px 0; padding-bottom:10px;">
         <?php if ($page > 1): ?>
-            <a href="?page=<?= $page-1 ?>&mes=<?= urlencode($mes_sel) ?>&tipo_historial=<?= urlencode($filtro_tipo) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
+            <a href="?page=<?= $page-1 ?>&mes=<?= urlencode($mes_sel) ?>&tipo_historial=<?= urlencode($filtro_tipo) ?>&q=<?= urlencode($q) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
         <?php endif; ?>
         
         <span style="color:var(--text-muted); align-self:center; font-size:0.9rem;">Página <?= $page ?> de <?= $total_pages ?></span>
 
         <?php if ($page < $total_pages): ?>
-            <a href="?page=<?= $page+1 ?>&mes=<?= urlencode($mes_sel) ?>&tipo_historial=<?= urlencode($filtro_tipo) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
+            <a href="?page=<?= $page+1 ?>&mes=<?= urlencode($mes_sel) ?>&tipo_historial=<?= urlencode($filtro_tipo) ?>&q=<?= urlencode($q) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
         <?php endif; ?>
     </div>
     <?php endif; ?>

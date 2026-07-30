@@ -70,7 +70,48 @@ class DashboardController {
         return $stmt->fetchAll(PDO::FETCH_COLUMN);
     }
 
-    public function getGlobalStats($ciclo_sel) {
+    /**
+     * Lotes que participan en la campaña dada (para el selector del panel).
+     * Devuelve [['id'=>.., 'nombre'=>..], ...] ordenados por nombre.
+     */
+    public function getLotesDelCiclo($ciclo_sel) {
+        if (!$ciclo_sel) return [];
+        $stmt = $this->pdo->prepare("
+            SELECT DISTINCT l.id, l.nombre
+            FROM lotes l
+            LEFT JOIN cultivos c ON c.lote_id = l.id
+            LEFT JOIN operaciones o ON o.lote_id = l.id
+            LEFT JOIN produccion_ventas pv ON pv.lote_id = l.id
+            WHERE (l.campania = ? OR c.ciclo = ? OR o.campania_operacion = ? OR pv.campania_vendida = ?)
+              AND l.usuario_id = ?
+            ORDER BY l.nombre
+        ");
+        $stmt->execute([$ciclo_sel, $ciclo_sel, $ciclo_sel, $ciclo_sel, $this->usuario_id]);
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Especies/cultivos presentes en la campaña dada (para el selector del panel).
+     * Usa la misma derivación COALESCE que getCultivosData para que las etiquetas coincidan.
+     */
+    public function getCultivosDelCiclo($ciclo_sel) {
+        if (!$ciclo_sel) return [];
+        $stmt = $this->pdo->prepare("
+            SELECT DISTINCT
+                COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), NULLIF(pv.cultivo_vendido, ''), NULLIF(l.cultivo_actual, ''), 'Sin Especificar') as especie
+            FROM lotes l
+            LEFT JOIN cultivos c ON c.lote_id = l.id AND c.ciclo = ?
+            LEFT JOIN operaciones o ON o.lote_id = l.id AND o.campania_operacion = ?
+            LEFT JOIN produccion_ventas pv ON pv.lote_id = l.id AND pv.campania_vendida = ?
+            WHERE (l.campania = ? OR c.ciclo = ? OR o.campania_operacion = ? OR pv.campania_vendida = ?)
+              AND l.usuario_id = ?
+            ORDER BY especie
+        ");
+        $stmt->execute([$ciclo_sel, $ciclo_sel, $ciclo_sel, $ciclo_sel, $ciclo_sel, $ciclo_sel, $ciclo_sel, $this->usuario_id]);
+        return $stmt->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    public function getGlobalStats($ciclo_sel, $lote_sel = null, $cultivo_sel = null) {
         $stats = [
             'ingresos' => 0, 'costos_directos' => 0, 'costos_alquiler' => 0, 
             'hectareas' => 0, 'kg' => 0, 'margen_neto' => 0, 'rendimiento_ha' => 0,
@@ -79,29 +120,47 @@ class DashboardController {
 
         if (!$ciclo_sel) return $stats;
 
+        // Normalización de filtros opcionales (lote por id, cultivo por especie derivada)
+        $lote_sel = ($lote_sel !== null && $lote_sel !== '') ? (int)$lote_sel : null;
+        $cultivo_sel = ($cultivo_sel !== null && $cultivo_sel !== '') ? $cultivo_sel : null;
+
         // Ingresos
-        $stmt = $this->pdo->prepare("SELECT SUM(pv.ingreso_total) as total, SUM(pv.kg_cosechados) as kgs FROM produccion_ventas pv LEFT JOIN cultivos c ON pv.cultivo_id = c.id WHERE (pv.campania_vendida = ? OR c.ciclo = ?) AND pv.usuario_id = ?");
-        $stmt->execute([$ciclo_sel, $ciclo_sel, $this->usuario_id]);
+        $sql = "SELECT SUM(pv.ingreso_total) as total, SUM(pv.kg_cosechados) as kgs FROM produccion_ventas pv LEFT JOIN cultivos c ON pv.cultivo_id = c.id WHERE (pv.campania_vendida = ? OR c.ciclo = ?) AND pv.usuario_id = ?";
+        $params = [$ciclo_sel, $ciclo_sel, $this->usuario_id];
+        if ($lote_sel !== null) { $sql .= " AND pv.lote_id = ?"; $params[] = $lote_sel; }
+        if ($cultivo_sel !== null) { $sql .= " AND COALESCE(NULLIF(c.nombre, ''), NULLIF(pv.cultivo_vendido, ''), 'Sin Especificar') = ?"; $params[] = $cultivo_sel; }
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
         $res = $stmt->fetch();
         $stats['ingresos'] = (float)$res['total'];
         $stats['kg'] = (float)$res['kgs'];
 
         // Costos Directos
-        $stmt = $this->pdo->prepare("SELECT SUM(o.costo_total) as total FROM operaciones o LEFT JOIN cultivos c ON o.cultivo_id = c.id WHERE (o.campania_operacion = ? OR c.ciclo = ?) AND o.usuario_id = ?");
-        $stmt->execute([$ciclo_sel, $ciclo_sel, $this->usuario_id]);
+        $sql = "SELECT SUM(o.costo_total) as total FROM operaciones o LEFT JOIN cultivos c ON o.cultivo_id = c.id WHERE (o.campania_operacion = ? OR c.ciclo = ?) AND o.usuario_id = ?";
+        $params = [$ciclo_sel, $ciclo_sel, $this->usuario_id];
+        if ($lote_sel !== null) { $sql .= " AND o.lote_id = ?"; $params[] = $lote_sel; }
+        if ($cultivo_sel !== null) { $sql .= " AND COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), 'Sin Especificar') = ?"; $params[] = $cultivo_sel; }
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
         $stats['costos_directos'] = (float)$stmt->fetch()['total'];
 
          // Hectareas
-         $stmt = $this->pdo->prepare("
+         $sql = "
              SELECT DISTINCT l.id, l.superficie
              FROM lotes l
              LEFT JOIN cultivos c ON c.lote_id = l.id
              LEFT JOIN operaciones o ON o.lote_id = l.id
              LEFT JOIN produccion_ventas pv ON pv.lote_id = l.id
              WHERE (l.campania = ? OR c.ciclo = ? OR o.campania_operacion = ? OR pv.campania_vendida = ?)
-             AND l.usuario_id = ?
-         ");
-         $stmt->execute([$ciclo_sel, $ciclo_sel, $ciclo_sel, $ciclo_sel, $this->usuario_id]);
+             AND l.usuario_id = ?";
+         $params = [$ciclo_sel, $ciclo_sel, $ciclo_sel, $ciclo_sel, $this->usuario_id];
+         if ($lote_sel !== null) { $sql .= " AND l.id = ?"; $params[] = $lote_sel; }
+         if ($cultivo_sel !== null) {
+             $sql .= " AND COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), NULLIF(pv.cultivo_vendido, ''), NULLIF(l.cultivo_actual, ''), 'Sin Especificar') = ?";
+             $params[] = $cultivo_sel;
+         }
+         $stmt = $this->pdo->prepare($sql);
+         $stmt->execute($params);
          $lotes_involucrados = $stmt->fetchAll();
          foreach ($lotes_involucrados as $l) {
              $stats['hectareas'] += (float)$l['superficie'];
@@ -110,7 +169,7 @@ class DashboardController {
         // Alquiler — incluye pagos en USD y en ARS (estos se convierten a USD con
         // el dólar del mes del pago; si falta, con el último dólar disponible).
         $dolar_ref = $this->getDolarReferencia();
-        $stmt = $this->pdo->prepare("
+        $sql = "
              SELECT COALESCE(SUM(
                  CASE WHEN a.moneda = 'USD' THEN a.monto_pagado
                       ELSE a.monto_pagado / COALESCE(dm.dolar_mayorista, ?)
@@ -120,9 +179,12 @@ class DashboardController {
              LEFT JOIN lotes    l  ON a.lote_id    = l.id
              LEFT JOIN cultivos c  ON a.cultivo_id = c.id
              LEFT JOIN tambo_dolar_mes dm ON dm.usuario_id = a.usuario_id AND dm.mes = DATE_FORMAT(a.fecha_pago, '%Y-%m')
-             WHERE a.usuario_id = ? AND (a.campania = ? OR l.campania = ? OR c.ciclo = ?)
-         ");
-         $stmt->execute([$dolar_ref, $this->usuario_id, $ciclo_sel, $ciclo_sel, $ciclo_sel]);
+             WHERE a.usuario_id = ? AND (a.campania = ? OR l.campania = ? OR c.ciclo = ?)";
+         $params = [$dolar_ref, $this->usuario_id, $ciclo_sel, $ciclo_sel, $ciclo_sel];
+         if ($lote_sel !== null) { $sql .= " AND (a.lote_id = ? OR c.lote_id = ?)"; $params[] = $lote_sel; $params[] = $lote_sel; }
+         if ($cultivo_sel !== null) { $sql .= " AND COALESCE(NULLIF(c.nombre, ''), 'Sin Especificar') = ?"; $params[] = $cultivo_sel; }
+         $stmt = $this->pdo->prepare($sql);
+         $stmt->execute($params);
          $stats['costos_alquiler'] = (float)$stmt->fetch()['total'];
 
         $stats['margen_neto']    = $stats['ingresos'] - $stats['costos_directos'] - $stats['costos_alquiler'];
@@ -137,13 +199,17 @@ class DashboardController {
         return $stats;
     }
 
-    public function getCultivosData($ciclo_sel) {
+    public function getCultivosData($ciclo_sel, $lote_sel = null, $cultivo_sel = null) {
         $cultivos_data = [];
         if (!$ciclo_sel) return $cultivos_data;
 
+        // Normalización de filtros opcionales
+        $lote_sel = ($lote_sel !== null && $lote_sel !== '') ? (int)$lote_sel : null;
+        $cultivo_sel = ($cultivo_sel !== null && $cultivo_sel !== '') ? $cultivo_sel : null;
+
         $dolar_ref = $this->getDolarReferencia();
 
-        $stmt = $this->pdo->prepare("
+        $sql = "
             SELECT DISTINCT
                 COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), NULLIF(pv.cultivo_vendido, ''), NULLIF(l.cultivo_actual, ''), 'Sin Especificar') as especie,
                 l.id as lote_id, l.nombre as lote_nombre, l.superficie as lote_sup, l.tenencia, l.costo_alquiler_tns_ha
@@ -152,10 +218,19 @@ class DashboardController {
             LEFT JOIN operaciones o ON o.lote_id = l.id AND o.campania_operacion = ?
             LEFT JOIN produccion_ventas pv ON pv.lote_id = l.id AND pv.campania_vendida = ?
             WHERE (l.campania = ? OR c.ciclo = ? OR o.campania_operacion = ? OR pv.campania_vendida = ?)
-            AND l.usuario_id = ?
-        ");
-        $stmt->execute([$ciclo_sel, $ciclo_sel, $ciclo_sel, $ciclo_sel, $ciclo_sel, $ciclo_sel, $ciclo_sel, $this->usuario_id]);
+            AND l.usuario_id = ?";
+        $params = [$ciclo_sel, $ciclo_sel, $ciclo_sel, $ciclo_sel, $ciclo_sel, $ciclo_sel, $ciclo_sel, $this->usuario_id];
+        if ($lote_sel !== null) { $sql .= " AND l.id = ?"; $params[] = $lote_sel; }
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
         $res_cultivos = $stmt->fetchAll();
+
+        // Filtro por cultivo/especie (se aplica sobre la etiqueta derivada)
+        if ($cultivo_sel !== null) {
+            $res_cultivos = array_values(array_filter($res_cultivos, function ($rc) use ($cultivo_sel) {
+                return $rc['especie'] === $cultivo_sel;
+            }));
+        }
 
         // 2. Pre-calcular cantidad de cultivos por lote para dividir costos compartidos
         $cultivos_por_lote = [];
@@ -196,24 +271,32 @@ class DashboardController {
                         WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') = '') THEN (o.costo_total / ?)
                         ELSE 0 
                     END) as total,
-                    SUM(CASE 
-                        WHEN o.tipo_componente = 'labor' THEN 
-                            CASE 
-                                WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') = ?) THEN o.costo_total
-                                WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') = '') THEN (o.costo_total / ?)
-                                ELSE 0 
-                            END
-                        ELSE 0 
-                    END) as labores,
-                    SUM(CASE 
-                        WHEN o.tipo_componente = 'insumo' THEN 
-                            CASE 
-                                WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') = ?) THEN o.costo_total
-                                WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') = '') THEN (o.costo_total / ?)
-                                ELSE 0 
-                            END
-                        ELSE 0 
-                    END) as insumos
+                    SUM(
+                        (CASE
+                            WHEN o.tipo_componente = 'labor'        THEN o.costo_total
+                            WHEN o.tipo_componente = 'receta_labor' THEN (o.precio_unitario * o.cantidad_ha)
+                            ELSE 0
+                        END)
+                        *
+                        (CASE
+                            WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') = ?) THEN 1
+                            WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') = '') THEN (1.0 / ?)
+                            ELSE 0
+                        END)
+                    ) as labores,
+                    SUM(
+                        (CASE
+                            WHEN o.tipo_componente IN ('insumo', 'multi_insumo') THEN o.costo_total
+                            WHEN o.tipo_componente = 'receta_labor'              THEN (o.costo_total - (o.precio_unitario * o.cantidad_ha))
+                            ELSE 0
+                        END)
+                        *
+                        (CASE
+                            WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') = ?) THEN 1
+                            WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') = '') THEN (1.0 / ?)
+                            ELSE 0
+                        END)
+                    ) as insumos
                 FROM operaciones o 
                 LEFT JOIN cultivos c ON o.cultivo_id = c.id 
                 WHERE o.lote_id = ? AND (o.campania_operacion = ? OR c.ciclo = ?)

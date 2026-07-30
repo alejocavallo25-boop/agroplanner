@@ -97,6 +97,39 @@ if ($tipo === 'operaciones') {
     $stmt = $pdo->prepare($query);
     $stmt->execute($params);
     $rows = $stmt->fetchAll();
+
+} elseif ($tipo === 'dashboard') {
+    // Reporte del Panel General Agrícola: reusa la misma data y filtros del dashboard.
+    require_agricultura();
+    require_once __DIR__ . '/../controllers/DashboardController.php';
+
+    $ciclo_sel   = !empty($_GET['ciclo'])   ? trim($_GET['ciclo'])   : null;
+    $lote_sel    = !empty($_GET['lote'])    ? (int)$_GET['lote']     : null;
+    $cultivo_sel = !empty($_GET['cultivo']) ? trim($_GET['cultivo']) : null;
+
+    $controller = new DashboardController($pdo, $usuario_id);
+
+    // Si no se pasó campaña, usar la más reciente (igual que el dashboard).
+    if (!$ciclo_sel) {
+        $ciclos_disp = $controller->getCiclos();
+        $ciclo_sel = $ciclos_disp[0] ?? null;
+    }
+
+    $dash_stats    = $controller->getGlobalStats($ciclo_sel, $lote_sel, $cultivo_sel);
+    $dash_cultivos = $controller->getCultivosData($ciclo_sel, $lote_sel, $cultivo_sel);
+
+    // Desglose de costos directos (labores vs insumos) sumando todos los lotes.
+    $dash_labores = 0; $dash_insumos = 0; $dash_total_lotes = 0;
+    foreach ($dash_cultivos as $d) {
+        foreach ($d['lotes'] as $l) {
+            $dash_labores += (float)$l['labores'];
+            $dash_insumos += (float)$l['insumos'];
+            $dash_total_lotes++;
+        }
+    }
+    $reg_count = $dash_total_lotes;
+
+    $titulo = 'Reporte General Agrícola' . ($ciclo_sel ? " — Campaña $ciclo_sel" : '');
 }
 
 // ─── Nombre del usuario ───────────────────────────────────────────────────────
@@ -153,6 +186,17 @@ $fechaGen = date('d/m/Y H:i');
             color: #10b981;
             letter-spacing: 1px;
             text-align: right;
+        }
+
+        .cafra-tag {
+            display: block;
+            margin-top: 4px;
+            font-size: 9px;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            color: #cbd5e1;
+            text-decoration: none;
+            opacity: 0.85;
         }
 
         .content {
@@ -262,6 +306,33 @@ $fechaGen = date('d/m/Y H:i');
             justify-content: space-between;
         }
 
+        .cafra-bar {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            border-top: 3px solid #10b981;
+            padding: 14px 36px;
+            text-align: center;
+        }
+
+        .cafra-bar a {
+            display: block;
+            color: #10b981;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+        }
+
+        .cafra-bar a strong {
+            color: #ffffff;
+        }
+
+        .cafra-bar span {
+            display: block;
+            margin-top: 3px;
+            font-size: 10px;
+            color: #94a3b8;
+        }
+
         .print-bar {
             background: #10b981;
             padding: 10px 36px;
@@ -312,7 +383,10 @@ $fechaGen = date('d/m/Y H:i');
             <h1><?= htmlspecialchars($titulo) ?></h1>
             <div class="meta">Generado el <?= $fechaGen ?> &bull; Usuario: <?= htmlspecialchars($userName) ?></div>
         </div>
-        <div class="logo-text"> AGROPLANNER</div>
+        <div class="logo-text">
+            AGROPLANNER
+            <a href="https://cafra.site" target="_blank" class="cafra-tag">Reporte generado por Cafra</a>
+        </div>
     </div>
 
     <div class="content">
@@ -320,7 +394,13 @@ $fechaGen = date('d/m/Y H:i');
         <?php if ($tipo === 'operaciones'): ?>
             <?php
             $total_costo = array_sum(array_column($rows, 'costo_total'));
-            $total_labor = array_sum(array_map(fn($r) => $r['tipo_componente'] === 'labor' ? (float) $r['costo_total'] : 0, $rows));
+            // Mano de obra = labor pura + la porción de labor de las recetas (precio_unitario * cantidad_ha).
+            // El resto (insumo, multi_insumo y la porción de insumos de las recetas) es insumos.
+            $total_labor = array_sum(array_map(function ($r) {
+                if ($r['tipo_componente'] === 'labor')        return (float) $r['costo_total'];
+                if ($r['tipo_componente'] === 'receta_labor') return (float) $r['precio_unitario'] * (float) $r['cantidad_ha'];
+                return 0;
+            }, $rows));
             $total_ins = $total_costo - $total_labor;
             ?>
             <div class="summary-row">
@@ -548,6 +628,109 @@ $fechaGen = date('d/m/Y H:i');
                 </tbody>
             </table>
 
+        <?php elseif ($tipo === 'dashboard'): ?>
+            <?php $margen_pos = ($dash_stats['margen_neto'] ?? 0) >= 0; ?>
+            <div class="summary-row">
+                <div class="summary-box">
+                    <div class="label">Ingresos</div>
+                    <div class="value success">$<?= number_format($dash_stats['ingresos'], 2, ',', '.') ?></div>
+                </div>
+                <div class="summary-box">
+                    <div class="label">Costos Directos</div>
+                    <div class="value danger">$<?= number_format($dash_stats['costos_directos'], 2, ',', '.') ?></div>
+                </div>
+                <div class="summary-box">
+                    <div class="label">Alquileres</div>
+                    <div class="value danger">$<?= number_format($dash_stats['costos_alquiler'], 2, ',', '.') ?></div>
+                </div>
+                <div class="summary-box">
+                    <div class="label">Margen Neto</div>
+                    <div class="value <?= $margen_pos ? 'success' : 'danger' ?>">$<?= number_format($dash_stats['margen_neto'], 2, ',', '.') ?></div>
+                </div>
+            </div>
+            <div class="summary-row">
+                <div class="summary-box">
+                    <div class="label">Hectáreas</div>
+                    <div class="value"><?= number_format($dash_stats['hectareas'], 1, ',', '.') ?> ha</div>
+                </div>
+                <div class="summary-box">
+                    <div class="label">Rinde Promedio</div>
+                    <div class="value"><?= number_format($dash_stats['rendimiento_ha'], 0, ',', '.') ?> <span style="font-size:11px;">kg/ha</span></div>
+                </div>
+                <div class="summary-box">
+                    <div class="label">Costo / Ha</div>
+                    <div class="value danger">$<?= number_format($dash_stats['costo_por_ha'], 0, ',', '.') ?></div>
+                </div>
+                <div class="summary-box">
+                    <div class="label">Rinde Indiferencia</div>
+                    <div class="value" style="color:#d97706;"><?= number_format($dash_stats['punto_equilibrio_kg_ha'], 0, ',', '.') ?> <span style="font-size:11px;">kg/ha</span></div>
+                </div>
+            </div>
+
+            <h2 style="font-size:14px; color:#0f172a; margin:18px 0 8px;">Desglose de Costos</h2>
+            <div class="summary-row">
+                <div class="summary-box">
+                    <div class="label">Labores (Mano de Obra)</div>
+                    <div class="value danger">$<?= number_format($dash_labores, 2, ',', '.') ?></div>
+                </div>
+                <div class="summary-box">
+                    <div class="label">Insumos</div>
+                    <div class="value danger">$<?= number_format($dash_insumos, 2, ',', '.') ?></div>
+                </div>
+                <div class="summary-box">
+                    <div class="label">Alquileres</div>
+                    <div class="value danger">$<?= number_format($dash_stats['costos_alquiler'], 2, ',', '.') ?></div>
+                </div>
+            </div>
+
+            <h2 style="font-size:14px; color:#0f172a; margin:18px 0 8px;">Detalle por Cultivo y Lote</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Cultivo</th>
+                        <th>Lote</th>
+                        <th>Sup. (ha)</th>
+                        <th>Ingreso/ha</th>
+                        <th>Costo Dir./ha</th>
+                        <th>Alquiler/ha</th>
+                        <th>Margen/ha</th>
+                        <th>Rinde Indif.</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php $hay_filas = false; foreach ($dash_cultivos as $especie => $d): ?>
+                        <?php foreach ($d['lotes'] as $l):
+                            $hay_filas = true;
+                            $sup = (float)$l['sup'] > 0 ? (float)$l['sup'] : 0;
+                            $costo_total_lote = (float)$l['costo_dir'] + (float)$l['alquiler'];
+                            $margen_lote = (float)$l['ingreso'] - $costo_total_lote;
+                            $ingreso_ha  = $sup > 0 ? (float)$l['ingreso'] / $sup : 0;
+                            $costo_ha    = $sup > 0 ? (float)$l['costo_dir'] / $sup : 0;
+                            $alquiler_ha = $sup > 0 ? (float)$l['alquiler'] / $sup : 0;
+                            $margen_ha   = $sup > 0 ? $margen_lote / $sup : 0;
+                            $precio_prom = (float)$l['kgs'] > 0 ? (float)$l['ingreso'] / (float)$l['kgs'] : 0;
+                            $pe_kg_ha    = ($precio_prom > 0 && $sup > 0) ? ($costo_total_lote / $precio_prom) / $sup : 0;
+                        ?>
+                        <tr>
+                            <td><span class="badge badge-green"><?= htmlspecialchars($especie) ?></span></td>
+                            <td style="font-weight:600;"><?= htmlspecialchars($l['nombre']) ?></td>
+                            <td><?= number_format($sup, 1, ',', '.') ?></td>
+                            <td style="color:#10b981; font-weight:600;">$<?= number_format($ingreso_ha, 0, ',', '.') ?></td>
+                            <td style="color:#dc2626;">-$<?= number_format($costo_ha, 0, ',', '.') ?></td>
+                            <td style="color:#dc2626;">-$<?= number_format($alquiler_ha, 0, ',', '.') ?></td>
+                            <td style="font-weight:700; color:<?= $margen_ha >= 0 ? '#10b981' : '#dc2626' ?>;">$<?= number_format($margen_ha, 0, ',', '.') ?></td>
+                            <td style="color:#d97706;"><?= number_format($pe_kg_ha, 0, ',', '.') ?> kg/ha</td>
+                        </tr>
+                        <?php endforeach; ?>
+                    <?php endforeach; ?>
+                    <?php if (!$hay_filas): ?>
+                        <tr>
+                            <td colspan="8" style="text-align:center;padding:20px;color:#94a3b8;">Sin datos para esta campaña</td>
+                        </tr>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+
         <?php else: ?>
             <p style="color:#dc2626; padding:20px;">Tipo de reporte no reconocido.</p>
         <?php endif; ?>
@@ -556,7 +739,14 @@ $fechaGen = date('d/m/Y H:i');
 
     <div class="footer-pdf">
         <span>AgroPlanner &bull; Generado automáticamente el <?= $fechaGen ?></span>
-        <span>Total de registros: <?= count($rows) ?></span>
+        <span><?= $tipo === 'dashboard' ? 'Lotes incluidos' : 'Total de registros' ?>: <?= $reg_count ?? count($rows) ?></span>
+    </div>
+
+    <div class="cafra-bar">
+        <a href="https://cafra.site" target="_blank">
+            Reporte generado por <strong>Cafra</strong> &bull; cafra.site
+        </a>
+        <span>Visitá cafra.site para más información</span>
     </div>
 
 </body>

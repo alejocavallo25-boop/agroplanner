@@ -239,7 +239,7 @@ $data_costos = array_values($ranking_costos);
     display: flex;
     flex-direction: column;
     gap: 12px;
-    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.25s cubic-bezier(0.22, 1, 0.36, 1);
     position: relative;
     overflow: hidden;
     min-width: 0;

@@ -93,6 +93,7 @@ $offset = ($page - 1) * $limit;
 // Filtros desde GET
 $f_tipo = $_GET['tipo'] ?? 'todos';
 $f_dep  = $_GET['deposito_id'] ?? 'todos';
+$q      = trim($_GET['q'] ?? '');
 
 $where = "WHERE i.usuario_id = ? AND i.estado = 'activo'";
 $params = [$usuario_id];
@@ -104,6 +105,21 @@ if ($f_tipo !== 'todos') {
 if ($f_dep !== 'todos') {
     if ($f_dep === 'sin') $where .= " AND i.deposito_id IS NULL";
     else                  { $where .= " AND i.deposito_id = ?"; $params[] = $f_dep; }
+}
+// Búsqueda universal: nombre, tipo, unidad, precio, stock, vencimiento y depósito.
+if ($q !== '') {
+    $like = '%' . $q . '%';
+    $where .= " AND (
+        i.nombre LIKE ?
+        OR i.tipo_insumo LIKE ?
+        OR i.unidad_medida LIKE ?
+        OR i.unidad_stock LIKE ?
+        OR CAST(i.precio_estimado_usd AS CHAR) LIKE ?
+        OR CAST(i.stock_actual AS CHAR) LIKE ?
+        OR DATE_FORMAT(i.fecha_vencimiento, '%d/%m/%Y') LIKE ?
+        OR EXISTS (SELECT 1 FROM depositos d2 WHERE d2.id = i.deposito_id AND d2.nombre LIKE ?)
+    )";
+    for ($k = 0; $k < 8; $k++) $params[] = $like;
 }
 
 // 1. Obtener todos para resúmenes y alertas (sin paginar)
@@ -380,6 +396,7 @@ function tipoBadge($tipo) {
             <i class="fas fa-boxes" style="color: var(--accent); margin-right: 8px;"></i>
             Inventario de Insumos
         </h2>
+        <?php $buscador_placeholder = 'Buscar insumo, tipo, precio, depósito, vto...'; include 'includes/buscador.php'; ?>
         <div style="display:flex; gap:8px;">
             <a id="pdfBtnInsumos" href="api/reporte_pdf.php?tipo=insumos" target="_blank"
                class="btn" style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); color:#ff7b72; font-size:0.85rem;">
@@ -480,13 +497,13 @@ function tipoBadge($tipo) {
     <?php if ($total_pages > 1): ?>
     <div style="display:flex; justify-content: center; gap:10px; margin-top:20px; padding-bottom:10px;">
         <?php if ($page > 1): ?>
-            <a href="?page=<?= $page-1 ?>&tipo=<?= $f_tipo ?>&deposito_id=<?= $f_dep ?>&order=<?= $f_order ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
+            <a href="?page=<?= $page-1 ?>&tipo=<?= $f_tipo ?>&deposito_id=<?= $f_dep ?>&order=<?= $f_order ?>&q=<?= urlencode($q) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
         <?php endif; ?>
         
         <span style="color:var(--text-muted); align-self:center; font-size:0.9rem;">Página <?= $page ?> de <?= $total_pages ?></span>
 
         <?php if ($page < $total_pages): ?>
-            <a href="?page=<?= $page+1 ?>&tipo=<?= $f_tipo ?>&deposito_id=<?= $f_dep ?>&order=<?= $f_order ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
+            <a href="?page=<?= $page+1 ?>&tipo=<?= $f_tipo ?>&deposito_id=<?= $f_dep ?>&order=<?= $f_order ?>&q=<?= urlencode($q) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
         <?php endif; ?>
     </div>
     <?php endif; ?>
@@ -653,7 +670,7 @@ function tipoBadge($tipo) {
             <div class="form-grid-2">
                 <div style="display:flex; flex-direction:column; gap:5px;">
                     <label>Precio Est. (USD / Unidad)</label>
-                    <input type="number" step="0.01" name="precio_estimado_usd" id="precioInput" required
+                    <input type="number" step="0.0001" name="precio_estimado_usd" id="precioInput" required
                         placeholder="Ej: 6.50"
                         style="padding:10px; border-radius:6px; border:1px solid var(--border); background:rgba(0,0,0,0.2); color:white;">
                 </div>

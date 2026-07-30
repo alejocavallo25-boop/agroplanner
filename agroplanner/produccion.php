@@ -96,9 +96,29 @@ $page  = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 if ($page < 1) $page = 1;
 $offset = ($page - 1) * $limit;
 
+// Búsqueda universal: campaña, cultivo, notas, kg, precio, ingreso, fecha y lote.
+$q = trim($_GET['q'] ?? '');
+$searchSql = '';
+$searchParams = [];
+if ($q !== '') {
+    $like = '%' . $q . '%';
+    $searchSql = " AND (
+        p.campania_vendida LIKE ?
+        OR p.cultivo_vendido LIKE ?
+        OR p.notas LIKE ?
+        OR CAST(p.kg_cosechados AS CHAR) LIKE ?
+        OR CAST(p.precio_kg AS CHAR) LIKE ?
+        OR CAST(p.ingreso_total AS CHAR) LIKE ?
+        OR DATE_FORMAT(p.fecha_venta, '%d/%m/%Y') LIKE ?
+        OR EXISTS (SELECT 1 FROM lotes l2 WHERE l2.id = p.lote_id AND l2.nombre LIKE ?)
+        OR EXISTS (SELECT 1 FROM cultivos c2 WHERE c2.id = p.cultivo_id AND c2.nombre LIKE ?)
+    )";
+    for ($k = 0; $k < 9; $k++) $searchParams[] = $like;
+}
+
 // 1. Contar total para paginación
-$stmtCount = $pdo->prepare("SELECT COUNT(*) FROM produccion_ventas WHERE usuario_id = ?");
-$stmtCount->execute([$usuario_id]);
+$stmtCount = $pdo->prepare("SELECT COUNT(*) FROM produccion_ventas p WHERE p.usuario_id = ?$searchSql");
+$stmtCount->execute(array_merge([$usuario_id], $searchParams));
 $total_rows = (int)$stmtCount->fetchColumn();
 $total_pages = ceil($total_rows / $limit);
 
@@ -110,11 +130,11 @@ $stmt = $pdo->prepare("
     FROM produccion_ventas p
     JOIN lotes l ON p.lote_id = l.id
     LEFT JOIN cultivos c ON p.cultivo_id = c.id
-    WHERE p.usuario_id = ?
+    WHERE p.usuario_id = ?$searchSql
     ORDER BY p.fecha_venta DESC, l.nombre
     LIMIT $limit OFFSET $offset
 ");
-$stmt->execute([$usuario_id]);
+$stmt->execute(array_merge([$usuario_id], $searchParams));
 $ventas = $stmt->fetchAll();
 
 // Agrupar por campaña para mostrar subtotales
@@ -171,6 +191,7 @@ require_once 'includes/header.php';
             <i class="fas fa-wheat-awn" style="color: var(--accent); margin-right: 8px;"></i>
             Registro de Cosechas y Ventas
         </h2>
+        <?php $buscador_placeholder = 'Buscar campaña, cultivo, lote, kg, precio, nota...'; include 'includes/buscador.php'; ?>
         <button class="btn btn-primary" onclick="openAddModal()">
             <i class="fas fa-plus"></i> Registrar Entrega
         </button>
@@ -179,7 +200,7 @@ require_once 'includes/header.php';
     <?php if (empty($ventas_por_campania)): ?>
     <div style="text-align:center; padding: 40px; color: var(--text-muted);">
         <i class="fas fa-wheat-awn" style="font-size:2.5rem; opacity:0.2; display:block; margin-bottom:12px;"></i>
-        No hay registros de ventas o cosechas
+        <?= $q !== '' ? 'No se encontraron ventas para "' . htmlspecialchars($q) . '"' : 'No hay registros de ventas o cosechas' ?>
     </div>
     <?php else: ?>
     <?php foreach ($ventas_por_campania as $key => $grupo): ?>
@@ -276,13 +297,13 @@ require_once 'includes/header.php';
     <?php if ($total_pages > 1): ?>
     <div style="display:flex; justify-content: center; gap:10px; margin-top:20px; padding-bottom:10px;">
         <?php if ($page > 1): ?>
-            <a href="?page=<?= $page-1 ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
+            <a href="?page=<?= $page-1 ?>&q=<?= urlencode($q) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
         <?php endif; ?>
         
         <span style="color:var(--text-muted); align-self:center; font-size:0.9rem;">Página <?= $page ?> de <?= $total_pages ?></span>
 
         <?php if ($page < $total_pages): ?>
-            <a href="?page=<?= $page+1 ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
+            <a href="?page=<?= $page+1 ?>&q=<?= urlencode($q) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
         <?php endif; ?>
     </div>
     <?php endif; ?>
@@ -328,7 +349,7 @@ require_once 'includes/header.php';
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 5px;">
                     <label>Precio por kg (USD)</label>
-                    <input type="number" step="0.01" name="precio" id="prodPrecio" required
+                    <input type="number" step="0.0001" name="precio" id="prodPrecio" required
                         placeholder="Ej: 320.00"
                         style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: white;">
                 </div>

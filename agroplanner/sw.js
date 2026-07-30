@@ -1,4 +1,4 @@
-const CACHE_NAME = 'agroplanner-v6';
+const CACHE_NAME = 'agroplanner-v7';
 const urlsToCache = [
   './assets/css/style.css',
   // Solo assets estáticos reales

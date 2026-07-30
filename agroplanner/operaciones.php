@@ -10,63 +10,76 @@ validate_csrf();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
-    // ─── Shared logic: parse cultivo info ───────────────────────────────────
+    // ─── Shared logic: parse cultivo info (solo para add/edit) ───────────────
     $lote_id     = $_POST['lote_id'] ?? null;
     $cultivo_info = !empty($_POST['form_cultivo']) ? $_POST['form_cultivo'] : null;
     $campania = $cultivo = null;
-    if ($cultivo_info) {
-        $partes = explode(' | ', $cultivo_info);
-        if (count($partes) === 2) { $campania = trim($partes[0]); $cultivo = trim($partes[1]); }
-        else                      { $cultivo = trim($cultivo_info); }
-    }
     $grupo      = $_POST['grupo_gasto'] ?? 'otros';
-    $grupo_desc = ($grupo === 'otros' && !empty($_POST['grupo_descripcion'])) ? trim($_POST['grupo_descripcion']) : null;
+    $grupo_desc = null;
     $tipo_comp  = $_POST['tipo_componente'] ?? 'labor';
     $fecha      = $_POST['fecha'] ?? date('Y-m-d');
-
-    // Cultivo canónico (find-or-create). El texto se sigue guardando como snapshot.
-    $cultivo_id = cultivo_resolve($pdo, $usuario_id, $lote_id, $cultivo, $campania);
-
-    // Superficie del lote
-    $stmtSup = $pdo->prepare("SELECT superficie FROM lotes WHERE id = ?");
-    $stmtSup->execute([$lote_id]);
-    $sup = (float)($stmtSup->fetchColumn() ?: 0);
-    if ($sup <= 0) throw new Exception("El lote no tiene superficie válida.");
-
-    $modo_calculo = $_POST['modo_calculo'] ?? 'ha';
-    $factor_division = ($modo_calculo === 'total' && $sup > 0) ? $sup : 1;
-
+    $cultivo_id = null;
+    $sup = 0;
+    $factor_division = 1;
     $costo_total = 0;
     $op_id = null;
     $proveedor = null;
     $cant_ha = 0;
     $precio_u = 0;
     $cargas = null;
-    
-    // Si es solo insumo, se procesa como multi_insumo internamente para soportar la tabla operacion_insumos
     $tipo_comp_db = ($tipo_comp === 'insumo') ? 'multi_insumo' : $tipo_comp;
 
-    if ($tipo_comp === 'labor' || $tipo_comp === 'receta_labor') {
-        $cant_ha   = (float)($_POST['cantidad_ha'] ?? 0);
-        $precio_u  = (float)($_POST['precio_unitario'] ?? 0);
-        $proveedor = $_POST['proveedor_servicio'] ?? '';
-        $costo_total += $precio_u * $cant_ha;
-        
-        if ($tipo_comp === 'receta_labor') {
-            $cargas = !empty($_POST['cargas']) ? (int)$_POST['cargas'] : null;
+    if ($_POST['action'] === 'add' || $_POST['action'] === 'edit') {
+        if ($cultivo_info) {
+            $partes = explode(' | ', $cultivo_info);
+            if (count($partes) === 2) { $campania = trim($partes[0]); $cultivo = trim($partes[1]); }
+            else                      { $cultivo = trim($cultivo_info); }
         }
-    }
-    
-    if ($tipo_comp === 'insumo' || $tipo_comp === 'receta_labor') {
-        if (isset($_POST['insumo_id']) && is_array($_POST['insumo_id'])) {
-            for ($i = 0; $i < count($_POST['insumo_id']); $i++) {
-                $ins_id = $_POST['insumo_id'][$i];
-                $nom_lib= $_POST['nombre_libre_ins'][$i] ?? '';
-                if (!$ins_id && trim($nom_lib) === '') continue; // Fila vacía
-                
-                $c = (float)$_POST['cantidad_ha_ins'][$i];
-                $p = (float)$_POST['precio_unitario_ins'][$i];
-                $costo_total += ($c * $p * $sup);
+        $grupo_desc = ($grupo === 'otros' && !empty($_POST['grupo_descripcion'])) ? trim($_POST['grupo_descripcion']) : null;
+
+        // Cultivo canónico (find-or-create). El texto se sigue guardando como snapshot.
+        $cultivo_id = cultivo_resolve($pdo, $usuario_id, $lote_id, $cultivo, $campania);
+
+        // Superficie del lote
+        $stmtSup = $pdo->prepare("SELECT superficie FROM lotes WHERE id = ?");
+        $stmtSup->execute([$lote_id]);
+        $sup = (float)($stmtSup->fetchColumn() ?: 0);
+        if ($sup <= 0) throw new Exception("El lote no tiene superficie válida.");
+
+        $modo_calculo = $_POST['modo_calculo'] ?? 'ha';
+
+        // Hectáreas declaradas en este gasto para los insumos (default = superficie del lote).
+        $hectareas = (isset($_POST['hectareas_insumo']) && $_POST['hectareas_insumo'] !== '') ? (float)$_POST['hectareas_insumo'] : $sup;
+        if ($hectareas <= 0) $hectareas = $sup;
+        $hectareas_db = ($tipo_comp === 'insumo' || $tipo_comp === 'receta_labor') ? $hectareas : null;
+
+        // En modo "Cant. Total" la cantidad ingresada es el total del gasto (no por ha):
+        // se divide por las hectáreas para pasarla a cantidad/ha, igual que el preview JS.
+        // Debe usar las MISMAS hectáreas con las que luego se multiplica, para que se cancelen.
+        $factor_division = ($modo_calculo === 'total' && $hectareas > 0) ? $hectareas : 1;
+
+        if ($tipo_comp === 'labor' || $tipo_comp === 'receta_labor') {
+            $cant_ha   = (float)($_POST['cantidad_ha'] ?? 0);
+            $precio_u  = (float)($_POST['precio_unitario'] ?? 0);
+            $proveedor = $_POST['proveedor_servicio'] ?? '';
+            $costo_total += $precio_u * $cant_ha;
+            
+            if ($tipo_comp === 'receta_labor') {
+                $cargas = !empty($_POST['cargas']) ? (int)$_POST['cargas'] : null;
+            }
+        }
+        
+        if ($tipo_comp === 'insumo' || $tipo_comp === 'receta_labor') {
+            if (isset($_POST['insumo_id']) && is_array($_POST['insumo_id'])) {
+                for ($i = 0; $i < count($_POST['insumo_id']); $i++) {
+                    $ins_id = $_POST['insumo_id'][$i];
+                    $nom_lib= $_POST['nombre_libre_ins'][$i] ?? '';
+                    if (!$ins_id && trim($nom_lib) === '') continue; // Fila vacía
+                    
+                    $c = (float)$_POST['cantidad_ha_ins'][$i] / $factor_division; // modo "total" → pasa a cant/ha
+                    $p = (float)$_POST['precio_unitario_ins'][$i];
+                    $costo_total += ($c * $p * $hectareas);
+                }
             }
         }
     }
@@ -74,14 +87,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $pdo->beginTransaction();
     try {
         if ($_POST['action'] === 'add') {
-            $stmt = $pdo->prepare("INSERT INTO operaciones (usuario_id, lote_id, cultivo_id, grupo_gasto, grupo_descripcion, tipo_componente, insumo_id, proveedor_servicio, cantidad_ha, precio_unitario, costo_total, fecha, campania_operacion, cultivo_operacion, cargas) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$usuario_id, $lote_id, $cultivo_id, $grupo, $grupo_desc, $tipo_comp_db, $proveedor, $cant_ha, $precio_u, $costo_total, $fecha, $campania, $cultivo, $cargas]);
+            $stmt = $pdo->prepare("INSERT INTO operaciones (usuario_id, lote_id, cultivo_id, grupo_gasto, grupo_descripcion, tipo_componente, insumo_id, proveedor_servicio, cantidad_ha, precio_unitario, costo_total, fecha, campania_operacion, cultivo_operacion, cargas, hectareas) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$usuario_id, $lote_id, $cultivo_id, $grupo, $grupo_desc, $tipo_comp_db, $proveedor, $cant_ha, $precio_u, $costo_total, $fecha, $campania, $cultivo, $cargas, $hectareas_db]);
             $op_id = $pdo->lastInsertId();
 
             if (($tipo_comp === 'insumo' || $tipo_comp === 'receta_labor') && isset($_POST['insumo_id']) && is_array($_POST['insumo_id'])) {
                 $stmtInsertChild = $pdo->prepare("INSERT INTO operacion_insumos (operacion_id, insumo_id, nombre_libre, cantidad_ha, precio_unitario) VALUES (?, ?, ?, ?, ?)");
-                $stmtUpdateStock = $pdo->prepare("UPDATE insumos SET stock_actual = GREATEST(0, stock_actual - ?), estado = IF(stock_actual <= 0, 'inactivo', estado) WHERE id = ? AND usuario_id = ?");
-                
+                // Permite stock negativo: no se clampa a 0 ni se desactiva el insumo al llegar a cero.
+                $stmtUpdateStock = $pdo->prepare("UPDATE insumos SET stock_actual = stock_actual - ? WHERE id = ? AND usuario_id = ?");
+
                 for ($i = 0; $i < count($_POST['insumo_id']); $i++) {
                     $ins_id = $_POST['insumo_id'][$i];
                     $nom_lib= $_POST['nombre_libre_ins'][$i] ?? null;
@@ -90,13 +104,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $real_ins_id = ($ins_id && $ins_id !== 'manual') ? $ins_id : null;
                     $real_nom = ($ins_id === 'manual') ? trim($nom_lib) : null;
                     
-                    $c = (float)$_POST['cantidad_ha_ins'][$i];
+                    $c = (float)$_POST['cantidad_ha_ins'][$i] / $factor_division; // modo "total" → pasa a cant/ha
                     $p = (float)$_POST['precio_unitario_ins'][$i];
                     
                     $stmtInsertChild->execute([$op_id, $real_ins_id, $real_nom, $c, $p]);
                     
                     if ($real_ins_id) {
-                        $cant_total = $c * $sup;
+                        $cant_total = $c * $hectareas;
                         $stmtUpdateStock->execute([$cant_total, $real_ins_id, $usuario_id]);
                     }
                 }
@@ -106,16 +120,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $id = (int)$_POST['id'];
 
             // Restaurar stock viejo
-            $stmtOld = $pdo->prepare("SELECT tipo_componente, insumo_id, cantidad_ha, lote_id FROM operaciones WHERE id = ? AND usuario_id = ?");
+            $stmtOld = $pdo->prepare("SELECT tipo_componente, insumo_id, cantidad_ha, lote_id, hectareas FROM operaciones WHERE id = ? AND usuario_id = ?");
             $stmtOld->execute([$id, $usuario_id]);
             $old = $stmtOld->fetch();
             if ($old) {
                 $stmtSupOld = $pdo->prepare("SELECT superficie FROM lotes WHERE id = ?");
                 $stmtSupOld->execute([$old['lote_id']]);
                 $supOld = (float)($stmtSupOld->fetchColumn() ?: 0);
+                // Restaurar con las hectáreas guardadas; si la operación es vieja (NULL), usar la superficie del lote.
+                $haOld = ($old['hectareas'] !== null) ? (float)$old['hectareas'] : $supOld;
 
                 if ($old['tipo_componente'] === 'insumo' && $old['insumo_id']) {
-                    $cantOld = (float)$old['cantidad_ha'] * $supOld;
+                    $cantOld = (float)$old['cantidad_ha'] * $haOld;
                     $pdo->prepare("UPDATE insumos SET stock_actual = stock_actual + ?, estado = 'activo' WHERE id = ? AND usuario_id = ?")
                         ->execute([$cantOld, $old['insumo_id'], $usuario_id]);
                 }
@@ -125,7 +141,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $stmtRestore = $pdo->prepare("UPDATE insumos SET stock_actual = stock_actual + ?, estado = 'activo' WHERE id = ? AND usuario_id = ?");
                 foreach ($stmtHijos->fetchAll() as $h) {
                     if ($h['insumo_id']) {
-                        $cantRestore = (float)$h['cantidad_ha'] * $supOld;
+                        $cantRestore = (float)$h['cantidad_ha'] * $haOld;
                         $stmtRestore->execute([$cantRestore, $h['insumo_id'], $usuario_id]);
                     }
                 }
@@ -135,14 +151,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $pdo->prepare("DELETE FROM operacion_insumos WHERE operacion_id = ?")->execute([$id]);
 
             // Actualizar padre
-            $stmt = $pdo->prepare("UPDATE operaciones SET lote_id=?, cultivo_id=?, grupo_gasto=?, grupo_descripcion=?, tipo_componente=?, insumo_id=NULL, proveedor_servicio=?, cantidad_ha=?, precio_unitario=?, costo_total=?, fecha=?, campania_operacion=?, cultivo_operacion=?, cargas=? WHERE id=? AND usuario_id=?");
-            $stmt->execute([$lote_id, $cultivo_id, $grupo, $grupo_desc, $tipo_comp_db, $proveedor, $cant_ha, $precio_u, $costo_total, $fecha, $campania, $cultivo, $cargas, $id, $usuario_id]);
+            $stmt = $pdo->prepare("UPDATE operaciones SET lote_id=?, cultivo_id=?, grupo_gasto=?, grupo_descripcion=?, tipo_componente=?, insumo_id=NULL, proveedor_servicio=?, cantidad_ha=?, precio_unitario=?, costo_total=?, fecha=?, campania_operacion=?, cultivo_operacion=?, cargas=?, hectareas=? WHERE id=? AND usuario_id=?");
+            $stmt->execute([$lote_id, $cultivo_id, $grupo, $grupo_desc, $tipo_comp_db, $proveedor, $cant_ha, $precio_u, $costo_total, $fecha, $campania, $cultivo, $cargas, $hectareas_db, $id, $usuario_id]);
 
             // Insertar hijos nuevos
             if (($tipo_comp === 'insumo' || $tipo_comp === 'receta_labor') && isset($_POST['insumo_id']) && is_array($_POST['insumo_id'])) {
                 $stmtInsertChild = $pdo->prepare("INSERT INTO operacion_insumos (operacion_id, insumo_id, nombre_libre, cantidad_ha, precio_unitario) VALUES (?, ?, ?, ?, ?)");
-                $stmtUpdateStock = $pdo->prepare("UPDATE insumos SET stock_actual = GREATEST(0, stock_actual - ?), estado = IF(stock_actual <= 0, 'inactivo', estado) WHERE id = ? AND usuario_id = ?");
-                
+                // Permite stock negativo: no se clampa a 0 ni se desactiva el insumo al llegar a cero.
+                $stmtUpdateStock = $pdo->prepare("UPDATE insumos SET stock_actual = stock_actual - ? WHERE id = ? AND usuario_id = ?");
+
                 for ($i = 0; $i < count($_POST['insumo_id']); $i++) {
                     $ins_id = $_POST['insumo_id'][$i];
                     $nom_lib= $_POST['nombre_libre_ins'][$i] ?? null;
@@ -151,13 +168,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $real_ins_id = ($ins_id && $ins_id !== 'manual') ? $ins_id : null;
                     $real_nom = ($ins_id === 'manual') ? trim($nom_lib) : null;
                     
-                    $c = (float)$_POST['cantidad_ha_ins'][$i];
+                    $c = (float)$_POST['cantidad_ha_ins'][$i] / $factor_division; // modo "total" → pasa a cant/ha
                     $p = (float)$_POST['precio_unitario_ins'][$i];
                     
                     $stmtInsertChild->execute([$id, $real_ins_id, $real_nom, $c, $p]);
                     
                     if ($real_ins_id) {
-                        $cant_total = $c * $sup;
+                        $cant_total = $c * $hectareas;
                         $stmtUpdateStock->execute([$cant_total, $real_ins_id, $usuario_id]);
                     }
                 }
@@ -165,16 +182,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
         } elseif ($_POST['action'] === 'delete') {
             $id = (int)$_POST['id'];
-            $stmtDel = $pdo->prepare("SELECT tipo_componente, insumo_id, cantidad_ha, lote_id FROM operaciones WHERE id = ? AND usuario_id = ?");
+            $stmtDel = $pdo->prepare("SELECT tipo_componente, insumo_id, cantidad_ha, lote_id, hectareas FROM operaciones WHERE id = ? AND usuario_id = ?");
             $stmtDel->execute([$id, $usuario_id]);
             $del = $stmtDel->fetch();
             if ($del) {
                 $stmtDelSup = $pdo->prepare("SELECT superficie FROM lotes WHERE id = ?");
                 $stmtDelSup->execute([$del['lote_id']]);
                 $supDel = (float)($stmtDelSup->fetchColumn() ?: 0);
+                // Restaurar con las hectáreas guardadas; si la operación es vieja (NULL), usar la superficie del lote.
+                $haDel = ($del['hectareas'] !== null) ? (float)$del['hectareas'] : $supDel;
 
                 if ($del['tipo_componente'] === 'insumo' && $del['insumo_id']) {
-                    $cantRestore = (float)$del['cantidad_ha'] * $supDel;
+                    $cantRestore = (float)$del['cantidad_ha'] * $haDel;
                     $pdo->prepare("UPDATE insumos SET stock_actual = stock_actual + ?, estado = 'activo' WHERE id = ? AND usuario_id = ?")
                         ->execute([$cantRestore, $del['insumo_id'], $usuario_id]);
                 }
@@ -183,7 +202,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $stmtRestore = $pdo->prepare("UPDATE insumos SET stock_actual = stock_actual + ?, estado = 'activo' WHERE id = ? AND usuario_id = ?");
                 foreach ($stmtHijos->fetchAll() as $h) {
                     if ($h['insumo_id']) {
-                        $cantRestore = (float)$h['cantidad_ha'] * $supDel;
+                        $cantRestore = (float)$h['cantidad_ha'] * $haDel;
                         $stmtRestore->execute([$cantRestore, $h['insumo_id'], $usuario_id]);
                     }
                 }
@@ -230,6 +249,7 @@ $campanias_disponibles = $stmtCamp->fetchAll(PDO::FETCH_COLUMN);
 $f_grupo = $_GET['grupo'] ?? 'todos';
 $f_lote  = $_GET['lote_id'] ?? 'todos';
 $f_camp  = $_GET['campania'] ?? 'todos';
+$q       = trim($_GET['q'] ?? '');
 
 $where = "WHERE o.usuario_id = ?";
 $params = [$usuario_id];
@@ -245,6 +265,29 @@ if ($f_lote !== 'todos') {
 if ($f_camp !== 'todos') {
     $where .= " AND o.campania_operacion = ?";
     $params[] = $f_camp;
+}
+// Búsqueda universal: matchea cualquier campo de texto/numérico de la operación
+// y de las tablas relacionadas (lote, cultivo, insumos) vía subconsultas EXISTS,
+// para que funcione también en los COUNT/stats que no tienen JOINs.
+if ($q !== '') {
+    $like = '%' . $q . '%';
+    $where .= " AND (
+        o.proveedor_servicio LIKE ?
+        OR o.grupo_descripcion LIKE ?
+        OR o.grupo_gasto LIKE ?
+        OR o.cultivo_operacion LIKE ?
+        OR o.campania_operacion LIKE ?
+        OR CAST(o.costo_total AS CHAR) LIKE ?
+        OR CAST(o.cantidad_ha AS CHAR) LIKE ?
+        OR CAST(o.precio_unitario AS CHAR) LIKE ?
+        OR DATE_FORMAT(o.fecha, '%d/%m/%Y') LIKE ?
+        OR EXISTS (SELECT 1 FROM lotes l2 WHERE l2.id = o.lote_id AND l2.nombre LIKE ?)
+        OR EXISTS (SELECT 1 FROM cultivos c2 WHERE c2.id = o.cultivo_id AND c2.nombre LIKE ?)
+        OR EXISTS (SELECT 1 FROM insumos i2 WHERE i2.id = o.insumo_id AND i2.nombre LIKE ?)
+        OR EXISTS (SELECT 1 FROM operacion_insumos oi2 LEFT JOIN insumos i3 ON oi2.insumo_id = i3.id
+                   WHERE oi2.operacion_id = o.id AND (i3.nombre LIKE ? OR oi2.nombre_libre LIKE ?))
+    )";
+    for ($k = 0; $k < 14; $k++) $params[] = $like;
 }
 
 // 1. Contar total para paginación
@@ -459,6 +502,7 @@ function colorGrupo($g) {
         </div>
 
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <?php $buscador_placeholder = 'Buscar costo, labor, insumo, lote, fecha...'; include 'includes/buscador.php'; ?>
             <!-- Filtro por Campaña -->
             <?php if (!empty($campanias_disponibles)): ?>
             <select class="filter-select" id="campaniaFilter" onchange="aplicarFiltros()">
@@ -598,13 +642,13 @@ function colorGrupo($g) {
     <?php if ($total_pages > 1): ?>
     <div style="display:flex; justify-content: center; gap:10px; margin-top:20px; padding-bottom:10px;">
         <?php if ($page > 1): ?>
-            <a href="?page=<?= $page-1 ?>&grupo=<?= $f_grupo ?>&lote_id=<?= $f_lote ?>&campania=<?= urlencode($f_camp) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
+            <a href="?page=<?= $page-1 ?>&grupo=<?= $f_grupo ?>&lote_id=<?= $f_lote ?>&campania=<?= urlencode($f_camp) ?>&q=<?= urlencode($q) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
         <?php endif; ?>
         
         <span style="color:var(--text-muted); align-self:center; font-size:0.9rem;">Página <?= $page ?> de <?= $total_pages ?></span>
 
         <?php if ($page < $total_pages): ?>
-            <a href="?page=<?= $page+1 ?>&grupo=<?= $f_grupo ?>&lote_id=<?= $f_lote ?>&campania=<?= urlencode($f_camp) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
+            <a href="?page=<?= $page+1 ?>&grupo=<?= $f_grupo ?>&lote_id=<?= $f_lote ?>&campania=<?= urlencode($f_camp) ?>&q=<?= urlencode($q) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
         <?php endif; ?>
     </div>
     <?php endif; ?>
@@ -654,7 +698,7 @@ function colorGrupo($g) {
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 5px;">
                     <label>Lote Afectado</label>
-                    <select name="lote_id" id="loteSelect" required onchange="updateCultivos()"
+                    <select name="lote_id" id="loteSelect" required onchange="updateCultivos(); prefillHectareasFromLote();"
                         style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: white;">
                         <option value="">-- Seleccionar Lote --</option>
                         <?php foreach($lotes as $l): ?>
@@ -699,13 +743,13 @@ function colorGrupo($g) {
                             style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: white;">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 5px;">
-                        <label>Cantidad de Has.</label>
+                        <label id="lblCantHaLabor">Cantidad de Has.</label>
                         <input type="number" step="0.1" name="cantidad_ha" id="cantHaLabor" placeholder="Ej: 120"
                             style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: white;">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 5px;">
                         <label>Precio $ / Ha.</label>
-                        <input type="number" step="0.01" name="precio_unitario" id="priceHaLabor" placeholder="Ej: 4500"
+                        <input type="number" step="0.0001" name="precio_unitario" id="priceHaLabor" placeholder="Ej: 4500"
                             style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: white;">
                     </div>
                 </div>
@@ -714,6 +758,12 @@ function colorGrupo($g) {
             <!-- SECCIÓN INSUMO (MULTI-INSUMO) -->
             <div id="sectionInsumo" style="display: none; flex-direction: column; gap: 14px; background:rgba(255,255,255,0.02); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
                 <div style="font-size:0.9rem; font-weight:600; color:var(--text-muted); border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:5px;">Insumos y Productos Utilizados</div>
+                <div style="display:flex; flex-direction:column; gap:5px;">
+                    <label>Hectáreas a aplicar <small style="color:var(--text-muted);">(se completa con las del lote, podés cambiarlo)</small></label>
+                    <input type="number" step="0.01" name="hectareas_insumo" id="hectareasInsumo" placeholder="Ej: 50"
+                        oninput="updateCostoPreview()"
+                        style="padding: 10px; border-radius: 6px; border: 1px dashed #60a5fa; background: rgba(96,165,250,0.05); color: white;">
+                </div>
                 <div id="insumosContainer" style="display:flex; flex-direction:column; gap:10px;">
                     <!-- Filas dinámicas irán aquí -->
                 </div>
@@ -733,6 +783,14 @@ function colorGrupo($g) {
             <div id="costoPreview" style="display:none; background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.2); border-radius: 8px; padding: 12px; text-align: center;">
                 <span style="font-size:0.85rem; color:var(--text-muted);">Costo Total Estimado</span><br>
                 <span id="costoPreviewVal" style="font-size:1.5rem; font-weight:800; color:var(--accent);">$0.00</span>
+            </div>
+
+            <!-- Vista previa del Excel de la receta (en vivo, solo modo receta) -->
+            <div id="recetaPreviewWrap" style="display:none; flex-direction:column; gap:6px;">
+                <span style="font-size:0.8rem; color:var(--text-muted); display:flex; align-items:center; gap:6px;">
+                    <i class="fas fa-file-excel" style="color:#10b981;"></i> Vista previa del Excel (se actualiza al escribir)
+                </span>
+                <div id="recetaPreview" style="overflow-x:auto; background:#ffffff; border-radius:8px; padding:10px;"></div>
             </div>
 
             <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px;">
@@ -837,7 +895,7 @@ function addInsumoRow(ins_id = '', cant = '', price = '', nom_libre = '') {
             <select name="insumo_id[]" onchange="onInsumoChangeRow(this)" style="padding:8px; border-radius:6px; border:1px solid var(--border); background:var(--bg-color); color:white;" ${req}>
                 ${optionsHtml}
             </select>
-            <input type="text" name="nombre_libre_ins[]" class="libre-input" value="${nom_libre}" placeholder="Escribe el nombre del insumo o labor..." style="display:${(!ins_id && nom_libre) ? 'block' : 'none'}; padding:8px; border-radius:6px; border:1px dashed var(--accent); background:rgba(0,0,0,0.3); color:white; margin-top:5px;">
+            <input type="text" name="nombre_libre_ins[]" class="libre-input" value="${nom_libre}" oninput="updateCostoPreview()" placeholder="Escribe el nombre del insumo o labor..." style="display:${(!ins_id && nom_libre) ? 'block' : 'none'}; padding:8px; border-radius:6px; border:1px dashed var(--accent); background:rgba(0,0,0,0.3); color:white; margin-top:5px;">
             <div class="stockIndicadorRow" style="display:none; font-size:0.8rem; margin-top:2px;"></div>
         </div>
         <div style="display:flex; gap:10px;">
@@ -870,6 +928,7 @@ function onInsumoChangeRow(sel, skipPriceOverride = false) {
         libreInput.style.display = 'block';
         libreInput.required = true;
         ind.style.display = 'none';
+        updateCostoPreview();
         return;
     } else {
         libreInput.style.display = 'none';
@@ -883,7 +942,9 @@ function onInsumoChangeRow(sel, skipPriceOverride = false) {
     const precio = parseFloat(opt.dataset.precio || 0);
     const unidad = opt.dataset.unidad || '';
 
-    if (precio > 0 && !skipPriceOverride && !priceField.value) priceField.value = precio;
+    // Al elegir un insumo, completar el precio con el precio cargado del insumo (editable).
+    // skipPriceOverride=true solo al cargar una operación existente para respetar su precio guardado.
+    if (precio > 0 && !skipPriceOverride) priceField.value = precio;
 
     ind.style.display = 'block';
     if (stock <= 0) {
@@ -994,6 +1055,41 @@ function toggleFormMode() {
         lbl.textContent = (modoCalculo === 'total') ? 'Cant. Total' : 'Cant/Ha';
     });
 
+    // En receta, la labor se imputa SIEMPRE al total del lote: campo automático y bloqueado.
+    const lblCantHa = document.getElementById('lblCantHaLabor');
+    if (mode === 'receta_labor') {
+        const lote = lotesRaw.find(l => l.id == document.getElementById('loteSelect').value);
+        if (lote) cantLabor.value = parseFloat(lote.superficie);
+        cantLabor.readOnly = true;
+        cantLabor.style.opacity = '0.7';
+        cantLabor.style.cursor = 'not-allowed';
+        if (lblCantHa) lblCantHa.innerHTML = 'Cantidad de Has. <small style="color:var(--text-muted);">(automático: total del lote)</small>';
+    } else {
+        cantLabor.readOnly = false;
+        cantLabor.style.opacity = '';
+        cantLabor.style.cursor = '';
+        if (lblCantHa) lblCantHa.textContent = 'Cantidad de Has.';
+    }
+
+    // Vista previa del Excel y ancho del modal (solo para recetas).
+    const previewWrap = document.getElementById('recetaPreviewWrap');
+    const modalPanel  = document.querySelector('#addOpModal .modal-panel');
+    if (previewWrap) previewWrap.style.display = (mode === 'receta_labor') ? 'flex' : 'none';
+    if (modalPanel)  modalPanel.style.maxWidth = (mode === 'receta_labor') ? '760px' : '520px';
+
+    updateCostoPreview();
+}
+
+/* ───── Autocompletar hectáreas con la superficie del lote ───── */
+function prefillHectareasFromLote() {
+    const lote = lotesRaw.find(l => l.id == document.getElementById('loteSelect').value);
+    const sup  = lote ? parseFloat(lote.superficie) : '';
+    const hectField = document.getElementById('hectareasInsumo');
+    if (hectField) hectField.value = sup;
+    // En receta, la labor se imputa al TOTAL del lote → fijamos sus hectáreas.
+    const mode = document.getElementById('tipoCompSelect').value;
+    const cantLabor = document.getElementById('cantHaLabor');
+    if (mode === 'receta_labor' && cantLabor) cantLabor.value = sup;
     updateCostoPreview();
 }
 
@@ -1011,13 +1107,16 @@ function updateCostoPreview() {
     } 
     if (mode === 'insumo' || mode === 'receta_labor') {
         const modoCalculo = document.getElementById('modoCalculoSelect') ? document.getElementById('modoCalculoSelect').value : 'ha';
-        const factor = (modoCalculo === 'total' && sup > 0) ? sup : 1;
+        // Hectáreas declaradas en el gasto (default = superficie del lote).
+        const hectField = document.getElementById('hectareasInsumo');
+        const hect = (hectField && parseFloat(hectField.value) > 0) ? parseFloat(hectField.value) : sup;
+        const factor = (modoCalculo === 'total' && hect > 0) ? hect : 1;
 
         const rows = document.querySelectorAll('.insumo-row');
         rows.forEach(r => {
             const cant = (parseFloat(r.querySelector('.cant-ins-input').value) || 0) / factor;
             const price = parseFloat(r.querySelector('.price-ins-input').value) || 0;
-            costo += (cant * price * sup);
+            costo += (cant * price * hect);
         });
     }
     const prev = document.getElementById('costoPreview');
@@ -1028,12 +1127,150 @@ function updateCostoPreview() {
     } else {
         prev.style.display = 'none';
     }
+
+    renderRecetaPreview();
+}
+
+/* ───── Vista previa del Excel de la receta (réplica en vivo) ───── */
+function renderRecetaPreview() {
+    const wrap = document.getElementById('recetaPreviewWrap');
+    if (!wrap || document.getElementById('tipoCompSelect').value !== 'receta_labor') return;
+    const cont = document.getElementById('recetaPreview');
+
+    const fmt = (n, d = 2) => (parseFloat(n) || 0).toLocaleString('es-AR', { minimumFractionDigits: d, maximumFractionDigits: d });
+
+    // Datos base
+    const lote  = lotesRaw.find(l => l.id == document.getElementById('loteSelect').value);
+    const loteNombre = lote ? lote.nombre.toUpperCase() : '—';
+    const totalHa = lote ? parseFloat(lote.superficie) : 0;                 // total lote → labor
+    const hectField = document.getElementById('hectareasInsumo');
+    const haAplic = (hectField && parseFloat(hectField.value) > 0) ? parseFloat(hectField.value) : totalHa;  // insumos
+    const cargas  = parseInt(document.getElementById('cargasInput')?.value) || 1;
+    const haPorCarga = cargas > 0 ? (haAplic / cargas) : haAplic;
+    const esSectorizada = haAplic < totalHa - 0.001;
+
+    // Labor
+    const gSel = document.getElementById('grupoGastoSelect');
+    const gDesc = document.getElementById('grupoDescInput').value.trim();
+    const titulo = (gDesc || (gSel ? gSel.options[gSel.selectedIndex].text.replace(/[^\wáéíóúñ\s/]/gi, '').trim() : 'RECETA')).toUpperCase();
+    const laborPrecio = parseFloat(document.getElementById('priceHaLabor').value) || 0;
+    const laborTotal  = laborPrecio * totalHa;
+
+    // Fecha
+    const fRaw = document.getElementById('fechaInput').value;
+    const fecha = fRaw ? fRaw.split('-').reverse().join('/') : '';
+
+    // Modo de cálculo de insumos (igual que en el costo estimado)
+    const modoCalculo = document.getElementById('modoCalculoSelect')?.value || 'ha';
+    const factor = (modoCalculo === 'total' && haAplic > 0) ? haAplic : 1;
+
+    // Estilos de celdas (definidos ANTES del bucle: se usan dentro de él)
+    const th = 'background:#0f172a;color:#fff;font-weight:bold;text-align:center;padding:5px 7px;border:1px solid #1a1a2e;';
+    const td = 'text-align:center;padding:4px 7px;border:1px solid #cbd5e1;color:#0f172a;';
+
+    // Insumos
+    let filas = '';
+    let totalInsumos = 0;
+    document.querySelectorAll('#insumosContainer .insumo-row').forEach(r => {
+        const sel = r.querySelector('select');
+        const libre = r.querySelector('.libre-input');
+        // Si hay texto manual cargado, ese nombre manda (insumo sin descontar stock).
+        // Si no, se usa el nombre del insumo de stock seleccionado.
+        let nombre = (libre && libre.value) ? libre.value.trim() : '';
+        if (!nombre && sel && sel.value && sel.value !== 'manual') {
+            nombre = (sel.options[sel.selectedIndex].text.split(' — ')[0] || '').trim();
+        }
+        const cantHa = (parseFloat(r.querySelector('.cant-ins-input').value) || 0) / factor;
+        const precio = parseFloat(r.querySelector('.price-ins-input').value) || 0;
+        if (!nombre && cantHa === 0) return; // fila vacía
+        const cantCarga = cantHa * haPorCarga;
+        const cantTotal = cantHa * haAplic;
+        const costo = cantTotal * precio;
+        totalInsumos += costo;
+        filas += `<tr>
+            <td style="${td}text-align:left;">${nombre ? nombre.toUpperCase() : '—'}</td>
+            <td style="${td}">${fmt(cantHa, 3)}</td>
+            <td style="${td}">${fmt(cantCarga)}</td>
+            <td style="${td}">${fmt(cantTotal)}</td>
+            <td style="${td}">${fmt(precio)}</td>
+            <td style="${td}">${fmt(costo)}</td>
+        </tr>`;
+    });
+
+    const grandTotal = totalInsumos + laborTotal;
+    const grandTotalHa = totalHa > 0 ? (grandTotal / totalHa) : 0;
+
+    cont.innerHTML = `
+    <div style="font-family:Arial,sans-serif;font-size:12px;color:#0f172a;min-width:560px;">
+        <div style="background:#ffff00;color:#ff0000;font-weight:bold;text-align:center;padding:6px;border:1px solid #1a1a2e;font-size:15px;">${titulo}</div>
+        <div style="background:#ffff00;color:#ff0000;font-weight:bold;text-align:center;padding:4px;border:1px solid #1a1a2e;border-top:none;font-size:12px;">INSUMOS UTILIZADOS Y LABOR</div>
+
+        <table style="border-collapse:collapse;width:100%;margin-top:8px;">
+            <tr>
+                <td colspan="3" style="background:#e6e6e6;color:#ff0000;font-weight:bold;text-align:center;padding:5px;border:1px solid #1a1a2e;">${loteNombre}</td>
+                <td colspan="2" style="font-weight:bold;text-align:right;padding:5px;border:1px solid #1a1a2e;">FECHA: ${fecha}</td>
+            </tr>
+            <tr>
+                <td colspan="2" style="${td}text-align:left;">Sup. lote: <b>${fmt(totalHa)} ha</b></td>
+                <td colspan="3" style="${td}text-align:right;">Ha aplicadas: <b>${fmt(haAplic)} ha</b>${esSectorizada ? ' <span style="color:#ff0000;">· SECTORIZADA</span>' : ''}</td>
+            </tr>
+        </table>
+
+        <table style="border-collapse:collapse;width:100%;margin-top:8px;">
+            <tr>
+                <th style="${th}">DETALLE LABOR</th><th style="${th}">CARGAS</th>
+                <th style="${th}">HA/CARGA</th><th style="${th}">HA APLIC.</th><th style="${th}">TOTAL HA LOTE</th>
+            </tr>
+            <tr>
+                <td style="${td}font-weight:bold;">${titulo}</td>
+                <td style="${td}">${cargas}</td>
+                <td style="${td}">${fmt(haPorCarga)}</td>
+                <td style="${td}">${fmt(haAplic)}</td>
+                <td style="${td}">${fmt(totalHa)}</td>
+            </tr>
+        </table>
+
+        <table style="border-collapse:collapse;width:100%;margin-top:8px;">
+            <tr>
+                <th style="${th}text-align:left;">PRODUCTO</th><th style="${th}">/HA</th>
+                <th style="${th}">POR CARGA</th><th style="${th}">TOTALES</th>
+                <th style="${th}">PRECIO USD</th><th style="${th}">COSTO TOTAL</th>
+            </tr>
+            ${filas || `<tr><td colspan="6" style="${td}color:#64748b;">Sin insumos cargados</td></tr>`}
+            <tr>
+                <td colspan="5" style="text-align:right;font-weight:bold;background:#f1f5f9;border:1px solid #cbd5e1;border-top:2px solid #000;padding:5px 7px;">TOTAL INSUMOS</td>
+                <td style="${td}font-weight:bold;background:#f1f5f9;border-top:2px solid #000;">${fmt(totalInsumos)}</td>
+            </tr>
+        </table>
+
+        <table style="border-collapse:collapse;width:100%;margin-top:8px;">
+            <tr><th style="${th}text-align:left;">LABOR</th><th style="${th}">USD/HA</th><th style="${th}">TOTAL</th></tr>
+            <tr>
+                <td style="${td}text-align:left;">${titulo} (sobre total del lote)</td>
+                <td style="${td}">${fmt(laborPrecio)}</td>
+                <td style="${td}">${fmt(laborTotal)}</td>
+            </tr>
+        </table>
+
+        <table style="border-collapse:collapse;width:100%;margin-top:8px;">
+            <tr>
+                <td style="background:#ffff00;font-weight:bold;padding:6px 7px;border:1px solid #1a1a2e;width:40%;">COSTO TOTAL (USD)</td>
+                <td style="background:#ffff00;font-weight:bold;text-align:center;padding:6px 7px;border:1px solid #1a1a2e;width:30%;">${fmt(grandTotal)}</td>
+                <td style="background:#ffff00;font-weight:bold;text-align:center;padding:6px 7px;border:1px solid #1a1a2e;width:15%;">USD/HA</td>
+                <td style="background:#ffff00;font-weight:bold;text-align:center;padding:6px 7px;border:1px solid #1a1a2e;width:15%;">${fmt(grandTotalHa)}</td>
+            </tr>
+        </table>
+    </div>`;
 }
 
 // Attach preview listeners
-['cantHaLabor','priceHaLabor','loteSelect'].forEach(id => {
+['cantHaLabor','priceHaLabor','loteSelect','cargasInput','grupoDescInput','fechaInput','proveedorInput'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('input', updateCostoPreview);
+});
+['grupoGastoSelect','cultivoSelect'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', updateCostoPreview);
 });
 
 /* ───── Abrir modal vacío ───── */
@@ -1050,6 +1287,7 @@ function openAddModal() {
     document.getElementById('proveedorInput').value   = '';
     document.getElementById('cantHaLabor').value      = '';
     document.getElementById('priceHaLabor').value     = '';
+    document.getElementById('hectareasInsumo').value  = '';
     document.getElementById('insumosContainer').innerHTML = '';
     addInsumoRow();
     updateCultivos();
@@ -1084,6 +1322,14 @@ function editOp(op) {
         }
     }
     if (op.tipo_componente !== 'labor') {
+        // Hectáreas guardadas; si la operación es vieja (NULL), usar la superficie del lote.
+        const hectField = document.getElementById('hectareasInsumo');
+        if (hectField) {
+            const lote = lotesRaw.find(l => l.id == op.lote_id);
+            hectField.value = (op.hectareas !== null && op.hectareas !== undefined && op.hectareas !== '')
+                ? parseFloat(op.hectareas)
+                : (lote ? parseFloat(lote.superficie) : '');
+        }
         document.getElementById('insumosContainer').innerHTML = '';
         if (op.hijos_insumos && op.hijos_insumos.length > 0) {
             op.hijos_insumos.forEach(h => {

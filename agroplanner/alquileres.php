@@ -121,9 +121,28 @@ $page  = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 if ($page < 1) $page = 1;
 $offset = ($page - 1) * $limit;
 
+// Búsqueda universal: nivel, campaña, moneda, notas, monto, fecha, lote y cultivo.
+$q = trim($_GET['q'] ?? '');
+$searchSql = '';
+$searchParams = [];
+if ($q !== '') {
+    $like = '%' . $q . '%';
+    $searchSql = " AND (
+        a.nivel_imputacion LIKE ?
+        OR a.campania LIKE ?
+        OR a.moneda LIKE ?
+        OR a.notas LIKE ?
+        OR CAST(a.monto_pagado AS CHAR) LIKE ?
+        OR DATE_FORMAT(a.fecha_pago, '%d/%m/%Y') LIKE ?
+        OR EXISTS (SELECT 1 FROM lotes l2 WHERE l2.id = a.lote_id AND l2.nombre LIKE ?)
+        OR EXISTS (SELECT 1 FROM cultivos c2 WHERE c2.id = a.cultivo_id AND c2.nombre LIKE ?)
+    )";
+    for ($k = 0; $k < 8; $k++) $searchParams[] = $like;
+}
+
 // 1. Contar total para paginación
-$stmtCount = $pdo->prepare("SELECT COUNT(*) FROM alquileres WHERE usuario_id = ?");
-$stmtCount->execute([$usuario_id]);
+$stmtCount = $pdo->prepare("SELECT COUNT(*) FROM alquileres a WHERE a.usuario_id = ?$searchSql");
+$stmtCount->execute(array_merge([$usuario_id], $searchParams));
 $total_rows = (int)$stmtCount->fetchColumn();
 $total_pages = ceil($total_rows / $limit);
 
@@ -133,9 +152,9 @@ $stmtAll = $pdo->prepare("
     FROM alquileres a
     LEFT JOIN lotes l ON a.lote_id = l.id
     LEFT JOIN cultivos c ON a.cultivo_id = c.id
-    WHERE a.usuario_id = ?
+    WHERE a.usuario_id = ?$searchSql
 ");
-$stmtAll->execute([$usuario_id]);
+$stmtAll->execute(array_merge([$usuario_id], $searchParams));
 $alquileres_full = $stmtAll->fetchAll();
 
 // 3. Obtener registros paginados para la tabla
@@ -148,33 +167,52 @@ $stmt = $pdo->prepare("
     FROM alquileres a
     LEFT JOIN lotes    l ON a.lote_id   = l.id
     LEFT JOIN cultivos c ON a.cultivo_id = c.id
-    WHERE a.usuario_id = ?
+    WHERE a.usuario_id = ?$searchSql
     ORDER BY a.fecha_pago DESC
     LIMIT $limit OFFSET $offset
 ");
-$stmt->execute([$usuario_id]);
+$stmt->execute(array_merge([$usuario_id], $searchParams));
 $alquileres = $stmt->fetchAll();
 
-// ─── Resumen por nivel/agrupador (usando el set completo) ─────────────────
+// ─── Resumen de alquileres (usando el set completo) ───────────────────────
+// (1) Totales por NIVEL de imputación → tarjetas fijas (máx. 3, no crecen).
+// (2) Detalle por entidad (lote/cultivo/campaña) → tabla plegable opcional.
+$resumen_nivel = [
+    'lote'     => ['total_usd' => 0, 'total_ars' => 0, 'pagos' => 0],
+    'cultivo'  => ['total_usd' => 0, 'total_ars' => 0, 'pagos' => 0],
+    'campania' => ['total_usd' => 0, 'total_ars' => 0, 'pagos' => 0],
+];
 $resumen = [];
 foreach ($alquileres_full as $a) {
-    // Clave de agrupamiento visual
-    if ($a['nivel_imputacion'] === 'cultivo' && $a['cultivo_nombre']) {
+    // El nivel 'lote' antiguo y cualquier valor desconocido cuentan como 'lote'
+    $nivel = in_array($a['nivel_imputacion'], ['lote', 'cultivo', 'campania'], true)
+        ? $a['nivel_imputacion'] : 'lote';
+
+    // Clave de agrupamiento del detalle
+    if ($nivel === 'cultivo' && $a['cultivo_nombre']) {
         $key = $a['lote_nombre'] . ' › ' . $a['cultivo_nombre'];
-    } elseif ($a['nivel_imputacion'] === 'campania') {
+    } elseif ($nivel === 'campania') {
         $key = '🗓 Campaña ' . ($a['campania'] ?? '—');
     } else {
         $key = $a['lote_nombre'] ?? '—';
     }
 
     if (!isset($resumen[$key]))
-        $resumen[$key] = ['total_usd' => 0, 'total_ars' => 0, 'pagos' => 0, 'nivel' => $a['nivel_imputacion']];
-    if ($a['moneda'] === 'USD')
-        $resumen[$key]['total_usd'] += $a['monto_pagado'];
-    else
-        $resumen[$key]['total_ars'] += $a['monto_pagado'];
+        $resumen[$key] = ['total_usd' => 0, 'total_ars' => 0, 'pagos' => 0, 'nivel' => $nivel];
+
+    $campo = $a['moneda'] === 'USD' ? 'total_usd' : 'total_ars';
+    $resumen[$key][$campo]        += $a['monto_pagado'];
+    $resumen_nivel[$nivel][$campo] += $a['monto_pagado'];
     $resumen[$key]['pagos']++;
+    $resumen_nivel[$nivel]['pagos']++;
 }
+
+$niveles_meta = [
+    'lote'     => ['titulo' => 'Por Lote',     'icono' => '📍'],
+    'cultivo'  => ['titulo' => 'Por Cultivo',  'icono' => '🌱'],
+    'campania' => ['titulo' => 'Por Campaña',  'icono' => '🗓'],
+];
+$total_pagos_global = array_sum(array_column($resumen_nivel, 'pagos'));
 
 require_once 'includes/header.php';
 ?>
@@ -240,6 +278,40 @@ require_once 'includes/header.php';
         margin-top: 4px;
     }
 
+    /* Desglose detallado plegable */
+    .alq-desglose {
+        margin: -8px 0 24px;
+    }
+
+    .alq-desglose > summary {
+        cursor: pointer;
+        list-style: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        padding: 8px 4px;
+        user-select: none;
+    }
+
+    .alq-desglose > summary::-webkit-details-marker {
+        display: none;
+    }
+
+    .alq-desglose > summary:hover {
+        color: var(--text-primary);
+    }
+
+    .alq-desglose-chevron {
+        transition: transform 0.2s;
+        font-size: 0.75rem;
+    }
+
+    .alq-desglose[open] > summary .alq-desglose-chevron {
+        transform: rotate(90deg);
+    }
+
     /* Selector de nivel */
     .nivel-selector {
         display: flex;
@@ -286,17 +358,16 @@ require_once 'includes/header.php';
     }
 </style>
 
-<!-- ===== RESUMEN RÁPIDO ===== -->
-<?php if (!empty($resumen)): ?>
+<!-- ===== RESUMEN RÁPIDO (totales por nivel, máx. 3 tarjetas) ===== -->
+<?php if ($total_pagos_global > 0): ?>
     <div class="alq-resumen-grid">
-        <?php foreach ($resumen as $key => $r): ?>
-            <div class="alq-chip nivel-<?= $r['nivel'] ?>">
+        <?php foreach ($niveles_meta as $nivel => $meta):
+            $r = $resumen_nivel[$nivel];
+            if ($r['pagos'] === 0) continue; // no mostrar niveles sin pagos
+        ?>
+            <div class="alq-chip nivel-<?= $nivel ?>">
                 <span style="font-size:0.78rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.8px;">
-                    <?php if ($r['nivel'] === 'cultivo'): ?>🌱
-                    <?php elseif ($r['nivel'] === 'campania'): ?>🗓
-                    <?php else: ?><i class="fas fa-map-marked-alt" style="color:var(--accent);"></i>
-                    <?php endif; ?>
-                    &nbsp;<?= htmlspecialchars($key) ?>
+                    <?= $meta['icono'] ?>&nbsp;<?= htmlspecialchars($meta['titulo']) ?>
                 </span>
                 <?php if ($r['total_usd'] > 0): ?>
                     <span style="font-size:1.4rem; font-weight:800; color:#ff7b72;">
@@ -313,6 +384,49 @@ require_once 'includes/header.php';
             </div>
         <?php endforeach; ?>
     </div>
+
+    <!-- Desglose detallado por lote/cultivo/campaña (plegable, arranca colapsado) -->
+    <?php if (!empty($resumen)): ?>
+        <details class="alq-desglose">
+            <summary>
+                <i class="fas fa-chevron-right alq-desglose-chevron"></i>
+                Ver desglose detallado
+                <small style="color:var(--text-muted); font-weight:400;">(<?= count($resumen) ?> agrupacion<?= count($resumen) != 1 ? 'es' : '' ?>)</small>
+            </summary>
+            <div class="table-container" style="margin-top:14px;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Imputación</th>
+                            <th>Detalle</th>
+                            <th style="text-align:right;">Total USD</th>
+                            <th style="text-align:right;">Total ARS</th>
+                            <th style="text-align:right;">Pagos</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($resumen as $key => $r): ?>
+                            <tr>
+                                <td data-label="Imputación">
+                                    <span class="badge nivel-badge-<?= $r['nivel'] ?>" style="border-radius:6px;padding:3px 8px;font-size:0.75rem;">
+                                        <?= $niveles_meta[$r['nivel']]['icono'] ?> <?= htmlspecialchars($niveles_meta[$r['nivel']]['titulo']) ?>
+                                    </span>
+                                </td>
+                                <td data-label="Detalle"><?= htmlspecialchars($key) ?></td>
+                                <td data-label="Total USD" style="text-align:right; color:#ff7b72; font-weight:600;">
+                                    <?= $r['total_usd'] > 0 ? '$' . number_format($r['total_usd'], 2, ',', '.') : '—' ?>
+                                </td>
+                                <td data-label="Total ARS" style="text-align:right; color:#f59e0b; font-weight:600;">
+                                    <?= $r['total_ars'] > 0 ? '$' . number_format($r['total_ars'], 0, ',', '.') : '—' ?>
+                                </td>
+                                <td data-label="Pagos" style="text-align:right;"><?= $r['pagos'] ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </details>
+    <?php endif; ?>
 <?php endif; ?>
 
 <!-- ===== TABLA DE ALQUILERES ===== -->
@@ -322,6 +436,7 @@ require_once 'includes/header.php';
             <i class="fas fa-file-contract" style="color: var(--accent); margin-right: 8px;"></i>
             Pagos de Alquiler Registrados
         </h2>
+        <?php $buscador_placeholder = 'Buscar lote, cultivo, campaña, monto, fecha...'; include 'includes/buscador.php'; ?>
         <div style="display:flex; gap:8px;">
             <a href="api/reporte_pdf.php?tipo=alquileres" target="_blank" class="btn"
                 style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); color:#ff7b72; font-size:0.85rem;">
@@ -416,13 +531,13 @@ require_once 'includes/header.php';
     <?php if ($total_pages > 1): ?>
     <div style="display:flex; justify-content: center; gap:10px; margin-top:20px; padding-bottom:10px;">
         <?php if ($page > 1): ?>
-            <a href="?page=<?= $page-1 ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
+            <a href="?page=<?= $page-1 ?>&q=<?= urlencode($q) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
         <?php endif; ?>
         
         <span style="color:var(--text-muted); align-self:center; font-size:0.9rem;">Página <?= $page ?> de <?= $total_pages ?></span>
 
         <?php if ($page < $total_pages): ?>
-            <a href="?page=<?= $page+1 ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
+            <a href="?page=<?= $page+1 ?>&q=<?= urlencode($q) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
         <?php endif; ?>
     </div>
     <?php endif; ?>
@@ -544,7 +659,7 @@ require_once 'includes/header.php';
             <div class="form-grid-2">
                 <div style="display:flex;flex-direction:column;gap:5px;">
                     <label>Monto Pagado (USD)</label>
-                    <input type="number" step="0.01" name="monto_pagado" id="alqMonto" required placeholder="Ej: 8500"
+                    <input type="number" step="0.0001" name="monto_pagado" id="alqMonto" required placeholder="Ej: 8500"
                         style="padding:10px;border-radius:6px;border:1px solid var(--border);background:rgba(0,0,0,0.2);color:white;">
                 </div>
                 <div style="display:none;">

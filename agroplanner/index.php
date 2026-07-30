@@ -38,8 +38,23 @@ try {
 $ciclos = $controller->getCiclos();
 $ciclo_sel = $_GET['ciclo'] ?? ($ciclos[0] ?? null);
 
+// Filtros adicionales del panel: por lote y por cultivo (dependen de la campaña elegida)
+$lotes_filtro    = $controller->getLotesDelCiclo($ciclo_sel);
+$cultivos_filtro = $controller->getCultivosDelCiclo($ciclo_sel);
+
+$lote_sel    = isset($_GET['lote']) && $_GET['lote'] !== '' ? (int)$_GET['lote'] : null;
+$cultivo_sel = isset($_GET['cultivo']) && $_GET['cultivo'] !== '' ? $_GET['cultivo'] : null;
+
+// Validar que los filtros recibidos pertenezcan a la campaña actual (evita estados inconsistentes)
+if ($lote_sel !== null && !in_array($lote_sel, array_map(fn($l) => (int)$l['id'], $lotes_filtro), true)) {
+    $lote_sel = null;
+}
+if ($cultivo_sel !== null && !in_array($cultivo_sel, $cultivos_filtro, true)) {
+    $cultivo_sel = null;
+}
+
 // Obtener datos globales limpiamente
-$stats = $controller->getGlobalStats($ciclo_sel);
+$stats = $controller->getGlobalStats($ciclo_sel, $lote_sel, $cultivo_sel);
 $ingresos_global = $stats['ingresos'];
 $costos_directos_global = $stats['costos_directos'];
 $costos_alquiler_global = $stats['costos_alquiler'];
@@ -49,7 +64,7 @@ $margen_neto_global = $stats['margen_neto'];
 $rendimiento_ha = $stats['rendimiento_ha'];
 
 // Pestañas por Especie
-$cultivos_data = $controller->getCultivosData($ciclo_sel);
+$cultivos_data = $controller->getCultivosData($ciclo_sel, $lote_sel, $cultivo_sel);
 
 // ── Datos para gráficos ───────────────────────────────────────────
 // Dona: desglose de costos globales
@@ -170,7 +185,7 @@ require_once 'includes/header.php';
         gap: 10px;
         overflow: hidden;
         z-index: 1;
-        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.25s cubic-bezier(0.22, 1, 0.36, 1);
     }
     
     a.stat-card::before {
@@ -355,10 +370,11 @@ require_once 'includes/header.php';
             <div class="currency-toggle-container">
                 <button type="button" class="btn-currency active" id="btnCurrencyARS" onclick="setTickerCurrency('ARS')">ARS</button>
                 <button type="button" class="btn-currency" id="btnCurrencyUSD" onclick="setTickerCurrency('USD')">USD</button>
-            </div>            <!-- Filtro de Campaña -->
-            <div style="display:flex; align-items:center; gap:8px;">
+            </div>            <!-- Filtros del Panel -->
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
                 <i class="fas fa-filter" style="color:var(--text-muted); flex-shrink:0;"></i>
-                <select onchange="location.href='index.php?ciclo=' + this.value" style="padding:8px 14px; border-radius:20px; border:1px solid var(--accent); background:rgba(16,185,129,0.1); color:white; cursor:pointer; font-weight:500; min-width:0; max-width:180px;">
+                <!-- Campaña -->
+                <select onchange="navFiltro('ciclo', this.value)" style="padding:8px 14px; border-radius:20px; border:1px solid var(--accent); background:rgba(16,185,129,0.1); color:white; cursor:pointer; font-weight:500; min-width:0; max-width:180px;">
                     <?php foreach($ciclos as $c): ?>
                         <option value="<?= htmlspecialchars($c) ?>" <?= $c == $ciclo_sel ? 'selected' : '' ?>>Campaña <?= htmlspecialchars($c) ?></option>
                     <?php endforeach; ?>
@@ -366,6 +382,26 @@ require_once 'includes/header.php';
                         <option>Sin Campañas</option>
                     <?php endif; ?>
                 </select>
+
+                <?php if($ciclo_sel && !empty($lotes_filtro)): ?>
+                <!-- Lote -->
+                <select onchange="navFiltro('lote', this.value)" style="padding:8px 14px; border-radius:20px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.05); color:white; cursor:pointer; font-weight:500; min-width:0; max-width:180px;">
+                    <option value="">Todos los lotes</option>
+                    <?php foreach($lotes_filtro as $lf): ?>
+                        <option value="<?= (int)$lf['id'] ?>" <?= ((int)$lf['id'] === $lote_sel) ? 'selected' : '' ?>><?= htmlspecialchars($lf['nombre']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <?php endif; ?>
+
+                <?php if($ciclo_sel && !empty($cultivos_filtro)): ?>
+                <!-- Cultivo -->
+                <select onchange="navFiltro('cultivo', this.value)" style="padding:8px 14px; border-radius:20px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.05); color:white; cursor:pointer; font-weight:500; min-width:0; max-width:180px;">
+                    <option value="">Todos los cultivos</option>
+                    <?php foreach($cultivos_filtro as $cf): ?>
+                        <option value="<?= htmlspecialchars($cf) ?>" <?= ($cf === $cultivo_sel) ? 'selected' : '' ?>><?= htmlspecialchars($cf) ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -381,6 +417,27 @@ require_once 'includes/header.php';
         <a href="lotes.php" class="btn btn-primary" style="margin-top: 20px; display: inline-block;">Ir a Lotes y Cultivos</a>
     </div>
 <?php else: ?>
+
+    <?php
+    // URL del reporte PDF del panel general, preservando los filtros activos.
+    $pdf_params = http_build_query(array_filter([
+        'tipo'    => 'dashboard',
+        'ciclo'   => $ciclo_sel,
+        'lote'    => $lote_sel,
+        'cultivo' => $cultivo_sel,
+    ], fn($v) => $v !== null && $v !== ''));
+    ?>
+    <!-- Barra de acciones del panel general -->
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:18px;">
+        <h2 style="font-size:1.1rem; font-weight:600; color:var(--text-primary); margin:0;">
+            <i class="fas fa-chart-pie" style="color:var(--accent); margin-right:8px;"></i>
+            Resumen de la Campaña <?= htmlspecialchars($ciclo_sel) ?>
+        </h2>
+        <a href="api/reporte_pdf.php?<?= htmlspecialchars($pdf_params) ?>" target="_blank"
+           class="btn" style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); color:#ff7b72; font-size:0.85rem;">
+            <i class="fas fa-file-pdf"></i> Reporte PDF
+        </a>
+    </div>
 
     <!-- Resumen Global del Ciclo (cards clicables) -->
     <div class="dashboard-grid" style="margin-bottom: 30px;">
@@ -491,10 +548,17 @@ require_once 'includes/header.php';
     <?php $idx = 0; foreach($cultivos_data as $especie => $data): ?>
         <div id="tab-<?= $idx ?>" class="cultivo-panel <?= $idx === 0 ? 'active' : '' ?>">
             <div class="lotes-grid">
-                <?php foreach($data['lotes'] as $lote): 
+                <?php foreach($data['lotes'] as $lote):
                     $margen_lote = $lote['ingreso'] - $lote['costo_dir'] - $lote['alquiler'];
                     $costo_total_lote = $lote['costo_dir'] + $lote['alquiler'];
                     $roi = $costo_total_lote > 0 ? ($margen_lote / $costo_total_lote) * 100 : ($margen_lote > 0 ? 100 : 0);
+                    // Valores por hectárea (se muestran en vez de los totales)
+                    $sup_lote     = $lote['sup'] > 0 ? (float)$lote['sup'] : 0;
+                    $margen_ha    = $sup_lote > 0 ? $margen_lote / $sup_lote : 0;
+                    $ingreso_ha   = $sup_lote > 0 ? $lote['ingreso'] / $sup_lote : 0;
+                    $labores_ha   = $sup_lote > 0 ? $lote['labores'] / $sup_lote : 0;
+                    $insumos_ha   = $sup_lote > 0 ? $lote['insumos'] / $sup_lote : 0;
+                    $alquiler_ha  = $sup_lote > 0 ? $lote['alquiler'] / $sup_lote : 0;
                 ?>
                     <div class="lote-card">
                         <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 20px;">
@@ -507,9 +571,9 @@ require_once 'includes/header.php';
                             </div>
                             <div style="text-align: right;">
                                 <div class="badge" style="background: <?= $margen_lote >= 0 ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)' ?>; color: <?= $margen_lote >= 0 ? 'var(--accent)' : 'var(--danger)' ?>; border: 1px solid <?= $margen_lote >= 0 ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)' ?>; font-weight:700; padding: 6px 12px; border-radius: 10px;">
-                                    $<?= number_format($margen_lote, 0, ',', '.') ?>
+                                    $<?= number_format($margen_ha, 0, ',', '.') ?> <small style="font-weight:500; opacity:0.7;">/ha</small>
                                 </div>
-                                <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 4px; font-weight: 600;">Margen Neto</div>
+                                <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 4px; font-weight: 600;">Margen Neto / ha</div>
                             </div>
                         </div>
 
@@ -527,22 +591,22 @@ require_once 'includes/header.php';
                         <div class="lote-details" style="display: flex; flex-direction: column; gap: 4px;">
                             <div class="lote-detail-row">
                                 <span class="label"><i class="fas fa-coins" style="color: #fbbf24;"></i> Ingresos</span>
-                                <span class="value" style="color: white;">$<?= number_format($lote['ingreso'], 0, ',', '.') ?></span>
+                                <span class="value" style="color: white;">$<?= number_format($ingreso_ha, 0, ',', '.') ?> <small style="color:var(--text-muted); font-weight:400;">/ha</small></span>
                             </div>
-                            
+
                             <div class="lote-detail-row">
                                 <span class="label"><i class="fas fa-person-digging"></i> Labores</span>
-                                <span class="value">-$<?= number_format($lote['labores'], 0, ',', '.') ?></span>
+                                <span class="value">-$<?= number_format($labores_ha, 0, ',', '.') ?> <small style="color:var(--text-muted); font-weight:400;">/ha</small></span>
                             </div>
 
                             <div class="lote-detail-row">
                                 <span class="label"><i class="fas fa-vial"></i> Insumos</span>
-                                <span class="value">-$<?= number_format($lote['insumos'], 0, ',', '.') ?></span>
+                                <span class="value">-$<?= number_format($insumos_ha, 0, ',', '.') ?> <small style="color:var(--text-muted); font-weight:400;">/ha</small></span>
                             </div>
 
                             <div class="lote-detail-row">
                                 <span class="label"><i class="fas fa-receipt"></i> Alquiler</span>
-                                <span class="value">-$<?= number_format($lote['alquiler'], 0, ',', '.') ?></span>
+                                <span class="value">-$<?= number_format($alquiler_ha, 0, ',', '.') ?> <small style="color:var(--text-muted); font-weight:400;">/ha</small></span>
                             </div>
                             
                             <?php
@@ -566,6 +630,22 @@ require_once 'includes/header.php';
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 
 <script>
+    // Navegación de filtros del panel preservando los demás parámetros de la URL.
+    // Cambiar la campaña reinicia los filtros de lote y cultivo (dependen de ella).
+    function navFiltro(param, value) {
+        const url = new URL(window.location.href);
+        if (value === '' || value === null) {
+            url.searchParams.delete(param);
+        } else {
+            url.searchParams.set(param, value);
+        }
+        if (param === 'ciclo') {
+            url.searchParams.delete('lote');
+            url.searchParams.delete('cultivo');
+        }
+        window.location.href = url.toString();
+    }
+
     function showTab(tabId, btn) {
         document.querySelectorAll('.cultivo-panel').forEach(p => p.classList.remove('active'));
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));

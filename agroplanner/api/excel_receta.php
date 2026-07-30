@@ -40,21 +40,26 @@ $fecha = date('d/m/Y', strtotime($op['fecha']));
 $lote_nombre = strtoupper($op['lote_nombre']);
 $labor_desc = strtoupper($op['grupo_descripcion'] ?: $op['grupo_gasto']);
 $cargas = (int)($op['cargas'] ?: 1);
-$total_ha = (float)($op['lote_sup']);
-$ha_por_carga = $cargas > 0 ? ($total_ha / $cargas) : $total_ha;
+$total_ha = (float)($op['lote_sup']);   // Superficie total del lote → base de la LABOR
+// Hectáreas a aplicar para los INSUMOS (aplicación sectorizada). Si la operación
+// es vieja (hectareas NULL) se usa la superficie total del lote.
+$ha_aplicacion = ($op['hectareas'] !== null && (float)$op['hectareas'] > 0)
+    ? (float)$op['hectareas'] : $total_ha;
+$ha_por_carga = $cargas > 0 ? ($ha_aplicacion / $cargas) : $ha_aplicacion;
 
 $total_insumos_cost = 0;
 foreach ($insumos as $ins) {
     $cant_ha = (float)$ins['cantidad_ha'];
     $precio_u = (float)$ins['precio_unitario'];
-    $total_insumos_cost += ($cant_ha * $total_ha * $precio_u);
+    $total_insumos_cost += ($cant_ha * $ha_aplicacion * $precio_u);  // Insumos sobre ha aplicadas
 }
 
 $labor_precio = (float)$op['precio_unitario'];
-$labor_total = $labor_precio * $total_ha;
+$labor_total = $labor_precio * $total_ha;   // Labor SIEMPRE sobre el total del lote
 
 $grand_total = $total_insumos_cost + $labor_total;
 $grand_total_ha = $total_ha > 0 ? ($grand_total / $total_ha) : 0;
+$es_sectorizada = ($ha_aplicacion < $total_ha - 0.001);
 
 // ─── Headers para forzar descarga Excel ─────────────────────────────────────
 $filename = "Receta_Pulverizacion_{$lote_nombre}_" . date('Ymd', strtotime($op['fecha'])) . ".xls";
@@ -99,21 +104,30 @@ header("Expires: 0");
             <td colspan="4" class="lote-box"><?= htmlspecialchars($lote_nombre) ?></td>
             <td colspan="2" style="font-weight:bold; text-align:right;">FECHA: <?= $fecha ?></td>
         </tr>
+        <tr>
+            <td colspan="3" style="text-align:left;">Superficie del lote: <strong><?= number_format($total_ha, 2, ',', '.') ?> ha</strong></td>
+            <td colspan="3" style="text-align:right;">
+                Hectáreas aplicadas (insumos): <strong><?= number_format($ha_aplicacion, 2, ',', '.') ?> ha</strong>
+                <?php if ($es_sectorizada): ?><span style="color:#ff0000;"> · APLICACIÓN SECTORIZADA</span><?php endif; ?>
+            </td>
+        </tr>
     </table>
     <br>
 
     <!-- ===== TABLA LABOR ===== -->
     <table>
         <tr>
-            <th class="col-header" style="width:40%;">DETALLE LABOR</th>
-            <th class="col-header" style="width:20%;">CARGAS</th>
-            <th class="col-header" style="width:20%;">HA/CARGA</th>
-            <th class="col-header" style="width:20%;">TOTAL HA.</th>
+            <th class="col-header" style="width:32%;">DETALLE LABOR</th>
+            <th class="col-header" style="width:17%;">CARGAS</th>
+            <th class="col-header" style="width:17%;">HA/CARGA</th>
+            <th class="col-header" style="width:17%;">HA APLICADAS</th>
+            <th class="col-header" style="width:17%;">TOTAL HA LOTE</th>
         </tr>
         <tr>
             <td class="bold text-center"><?= htmlspecialchars($labor_desc) ?></td>
             <td class="bold text-center"><?= $cargas ?></td>
             <td class="bold text-center"><?= number_format($ha_por_carga, 2, ',', '.') ?></td>
+            <td class="bold text-center"><?= number_format($ha_aplicacion, 2, ',', '.') ?></td>
             <td class="bold text-center"><?= number_format($total_ha, 2, ',', '.') ?></td>
         </tr>
     </table>
@@ -133,7 +147,7 @@ header("Expires: 0");
             $nombre = strtoupper($ins['insumo_nombre'] ?: $ins['nombre_libre']);
             $cant_ha = (float)$ins['cantidad_ha'];
             $cant_carga = $cant_ha * $ha_por_carga;
-            $cant_total = $cant_ha * $total_ha;
+            $cant_total = $cant_ha * $ha_aplicacion;   // sobre ha aplicadas (sectorizado)
             $precio_u = (float)$ins['precio_unitario'];
             $costo = $cant_total * $precio_u;
         ?>

@@ -45,8 +45,8 @@ class LotesController {
         $id = (int)$id;
         $this->pdo->beginTransaction();
         try {
-            // Superficie del lote: las operaciones guardan cantidades por hectárea,
-            // así que el stock descontado fue cantidad_ha * superficie.
+            // Superficie del lote: respaldo para operaciones viejas (hectareas NULL).
+            // El stock descontado fue cantidad_ha * hectáreas aplicadas (o superficie del lote si es legacy).
             $stmtSup = $this->pdo->prepare("SELECT superficie FROM lotes WHERE id = ? AND usuario_id = ?");
             $stmtSup->execute([$id, $this->usuario_id]);
             $sup = (float)($stmtSup->fetchColumn() ?: 0);
@@ -56,22 +56,24 @@ class LotesController {
             $stmtRestore = $this->pdo->prepare("UPDATE insumos SET stock_actual = stock_actual + ?, estado = 'activo' WHERE id = ? AND usuario_id = ?");
 
             // 1) Operaciones legacy de tipo 'insumo' con insumo_id directo
-            $stmtOps = $this->pdo->prepare("SELECT insumo_id, cantidad_ha FROM operaciones WHERE lote_id = ? AND usuario_id = ? AND tipo_componente = 'insumo' AND insumo_id IS NOT NULL");
+            $stmtOps = $this->pdo->prepare("SELECT insumo_id, cantidad_ha, hectareas FROM operaciones WHERE lote_id = ? AND usuario_id = ? AND tipo_componente = 'insumo' AND insumo_id IS NOT NULL");
             $stmtOps->execute([$id, $this->usuario_id]);
             foreach ($stmtOps->fetchAll() as $op) {
-                $stmtRestore->execute([(float)$op['cantidad_ha'] * $sup, $op['insumo_id'], $this->usuario_id]);
+                $ha = ($op['hectareas'] !== null) ? (float)$op['hectareas'] : $sup;
+                $stmtRestore->execute([(float)$op['cantidad_ha'] * $ha, $op['insumo_id'], $this->usuario_id]);
             }
 
             // 2) Insumos hijos (recetas / multi-insumo) en operacion_insumos
             $stmtHijos = $this->pdo->prepare("
-                SELECT oi.insumo_id, oi.cantidad_ha
+                SELECT oi.insumo_id, oi.cantidad_ha, o.hectareas
                 FROM operacion_insumos oi
                 JOIN operaciones o ON oi.operacion_id = o.id
                 WHERE o.lote_id = ? AND o.usuario_id = ? AND oi.insumo_id IS NOT NULL
             ");
             $stmtHijos->execute([$id, $this->usuario_id]);
             foreach ($stmtHijos->fetchAll() as $h) {
-                $stmtRestore->execute([(float)$h['cantidad_ha'] * $sup, $h['insumo_id'], $this->usuario_id]);
+                $ha = ($h['hectareas'] !== null) ? (float)$h['hectareas'] : $sup;
+                $stmtRestore->execute([(float)$h['cantidad_ha'] * $ha, $h['insumo_id'], $this->usuario_id]);
             }
 
             // Limpiar alquileres del lote de forma explícita (lote_id no tiene FK

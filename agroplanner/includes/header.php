@@ -23,12 +23,13 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
     <!-- PWA -->
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#10b981">
-    
+    <meta name="mobile-web-app-capable" content="yes">
+
     <!-- PWA iOS (Apple) específicas -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="AgroPlanner">
-    <link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png?v=5">
+    <link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png?v=6">
     
     <script>
       if ('serviceWorker' in navigator) {
@@ -59,6 +60,46 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
             <!-- El usuario y logout ahora están en el sidebar -->
         </div>
     </header>
+
+    <?php if (function_exists('es_solo_lectura') && es_solo_lectura()): ?>
+    <!-- Aviso de cuenta demo. El bloqueo de verdad está en config/auth.php: esto es
+         para que el visitante entienda por qué no puede guardar, y para no tentarlo
+         con botones que no van a funcionar. -->
+    <div class="demo-banner" role="status">
+        <i class="fas fa-eye" aria-hidden="true"></i>
+        <span><strong>Cuenta de demostración.</strong> Podés recorrer todo el sistema y ver los datos; guardar, editar y borrar están deshabilitados.</span>
+    </div>
+    <style>
+        .demo-banner{display:flex;align-items:center;gap:10px;margin:0 0 18px;padding:11px 16px;
+            border:1px solid rgba(245,158,11,.45);background:rgba(245,158,11,.1);border-radius:10px;
+            color:#b45309;font-size:.9rem;line-height:1.4}
+        .demo-banner i{color:#f59e0b;flex:none}
+        /* controles neutralizados: se ven, se entiende que existen, pero no responden */
+        .demo-ro{opacity:.45 !important;cursor:not-allowed !important;pointer-events:none !important}
+        @media (prefers-color-scheme: dark){ .demo-banner{color:#fcd34d} }
+    </style>
+    <script>
+    (function(){
+        // Marca los controles que escriben. Es cosmético y de cortesía: aunque alguien
+        // lo desarme desde la consola, el POST lo sigue rechazando el servidor.
+        function aplicar(){
+            document.querySelectorAll('form').forEach(function(f){
+                var ajax = (f.querySelector('[name="ajax"]') || {}).value || '';
+                if (ajax === 'get_egresos_mes') return;
+                if (f.method && f.method.toLowerCase() !== 'post') return;
+                f.addEventListener('submit', function(e){
+                    e.preventDefault();
+                    alert('Cuenta de demostración: podés ver todo, pero no guardar cambios.');
+                }, true);
+                f.querySelectorAll('button[type="submit"], input[type="submit"], button:not([type])')
+                 .forEach(function(b){ b.classList.add('demo-ro'); b.setAttribute('title','No disponible en la demo'); });
+            });
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', aplicar);
+        else aplicar();
+    })();
+    </script>
+    <?php endif; ?>
 
     <?php
     if (function_exists('get_flash')) {

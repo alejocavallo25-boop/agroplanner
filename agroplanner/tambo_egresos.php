@@ -194,6 +194,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             trim($_POST['notas'] ?? '') ?: null,
             $id_edit, $usuario_id
         ]);
+        // Si la edición vino por AJAX, respondemos JSON (sin recargar la página).
+        if (($_POST['ajax_submit'] ?? '') === '1') {
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['ok' => true]); exit;
+        }
         set_flash('success', 'Egreso actualizado exitosamente.');
         header('Location: tambo_egresos.php'); exit;
 
@@ -215,9 +220,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             ");
             $count = 0;
             foreach ($egresos_replicar as $egr) {
-                // Ensure values are properly casted or nullified
-                $cant = !empty($egr['cantidad']) ? (float)str_replace(',', '.', str_replace('.', '', $egr['cantidad'])) : null;
-                $pu = !empty($egr['precio_unitario']) ? (float)str_replace(',', '.', str_replace('.', '', $egr['precio_unitario'])) : null;
+                // Los valores vienen del JSON ya como números (punto decimal), NO en formato
+                // es-AR. Castear directo: aplicar str_replace('.','') acá borraba el punto
+                // decimal e inflaba los importes (ej. 12.50 → 1250).
+                $cant = ($egr['cantidad'] !== '' && $egr['cantidad'] !== null) ? (float)$egr['cantidad'] : null;
+                $pu = ($egr['precio_unitario'] !== '' && $egr['precio_unitario'] !== null) ? (float)$egr['precio_unitario'] : null;
                 $monto = (float)($egr['monto'] ?? 0);
                 
                 $stmtInsert->execute([
@@ -257,6 +264,7 @@ $offset = ($page - 1) * $limit;
 
 // Filtro por categoría desde GET
 $f_cat = $_GET['categoria'] ?? 'todos';
+$q     = trim($_GET['q'] ?? '');
 
 $where = "WHERE usuario_id = ? AND fecha >= ? AND fecha <= ?";
 $params = [$usuario_id, $mes_start, $mes_end];
@@ -264,6 +272,24 @@ $params = [$usuario_id, $mes_start, $mes_end];
 if ($f_cat !== 'todos' && $f_cat !== 'todas') {
     $where .= " AND categoria = ?";
     $params[] = $f_cat;
+}
+// Búsqueda universal: categoría, subcategoría, concepto, unidad, moneda, notas,
+// cantidad, precio, monto y fecha. Se combina con el mes/categoría seleccionados.
+if ($q !== '') {
+    $like = '%' . $q . '%';
+    $where .= " AND (
+        categoria LIKE ?
+        OR subcategoria LIKE ?
+        OR concepto LIKE ?
+        OR unidad LIKE ?
+        OR moneda LIKE ?
+        OR notas LIKE ?
+        OR CAST(cantidad AS CHAR) LIKE ?
+        OR CAST(precio_unitario AS CHAR) LIKE ?
+        OR CAST(monto AS CHAR) LIKE ?
+        OR DATE_FORMAT(fecha, '%d/%m/%Y') LIKE ?
+    )";
+    for ($k = 0; $k < 10; $k++) $params[] = $like;
 }
 
 // 1. Contar total filtrado para paginación
@@ -466,7 +492,7 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
 
 <!-- KPIs de Modo y Totales -->
 <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap:wrap; gap:10px;">
-    <div style="display:flex; gap:15px;">
+    <div style="display:flex; gap:15px;" id="egresosTotalesBox">
         <div style="display:flex; flex-direction:column;">
             <span class="kpi-label">Total Mes ARS</span>
             <span style="font-size:1.2rem; font-weight:800; color:white;" id="kpiTotal" data-val="<?= $total_mes_ars ?>">$<?= number_format($total_mes_ars, 2, ',', '.') ?></span>
@@ -543,6 +569,7 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
             <button class="grupo-tab <?= $f_cat === $cat ? 'active' : '' ?>" onclick="setFiltroCat('<?= htmlspecialchars($cat) ?>')"><?= htmlspecialchars($cat) ?></button>
             <?php endforeach; ?>
         </div>
+        <?php $buscador_placeholder = 'Buscar concepto, categoría, monto, nota... (Enter)'; $buscador_enter_only = true; include 'includes/buscador.php'; ?>
     </div>
 
     <div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
@@ -640,13 +667,13 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
     <?php if ($total_pages > 1): ?>
     <div style="display:flex; justify-content: center; gap:10px; margin-top:20px; padding-bottom:10px;">
         <?php if ($page > 1): ?>
-            <a href="?page=<?= $page-1 ?>&categoria=<?= urlencode($f_cat) ?>&mes=<?= $mes_sel ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
+            <a href="?page=<?= $page-1 ?>&categoria=<?= urlencode($f_cat) ?>&mes=<?= $mes_sel ?>&q=<?= urlencode($q) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
         <?php endif; ?>
         
         <span style="color:var(--text-muted); align-self:center; font-size:0.9rem;">Página <?= $page ?> de <?= $total_pages ?></span>
 
         <?php if ($page < $total_pages): ?>
-            <a href="?page=<?= $page+1 ?>&categoria=<?= urlencode($f_cat) ?>&mes=<?= $mes_sel ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
+            <a href="?page=<?= $page+1 ?>&categoria=<?= urlencode($f_cat) ?>&mes=<?= $mes_sel ?>&q=<?= urlencode($q) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
         <?php endif; ?>
     </div>
     <?php endif; ?>
@@ -1376,8 +1403,56 @@ document.getElementById('formEgreso').addEventListener('submit', function(e) {
             b.disabled = false;
             b.innerHTML = 'Guardar Egreso';
         }
+    } else if (document.getElementById('formAction').value === 'edit_egreso') {
+        // Edición vía AJAX: no recargar la página, refrescar la tabla y los totales.
+        e.preventDefault();
+        const btn = this.querySelector('button[type=submit]');
+        const fd = new FormData(this);
+        fd.append('ajax_submit', '1');
+        fetch('tambo_egresos.php', { method: 'POST', body: fd })
+            .then(r => r.json())
+            .then(data => {
+                if (data && data.ok) {
+                    closeAddModal();
+                    showEgresoToast('Egreso actualizado');
+                    refreshEgresosTabla();
+                } else {
+                    alert('Error al guardar: ' + (data && data.msg ? data.msg : 'desconocido'));
+                }
+            })
+            .catch(() => alert('Error de conexión al guardar el egreso.'))
+            .finally(() => { if (btn) btn.disabled = false; });
     }
 });
+
+/* ── Refresco parcial de la tabla/KPIs sin recargar la página ── */
+async function refreshEgresosTabla() {
+    try {
+        const res = await fetch(window.location.href, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        const html = await res.text();
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        ['egresosTableBody', 'gastosKpiGrid', 'egresosTotalesBox'].forEach(id => {
+            const nuevo = doc.getElementById(id);
+            const actual = document.getElementById(id);
+            if (nuevo && actual) actual.innerHTML = nuevo.innerHTML;
+        });
+        renderKpis(); // re-aplica el modo dinero/porcentaje vigente
+    } catch (e) {
+        console.error(e);
+        // Si el refresco parcial falla, recargamos como respaldo.
+        window.location.reload();
+    }
+}
+
+/* ── Toast rápido reutilizable ── */
+function showEgresoToast(msg) {
+    const t = document.createElement('div');
+    t.innerHTML = '<i class="fas fa-check-circle"></i> ' + msg;
+    t.style.cssText = 'position:fixed; bottom:20px; right:20px; background:#10b981; color:white; padding:12px 24px; border-radius:8px; font-weight:bold; z-index:99999; box-shadow:0 4px 12px rgba(16,185,129,0.4); transition:opacity 0.3s; display:flex; align-items:center; gap:8px;';
+    document.body.appendChild(t);
+    setTimeout(() => { t.style.opacity = '0'; }, 1200);
+    setTimeout(() => { if (t.parentNode) document.body.removeChild(t); }, 1500);
+}
 
 function formatVal(val) {
     if (!val && val !== 0) return '';

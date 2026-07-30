@@ -13,6 +13,44 @@
     </footer>
 </main> <!-- Cierra .main-content -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<!-- ===== Buscador universal (server-side) ===== -->
+<style>
+.ap-search-box{position:relative;display:flex;align-items:center;min-width:240px;flex:1 1 240px;max-width:420px;}
+.ap-search-box .fa-search{position:absolute;left:12px;color:var(--text-muted);font-size:0.85rem;pointer-events:none;}
+.ap-search-box input{width:100%;padding:9px 34px 9px 34px;border-radius:8px;border:1px solid var(--border,rgba(255,255,255,0.1));background:rgba(0,0,0,0.2);color:var(--text-primary,#fff);font-size:0.9rem;outline:none;transition:border-color .2s;}
+.ap-search-box input:focus{border-color:var(--accent,#3b82f6);}
+.ap-search-box .ap-search-clear{position:absolute;right:8px;background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:0.9rem;padding:4px;display:none;}
+.ap-search-box.has-value .ap-search-clear{display:inline-flex;}
+</style>
+<script>
+// Buscador universal: actualiza el parámetro ?q= preservando el resto de filtros.
+(function(){
+    let _apTimer;
+    function _apGo(value){
+        const url = new URL(window.location);
+        const v = (value || '').trim();
+        if (v) url.searchParams.set('q', v); else url.searchParams.delete('q');
+        url.searchParams.set('page', 1);
+        window.location.href = url.href;
+    }
+    window.apBuscar = function(input){
+        const box = input.closest('.ap-search-box');
+        if (box) box.classList.toggle('has-value', input.value.trim() !== '');
+        // Si la caja está marcada "solo Enter", no buscar mientras se escribe.
+        if (input.dataset.searchOnEnter === '1') return;
+        clearTimeout(_apTimer);
+        _apTimer = setTimeout(() => _apGo(input.value), 450);
+    };
+    window.apBuscarEnter = function(input, ev){
+        if (ev.key === 'Enter'){ ev.preventDefault(); clearTimeout(_apTimer); _apGo(input.value); }
+    };
+    window.apBuscarLimpiar = function(btn){
+        const box = btn.closest('.ap-search-box');
+        const input = box ? box.querySelector('input') : null;
+        if (input){ input.value=''; } _apGo('');
+    };
+})();
+</script>
 <?php if(isset($scripts)) echo $scripts; ?>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
