@@ -1,0 +1,36 @@
+# ── Credenciales ────────────────────────────────────────────────────────────
+# El .env de producción vive SOLO en el servidor y se edita desde el
+# administrador de archivos del hPanel. Nunca va al repo.
+.env
+.env.local
+.env.production
+
+# ── Volcados y respaldos de base ────────────────────────────────────────────
+# Las migraciones versionadas (migrations/*.sql) y el esquema con datos de
+# ejemplo (database.sql) SÍ van al repo. Lo que no va es un dump con datos
+# reales de productores.
+*dump*.sql
+*backup*.sql
+*respaldo*.sql
+*.sql.gz
+*.sql.zip
+
+# ── Logs ────────────────────────────────────────────────────────────────────
+*.log
+php-errors.log
+error_log
+
+# ── Dependencias ────────────────────────────────────────────────────────────
+/vendor/
+node_modules/
+
+# ── Sistema operativo y editores ────────────────────────────────────────────
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# ── Local de herramientas ───────────────────────────────────────────────────
+.claude/settings.local.json
