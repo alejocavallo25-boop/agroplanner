@@ -1,6 +1,10 @@
 <?php
 // config/database.php
 
+// Registro de errores. Va primero para cubrir tambien un fallo de conexion: deja el
+// detalle en php-errors.log en vez de una pantalla gris sin rastro en ningun lado.
+require_once __DIR__ . '/errors.php';
+
 // Cargar variables de entorno (simulación simple)
 $envPath = __DIR__ . '/../.env';
 $env = [];
