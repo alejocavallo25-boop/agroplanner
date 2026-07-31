@@ -32,6 +32,17 @@ ORDER BY TABLE_NAME;
 -- PASO 2 — Generar los ALTER necesarios.
 -- Ejecutá esto, copiá la columna de resultados y pegala como nueva consulta.
 -- Sólo genera líneas para las tablas que hagan falta.
+--
+-- IMPORTANTE: envolvé los ALTER entre estas dos lineas
+--     SET FOREIGN_KEY_CHECKS = 0;   ...los ALTER...   SET FOREIGN_KEY_CHECKS = 1;
+-- Sin eso, MySQL rechaza con "#1832 No puedo cambiar la columna X: usada en una
+-- restriccion de clave foranea" cualquier columna que participe de una FK.
+-- Es seguro: como al final TODAS las tablas quedan en la misma colacion, las
+-- relaciones siguen siendo validas. Lo que no hay que hacer es convertir sólo
+-- algunas tablas con las verificaciones apagadas.
+--
+-- Nota: phpMyAdmin marca "Analisis estatico: errores" ante ALTER TABLE IF EXISTS.
+-- Es su parser, que no conoce esa sintaxis de MariaDB. Las sentencias corren igual.
 -- ─────────────────────────────────────────────────────────────────────────────
 SELECT CONCAT(
          'ALTER TABLE `', TABLE_NAME,
