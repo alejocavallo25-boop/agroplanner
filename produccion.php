@@ -48,7 +48,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 FROM produccion_ventas pv
                 LEFT JOIN cultivos c ON pv.cultivo_id = c.id
                 WHERE pv.lote_id = ? AND pv.usuario_id = ? AND pv.campania_vendida = ?
-                  AND COALESCE(NULLIF(c.nombre, ''), NULLIF(pv.cultivo_vendido, ''), 'Sin especificar') = ?
+                  AND COALESCE(NULLIF(c.nombre, ''), NULLIF(pv.cultivo_vendido, ''), 'Sin especificar') COLLATE utf8mb4_unicode_ci = ?
             ");
             $stmtTot->execute([$lote_id, $usuario_id, $campania, $cultivo]);
             $tot = $stmtTot->fetch();

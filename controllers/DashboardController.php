@@ -128,7 +128,7 @@ class DashboardController {
         $sql = "SELECT SUM(pv.ingreso_total) as total, SUM(pv.kg_cosechados) as kgs FROM produccion_ventas pv LEFT JOIN cultivos c ON pv.cultivo_id = c.id WHERE (pv.campania_vendida = ? OR c.ciclo = ?) AND pv.usuario_id = ?";
         $params = [$ciclo_sel, $ciclo_sel, $this->usuario_id];
         if ($lote_sel !== null) { $sql .= " AND pv.lote_id = ?"; $params[] = $lote_sel; }
-        if ($cultivo_sel !== null) { $sql .= " AND COALESCE(NULLIF(c.nombre, ''), NULLIF(pv.cultivo_vendido, ''), 'Sin Especificar') = ?"; $params[] = $cultivo_sel; }
+        if ($cultivo_sel !== null) { $sql .= " AND COALESCE(NULLIF(c.nombre, ''), NULLIF(pv.cultivo_vendido, ''), 'Sin Especificar') COLLATE utf8mb4_unicode_ci = ?"; $params[] = $cultivo_sel; }
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($params);
         $res = $stmt->fetch();
@@ -139,7 +139,7 @@ class DashboardController {
         $sql = "SELECT SUM(o.costo_total) as total FROM operaciones o LEFT JOIN cultivos c ON o.cultivo_id = c.id WHERE (o.campania_operacion = ? OR c.ciclo = ?) AND o.usuario_id = ?";
         $params = [$ciclo_sel, $ciclo_sel, $this->usuario_id];
         if ($lote_sel !== null) { $sql .= " AND o.lote_id = ?"; $params[] = $lote_sel; }
-        if ($cultivo_sel !== null) { $sql .= " AND COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), 'Sin Especificar') = ?"; $params[] = $cultivo_sel; }
+        if ($cultivo_sel !== null) { $sql .= " AND COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), 'Sin Especificar') COLLATE utf8mb4_unicode_ci = ?"; $params[] = $cultivo_sel; }
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($params);
         $stats['costos_directos'] = (float)$stmt->fetch()['total'];
@@ -255,8 +255,8 @@ class DashboardController {
                 FROM produccion_ventas pv 
                 LEFT JOIN cultivos c ON pv.cultivo_id = c.id 
                 WHERE pv.lote_id = ? AND (pv.campania_vendida = ? OR c.ciclo = ?)
-                AND (COALESCE(NULLIF(c.nombre, ''), NULLIF(pv.cultivo_vendido, ''), 'Sin Especificar') = ? 
-                     OR (? = 'Sin Especificar' AND c.nombre IS NULL AND pv.cultivo_vendido IS NULL))
+                AND (COALESCE(NULLIF(c.nombre, ''), NULLIF(pv.cultivo_vendido, ''), 'Sin Especificar') COLLATE utf8mb4_unicode_ci = ? 
+                     OR (? COLLATE utf8mb4_unicode_ci = 'Sin Especificar' AND c.nombre IS NULL AND pv.cultivo_vendido IS NULL))
             ");
             $stmtI->execute([$lote_id, $ciclo_sel, $ciclo_sel, $esp, $esp]);
             $resI = $stmtI->fetch();
@@ -267,8 +267,8 @@ class DashboardController {
             $stmtC = $this->pdo->prepare("
                 SELECT 
                     SUM(CASE 
-                        WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') = ?) THEN o.costo_total
-                        WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') = '') THEN (o.costo_total / ?)
+                        WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') COLLATE utf8mb4_unicode_ci = ?) THEN o.costo_total
+                        WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') COLLATE utf8mb4_unicode_ci = '') THEN (o.costo_total / ?)
                         ELSE 0 
                     END) as total,
                     SUM(
@@ -279,8 +279,8 @@ class DashboardController {
                         END)
                         *
                         (CASE
-                            WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') = ?) THEN 1
-                            WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') = '') THEN (1.0 / ?)
+                            WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') COLLATE utf8mb4_unicode_ci = ?) THEN 1
+                            WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') COLLATE utf8mb4_unicode_ci = '') THEN (1.0 / ?)
                             ELSE 0
                         END)
                     ) as labores,
@@ -292,8 +292,8 @@ class DashboardController {
                         END)
                         *
                         (CASE
-                            WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') = ?) THEN 1
-                            WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') = '') THEN (1.0 / ?)
+                            WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') COLLATE utf8mb4_unicode_ci = ?) THEN 1
+                            WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') COLLATE utf8mb4_unicode_ci = '') THEN (1.0 / ?)
                             ELSE 0
                         END)
                     ) as insumos

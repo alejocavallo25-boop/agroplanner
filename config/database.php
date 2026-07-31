@@ -18,11 +18,22 @@ $user = $env['DB_USER'] ?? 'root';
 $pass = $env['DB_PASS'] ?? '';
 $charset = $env['DB_CHARSET'] ?? 'utf8mb4';
 
+// Colacion de la conexion. NO alcanza con "charset=utf8mb4" en el DSN: eso ejecuta
+// SET NAMES utf8mb4 a secas, y MariaDB le asigna su colacion por defecto para ese
+// charset, que es utf8mb4_general_ci. Resultado: los literales y los parametros de
+// cada consulta viajan en general_ci, y al mezclarse con columnas en unicode_ci
+// dentro de un COALESCE o un CASE, MySQL aborta con:
+//   1267 Illegal mix of collations (utf8mb4_general_ci) and (utf8mb4_unicode_ci)
+// Fijandola explicitamente, literales, parametros y columnas hablan el mismo idioma.
+$collation = $env['DB_COLLATION'] ?? 'utf8mb4_unicode_ci';
+
 $dsn = "mysql:host=$host;dbname=$db;charset=$charset";
 $options = [
     PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     PDO::ATTR_EMULATE_PREPARES   => false,
+    // Se aplica al conectar y tambien en cada reconexion automatica
+    PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES $charset COLLATE $collation",
 ];
 
 try {
