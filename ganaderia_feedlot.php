@@ -21,7 +21,7 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS feedlot_lotes (
   usd_referencia DECIMAL(10,2) DEFAULT 1185, notas TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_u (usuario_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
 $pdo->exec("CREATE TABLE IF NOT EXISTS feedlot_costos_fijos (
   id INT AUTO_INCREMENT PRIMARY KEY, lote_id INT NOT NULL, usuario_id INT NOT NULL,
@@ -29,7 +29,7 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS feedlot_costos_fijos (
   cantidad DECIMAL(10,2) DEFAULT 1, precio_unitario DECIMAL(14,2) DEFAULT 0,
   monto_mensual DECIMAL(14,2) DEFAULT 0,
   INDEX idx_l (lote_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
 try {
     $pdo->exec("ALTER TABLE feedlot_costos_fijos ADD COLUMN cantidad DECIMAL(10,2) DEFAULT 1 AFTER categoria");
@@ -42,7 +42,7 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS feedlot_alimentos (
   fase ENUM('invernada','engorde') NOT NULL,
   nombre VARCHAR(100) NOT NULL, kg_x_dia DECIMAL(8,3) DEFAULT 0, precio_kg DECIMAL(10,2) DEFAULT 0,
   INDEX idx_lf (lote_id, fase)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
 // ─── AJAX ──────────────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['ajax']??'')==='1') {

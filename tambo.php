@@ -16,7 +16,7 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS `tambo_dolar_mes` (
     `fuente` ENUM('api','manual') NOT NULL DEFAULT 'api',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_usuario_mes` (`usuario_id`,`mes`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
 // Filtro mensual
 $mes_sel       = $_GET['mes'] ?? date('Y-m');

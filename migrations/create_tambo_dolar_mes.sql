@@ -15,4 +15,4 @@ CREATE TABLE IF NOT EXISTS `tambo_dolar_mes` (
   `actualizado_en`  TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_usuario_mes` (`usuario_id`, `mes`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Tipo de cambio dólar mayorista por mes para cierres históricos';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Tipo de cambio dólar mayorista por mes para cierres históricos';

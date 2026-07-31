@@ -16,4 +16,4 @@ CREATE TABLE IF NOT EXISTS `tambo_dif_inventario` (
   PRIMARY KEY (`id`),
   INDEX `idx_dif_usuario_mes` (`usuario_id`, `mes`),
   INDEX `idx_dif_grupo`       (`grupo_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

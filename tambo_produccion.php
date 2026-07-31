@@ -21,7 +21,7 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS `tambo_dif_inventario` (
   `criterio` VARCHAR(150),
   PRIMARY KEY(`id`),
   INDEX `idx_venta_carne`(`venta_carne_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
 try {
     $pdo->exec("ALTER TABLE tambo_ventas_carne ADD COLUMN monto_original DECIMAL(14,2) NULL AFTER monto_total");

@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS `tambo_rodeo` (
   `created_at`   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_rodeo_usuario_fecha` (`usuario_id`, `fecha`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `tambo_produccion` (
   `id`          INT(11) NOT NULL AUTO_INCREMENT,
@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS `tambo_produccion` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_prod_usuario_fecha` (`usuario_id`, `fecha`),
   INDEX `idx_prod_fecha` (`fecha`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `tambo_calidad` (
   `id`          INT(11) NOT NULL AUTO_INCREMENT,
@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS `tambo_calidad` (
   `created_at`  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   INDEX `idx_calidad_fecha` (`usuario_id`, `fecha`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ═══════════════════════════════════════════════════════════════
 -- MÓDULO GANADERÍA
@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS `ganaderia_inventario` (
   `created_at`  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   INDEX `idx_inv_usuario` (`usuario_id`, `fecha`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `ganaderia_movimientos` (
   `id`          INT(11) NOT NULL AUTO_INCREMENT,
@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS `ganaderia_movimientos` (
   `created_at`  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   INDEX `idx_mov_fecha` (`usuario_id`, `fecha`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `ganaderia_pesadas` (
   `id`          INT(11) NOT NULL AUTO_INCREMENT,
@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS `ganaderia_pesadas` (
   `created_at`  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   INDEX `idx_pesadas_fecha` (`usuario_id`, `fecha`, `categoria`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `ganaderia_reproductivo` (
   `id`            INT(11) NOT NULL AUTO_INCREMENT,
@@ -109,4 +109,4 @@ CREATE TABLE IF NOT EXISTS `ganaderia_reproductivo` (
   `created_at`    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_repro_usuario_ejercicio` (`usuario_id`, `ejercicio`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

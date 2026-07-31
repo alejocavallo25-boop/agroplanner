@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS `ganaderia_egresos` (
   PRIMARY KEY (`id`),
   INDEX `idx_gan_egr_usuario_fecha` (`usuario_id`, `fecha`),
   INDEX `idx_gan_egr_categoria`     (`usuario_id`, `categoria`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Conceptos personalizados
 CREATE TABLE IF NOT EXISTS `ganaderia_egresos_conceptos` (
@@ -31,4 +31,4 @@ CREATE TABLE IF NOT EXISTS `ganaderia_egresos_conceptos` (
   `activo`       TINYINT(1)  NOT NULL DEFAULT 1,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_gan_concepto` (`usuario_id`, `categoria`, `subcategoria`, `nombre`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
