@@ -30,6 +30,16 @@ define('ENDPOINT_ULTIMA_FECHA',  SIOGRANOS_BASE . 'v5_ajax/funcionUltimaFechaPar
 define('ENDPOINT_TIENE_DATOS',   SIOGRANOS_BASE . 'v5_ajax/tieneDatos_min.php');
 define('ENDPOINT_COTIZACIONES',  SIOGRANOS_BASE . 'v5_ajax/cuadrosCotizaciones_min.php');
 
+// Cuántos días se retrocede buscando el último con operaciones.
+// 10 cubre fines de semana largos y feriados encadenados.
+define('MAX_DIAS_ATRAS', 10);
+
+// El sitio corta los pedidos muy seguidos: alrededor del sexto empieza a
+// devolver una página HTML en vez del JSON. Con esta pausa entre pedidos y un
+// reintento alcanza para que entren los seis productos.
+define('PAUSA_ENTRE_PEDIDOS', 700000); // microsegundos (0,7 s)
+define('ESPERA_REINTENTO',    4);      // segundos
+
 // ── Productos a sincronizar ───────────────────────────────────────────────────
 // IDs extraídos del JS oficial + inspección en vivo del HTML
 // zonaPrecioPpal por defecto = '23' (Rosario Norte)
@@ -89,9 +99,48 @@ function log_msg(string $msg): void
  */
 function hace_una_semana(string $fechaDMY): string
 {
+    return restar_dias($fechaDMY, 7);
+}
+
+/**
+ * Resta días a una fecha dd/mm/yyyy y devuelve el mismo formato.
+ */
+function restar_dias(string $fechaDMY, int $dias): string
+{
     [$d, $m, $y] = explode('/', $fechaDMY);
-    $ts = mktime(0, 0, 0, (int)$m, (int)$d - 7, (int)$y);
+    $ts = mktime(0, 0, 0, (int)$m, (int)$d - $dias, (int)$y);
     return date('d/m/Y', $ts);
+}
+
+/**
+ * GET que además decodifica el JSON, con reintento.
+ * Cuando el sitio corta por exceso de pedidos devuelve una página HTML: eso no
+ * parsea, se espera y se vuelve a pedir. Devuelve null si no hubo respuesta
+ * válida (ojo: "0" es una respuesta válida y significa "sin operaciones").
+ */
+function sio_get_json(string $url, int $reintentos = 2)
+{
+    for ($i = 0; $i <= $reintentos; $i++) {
+        if ($i > 0) {
+            log_msg('    · respuesta no-JSON (corte por exceso de pedidos), reintento en ' . ESPERA_REINTENTO . 's');
+            sleep(ESPERA_REINTENTO);
+        }
+        $raw = sio_get($url);
+        if ($raw === false) continue;
+
+        $data = json_decode(trim($raw), true);
+        if (json_last_error() === JSON_ERROR_NONE) return $data;
+    }
+    return null;
+}
+
+/**
+ * ¿El mercado operó ese día? La API responde true/false.
+ */
+function tiene_datos(string $fechaDMY): bool
+{
+    $url = ENDPOINT_TIENE_DATOS . '?cosas=' . urlencode(json_encode(['fecha' => $fechaDMY]));
+    return !empty(sio_get_json($url));
 }
 
 /**
@@ -110,36 +159,50 @@ function ultimo_precio(array $arr): ?float
 // ── Paso 1: Obtener la última fecha con datos disponibles ─────────────────────
 log_msg('=== Iniciando sincronización SIO-Granos ===');
 
-$rawFecha = sio_get(ENDPOINT_ULTIMA_FECHA);
-if ($rawFecha === false) {
-    log_msg('ERROR: No se pudo conectar al endpoint de fecha. Abortando.');
+// La fecha que informa el sitio es un punto de partida, NO una garantía de que
+// ese día haya operaciones. Devuelve el día corriente (con la hora en ":00")
+// aunque el mercado todavía no haya operado, así que hay que retroceder hasta
+// encontrar el último día con datos. Confiar en ella a ciegas fue lo que dejó
+// la sincronización congelada desde el 18/06/2026: el cron corre a las 00:00 y
+// a las 12:00, horarios en los que el día corriente casi nunca tiene datos, y
+// el script abortaba sin guardar nada en lugar de tomar el día hábil anterior.
+$rawFecha  = sio_get(ENDPOINT_ULTIMA_FECHA);
+$fechaBase = date('d/m/Y');
+
+if ($rawFecha !== false) {
+    $dataFecha = json_decode(trim($rawFecha), true);
+    if (json_last_error() === JSON_ERROR_NONE && !empty($dataFecha['fecha'])) {
+        $fechaBase = $dataFecha['fecha'];
+        log_msg('Fecha informada por el sitio: ' . $fechaBase . '  Hora: ' . ($dataFecha['hora'] ?? '—'));
+    } else {
+        log_msg('AVISO: respuesta inesperada de fecha (' . substr($rawFecha, 0, 80) . '). Se arranca desde hoy.');
+    }
+} else {
+    log_msg('AVISO: no respondió el endpoint de fecha. Se arranca desde hoy.');
+}
+
+// ── Paso 2: Retroceder hasta el último día con operaciones ───────────────────
+$fechaHoy = null;
+for ($i = 0; $i <= MAX_DIAS_ATRAS; $i++) {
+    $candidata = restar_dias($fechaBase, $i);
+    if (tiene_datos($candidata)) {
+        $fechaHoy = $candidata;
+        break;
+    }
+    log_msg("  · $candidata sin operaciones (fin de semana, feriado o jornada aún sin cerrar)");
+}
+
+if ($fechaHoy === null) {
+    log_msg('ERROR: no se encontró ningún día con datos en los últimos ' . MAX_DIAS_ATRAS . ' días. Abortando.');
     exit(1);
 }
 
-$dataFecha = json_decode(trim($rawFecha), true);
-if (json_last_error() !== JSON_ERROR_NONE || empty($dataFecha['fecha'])) {
-    log_msg('ERROR: Respuesta inesperada de fecha: ' . $rawFecha);
-    exit(1);
-}
-
-$fechaHoy  = $dataFecha['fecha'];          // "29/04/2026"
-$hora      = $dataFecha['hora'] ?? '—';
-$fechaHace = hace_una_semana($fechaHoy);   // "22/04/2026"
-
+$fechaHace = hace_una_semana($fechaHoy);
 [$d, $m, $y] = explode('/', $fechaHoy);
 $fechaSQL = "$y-$m-$d";
 
-log_msg("Última fecha disponible: $fechaHoy  Hora: $hora");
-log_msg("Rango de consulta:       $fechaHoy → $fechaHace  (HOY → hace 7 días)");
-
-// ── Paso 2: Verificar si hay datos para esa fecha ────────────────────────────
-$rawTiene = sio_get(ENDPOINT_TIENE_DATOS . '?cosas=' . urlencode(json_encode(['fecha' => $fechaHoy])));
-$tiene    = json_decode(trim($rawTiene ?? ''), true);
-if (empty($tiene)) {
-    log_msg("Sin datos operables para $fechaHoy. El mercado puede estar cerrado. Abortando.");
-    exit(0);
-}
-log_msg("Confirmado: hay datos para $fechaHoy.");
+log_msg("Último día con operaciones: $fechaHoy");
+log_msg("Rango de consulta:          $fechaHoy → $fechaHace  (7 días hacia atrás)");
 
 // ── Paso 3: Preparar el INSERT/UPDATE ────────────────────────────────────────
 $sql = "
@@ -172,32 +235,26 @@ foreach ($PRODUCTOS as $label => $cfg) {
     ];
     $cosas = json_encode($params, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     $url   = ENDPOINT_COTIZACIONES . '?cosas=' . urlencode($cosas);
-    $raw   = sio_get($url);
 
-    if ($raw === false) {
-        log_msg("  ✗ $label — Error de red.");
-        $fallidos++;
-        continue;
-    }
+    usleep(PAUSA_ENTRE_PEDIDOS);
+    $inner = sio_get_json($url);
 
-    // Decodificar: la respuesta es un JSON-dentro-de-JSON (el JS hace JSON.parse(data))
-    $inner = json_decode(trim($raw), true);
-    if (json_last_error() !== JSON_ERROR_NONE) {
-        log_msg("  ✗ $label — JSON inválido: " . substr($raw, 0, 100));
+    if ($inner === null) {
+        log_msg("  ✗ $label — Sin respuesta válida del servidor.");
         $fallidos++;
         continue;
     }
 
     // Cuando no hay operaciones devuelve "0" (string) o el int 0
-    if ($inner === '0' || $inner === 0 || $inner === null) {
-        log_msg("  ⚠ $label — Sin operaciones para $fechaHoy.");
+    if ($inner === '0' || $inner === 0) {
+        log_msg("  ⚠ $label — Sin operaciones en el rango consultado.");
         $fallidos++;
         continue;
     }
 
     // inner debe ser un array con claves 'minimos', 'promedios', 'maximos', 'modal'
     if (!is_array($inner)) {
-        log_msg("  ✗ $label — Respuesta inesperada: " . substr($raw, 0, 200));
+        log_msg("  ✗ $label — Respuesta inesperada: " . substr(json_encode($inner), 0, 200));
         $fallidos++;
         continue;
     }
@@ -220,10 +277,15 @@ foreach ($PRODUCTOS as $label => $cfg) {
         }
     }
 
+    // Cada grano opera sus propios días: el girasol o la cebada pueden no tener
+    // operaciones el día que sí operó la soja. En ese caso el dato igual sirve,
+    // así que se guarda con SU fecha en vez de descartarlo — si no, esos cultivos
+    // no aparecen nunca en el panel.
+    $fechaFilaSQL = $fechaSQL;
     if ($fechaRespuesta && $fechaRespuesta !== $fechaHoy) {
-        log_msg("  ⚠ $label — La fecha de la respuesta ($fechaRespuesta) no coincide con $fechaHoy. Sin datos del día.");
-        $fallidos++;
-        continue;
+        [$rd, $rm, $ry]  = explode('/', $fechaRespuesta);
+        $fechaFilaSQL    = "$ry-$rm-$rd";
+        log_msg("  ℹ $label — no operó el $fechaHoy; se guarda su último dato, del $fechaRespuesta.");
     }
 
     if ($promedio === null && $minimo === null && $maximo === null) {
@@ -233,7 +295,7 @@ foreach ($PRODUCTOS as $label => $cfg) {
     }
 
     $stmt->execute([
-        ':fecha'       => $fechaSQL,
+        ':fecha'       => $fechaFilaSQL,
         ':cultivo'     => $label,
         ':producto_id' => $cfg['producto_id'],
         ':zona'        => $cfg['zona'],
