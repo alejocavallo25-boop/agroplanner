@@ -58,6 +58,12 @@ $PRODUCTOS = [
 
 /**
  * Petición GET con cURL. Devuelve el body o false en caso de error.
+ *
+ * El sitio del MAGYP está detrás de un WAF (BunkerWeb) que corta los pedidos
+ * que huelen a robot y devuelve una página HTML de 403. El User-Agent anterior
+ * era 'AgroPlanner-SyncBot/1.0' — con la palabra "Bot" adentro, que es
+ * justamente lo que esos filtros buscan. Por eso ahora se manda el juego de
+ * cabeceras de un navegador común.
  */
 function sio_get(string $url): string|false
 {
@@ -67,21 +73,39 @@ function sio_get(string $url): string|false
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_TIMEOUT        => 30,
         CURLOPT_SSL_VERIFYPEER => true,
-        CURLOPT_USERAGENT      => 'AgroPlanner-SyncBot/1.0',
+        CURLOPT_ENCODING       => '',   // acepta gzip/deflate, como un navegador
+        CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                                . '(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
         CURLOPT_HTTPHEADER     => [
             'Accept: application/json, text/javascript, */*; q=0.01',
+            'Accept-Language: es-AR,es;q=0.9,en;q=0.8',
             'X-Requested-With: XMLHttpRequest',
             'Referer: https://monitorsiogranos.magyp.gob.ar/monitorsiogranos.html',
+            'Origin: https://monitorsiogranos.magyp.gob.ar',
+            'Sec-Fetch-Site: same-origin',
+            'Sec-Fetch-Mode: cors',
+            'Sec-Fetch-Dest: empty',
+            'Connection: keep-alive',
         ],
     ]);
     $body = curl_exec($ch);
     $err  = curl_error($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
     if ($body === false) {
-        log_msg("cURL error para $url: $err");
+        log_msg("    cURL error: $err");
         return false;
     }
+
+    // El WAF responde una página HTML enorme. Se resume en una línea para que
+    // el log del cron siga siendo legible desde el panel.
+    if ($code >= 400 || (isset($body[0]) && $body[0] === '<')) {
+        $motivo = $code >= 400 ? "HTTP $code" : 'respuesta HTML en vez de JSON';
+        log_msg("    Bloqueado por el sitio ($motivo) — el WAF rechazó el pedido.");
+        return false;
+    }
+
     return $body;
 }
 
