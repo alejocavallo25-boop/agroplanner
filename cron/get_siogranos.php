@@ -34,11 +34,17 @@ define('ENDPOINT_COTIZACIONES',  SIOGRANOS_BASE . 'v5_ajax/cuadrosCotizaciones_m
 // 10 cubre fines de semana largos y feriados encadenados.
 define('MAX_DIAS_ATRAS', 10);
 
-// El sitio corta los pedidos muy seguidos: alrededor del sexto empieza a
-// devolver una página HTML en vez del JSON. Con esta pausa entre pedidos y un
-// reintento alcanza para que entren los seis productos.
+// El sitio corta los pedidos muy seguidos y devuelve una página HTML en vez del
+// JSON. Con esta pausa entre pedidos y un reintento alcanza para que entren los
+// seis productos.
 define('PAUSA_ENTRE_PEDIDOS', 700000); // microsegundos (0,7 s)
-define('ESPERA_REINTENTO',    4);      // segundos
+define('ESPERA_REINTENTO',    3);      // segundos
+
+// Cuando el WAF del MAGYP bloquea (403), el bloqueo es del cliente entero, no
+// de un pedido puntual: reintentar no cambia nada y sí hace que el script se
+// pase del tiempo máximo de ejecución de PHP y muera sin llegar a loguear.
+// Por eso el primer 403 corta toda la corrida.
+$SIO_BLOQUEADO = false;
 
 // ── Productos a sincronizar ───────────────────────────────────────────────────
 // IDs extraídos del JS oficial + inspección en vivo del HTML
@@ -99,8 +105,11 @@ function sio_get(string $url): string|false
     }
 
     // El WAF responde una página HTML enorme. Se resume en una línea para que
-    // el log del cron siga siendo legible desde el panel.
+    // el log del cron siga siendo legible desde el panel, y se marca el bloqueo
+    // para no seguir insistiendo.
     if ($code >= 400 || (isset($body[0]) && $body[0] === '<')) {
+        global $SIO_BLOQUEADO;
+        $SIO_BLOQUEADO = true;
         $motivo = $code >= 400 ? "HTTP $code" : 'respuesta HTML en vez de JSON';
         log_msg("    Bloqueado por el sitio ($motivo) — el WAF rechazó el pedido.");
         return false;
@@ -142,11 +151,15 @@ function restar_dias(string $fechaDMY, int $dias): string
  * parsea, se espera y se vuelve a pedir. Devuelve null si no hubo respuesta
  * válida (ojo: "0" es una respuesta válida y significa "sin operaciones").
  */
-function sio_get_json(string $url, int $reintentos = 2)
+function sio_get_json(string $url, int $reintentos = 1)
 {
+    global $SIO_BLOQUEADO;
+
     for ($i = 0; $i <= $reintentos; $i++) {
+        if ($SIO_BLOQUEADO) return null;   // ya nos bloquearon: no se insiste
+
         if ($i > 0) {
-            log_msg('    · respuesta no-JSON (corte por exceso de pedidos), reintento en ' . ESPERA_REINTENTO . 's');
+            log_msg('    · respuesta no-JSON, reintento en ' . ESPERA_REINTENTO . 's');
             sleep(ESPERA_REINTENTO);
         }
         $raw = sio_get($url);
@@ -208,12 +221,20 @@ if ($rawFecha !== false) {
 // ── Paso 2: Retroceder hasta el último día con operaciones ───────────────────
 $fechaHoy = null;
 for ($i = 0; $i <= MAX_DIAS_ATRAS; $i++) {
+    if ($SIO_BLOQUEADO) break;
+
     $candidata = restar_dias($fechaBase, $i);
     if (tiene_datos($candidata)) {
         $fechaHoy = $candidata;
         break;
     }
     log_msg("  · $candidata sin operaciones (fin de semana, feriado o jornada aún sin cerrar)");
+}
+
+if ($SIO_BLOQUEADO) {
+    log_msg('ERROR: el sitio del MAGYP está bloqueando los pedidos desde este servidor (403 del WAF).');
+    log_msg('       No es un problema de datos: la petición no llega a la API. Hay que cambiar de fuente.');
+    exit(1);
 }
 
 if ($fechaHoy === null) {
@@ -262,6 +283,12 @@ foreach ($PRODUCTOS as $label => $cfg) {
 
     usleep(PAUSA_ENTRE_PEDIDOS);
     $inner = sio_get_json($url);
+
+    if ($SIO_BLOQUEADO) {
+        log_msg('  ✗ El sitio empezó a bloquear los pedidos. Se corta acá para no seguir insistiendo.');
+        $fallidos++;
+        break;
+    }
 
     if ($inner === null) {
         log_msg("  ✗ $label — Sin respuesta válida del servidor.");
