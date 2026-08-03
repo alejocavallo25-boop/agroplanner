@@ -2,372 +2,180 @@
 /**
  * get_siogranos.php
  * ─────────────────────────────────────────────────────────────────────────────
- * Script de sincronización de precios de granos.
- * Fuente: Monitor SIO-Granos del Ministerio de Agricultura (MAGYP)
- * URL:    https://monitorsiogranos.magyp.gob.ar/
+ * Sincronización de precios de granos.
  *
- * Uso:
- *   - Manual:  php cron/get_siogranos.php
- *   - Cron:    0 12 * * 1-5 php /ruta/a/agroplanner/cron/get_siogranos.php
+ * FUENTE: pizarra de la Cámara Arbitral de Cereales (Bolsa de Comercio de
+ *         Rosario) — https://www.cac.bcr.com.ar/es/precios-de-pizarra
  *
- * Nota: El parámetro fechaDesde = HOY, fechaHasta = hace una semana (así lo
- * hace el JS oficial del sitio). La respuesta contiene arrays de precios
- * diarios; tomamos el ÚLTIMO elemento (el más reciente).
+ * Por qué no el MAGYP: hasta el 18/06/2026 esto leía el Monitor SIO-Granos.
+ * Ese sitio tiene ahora un WAF (BunkerWeb) que responde 403 a los pedidos que
+ * salen de este servidor — bloquea las IP de datacenter. Verificado el
+ * 03/08/2026 con una sonda desde el propio servidor: MAGYP 403, BCR 200.
+ * Cambiar el User-Agent no alcanzó. El scraper viejo, con toda su lógica de
+ * fechas, quedó en el historial de git (commit ade5655) por si algún día se
+ * recupera el acceso.
+ *
+ * Diferencia importante con la fuente anterior: la pizarra publica UN precio de
+ * referencia por grano, no el promedio/mínimo/máximo de las operaciones del día.
+ * Por eso precio_minimo, precio_maximo y precio_modal quedan en NULL — no se
+ * inventan valores. El tablero oculta el rango cuando no están.
+ *
+ * El nombre del archivo se mantiene porque el cron del hPanel apunta acá:
+ *   0 0,12 * * *  wget -q -O - "https://agroplanner.online/cron/get_siogranos.php"
+ *
+ * Uso manual: php cron/get_siogranos.php
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-// ── Configuración de errores ─────────────────────────────────────────────────
 error_reporting(E_ALL);
 ini_set('display_errors', '1');
 
-// ── Carga de la conexión a la base de datos ──────────────────────────────────
 define('RUNNING_AS_CRON', true);
 require_once __DIR__ . '/../config/database.php';
 
-// ── Constantes de la API ──────────────────────────────────────────────────────
-define('SIOGRANOS_BASE', 'https://monitorsiogranos.magyp.gob.ar/');
-define('ENDPOINT_ULTIMA_FECHA',  SIOGRANOS_BASE . 'v5_ajax/funcionUltimaFechaParaMostrar_min.php');
-define('ENDPOINT_TIENE_DATOS',   SIOGRANOS_BASE . 'v5_ajax/tieneDatos_min.php');
-define('ENDPOINT_COTIZACIONES',  SIOGRANOS_BASE . 'v5_ajax/cuadrosCotizaciones_min.php');
+define('URL_PIZARRA', 'https://www.cac.bcr.com.ar/es/precios-de-pizarra');
 
-// Cuántos días se retrocede buscando el último con operaciones.
-// 10 cubre fines de semana largos y feriados encadenados.
-define('MAX_DIAS_ATRAS', 10);
+// Zona fija: la pizarra es de Rosario. Se guarda con un zona_id propio para no
+// pisar las filas históricas que vinieron de SIO-Granos (la clave única de la
+// tabla es fecha + producto_id + zona_id).
+define('ZONA',    'Rosario (Cámara Arbitral)');
+define('ZONA_ID', 'CAC');
 
-// El sitio corta los pedidos muy seguidos y devuelve una página HTML en vez del
-// JSON. Con esta pausa entre pedidos y un reintento alcanza para que entren los
-// seis productos.
-define('PAUSA_ENTRE_PEDIDOS', 700000); // microsegundos (0,7 s)
-define('ESPERA_REINTENTO',    3);      // segundos
-
-// Cuando el WAF del MAGYP bloquea (403), el bloqueo es del cliente entero, no
-// de un pedido puntual: reintentar no cambia nada y sí hace que el script se
-// pase del tiempo máximo de ejecución de PHP y muera sin llegar a loguear.
-// Por eso el primer 403 corta toda la corrida.
-$SIO_BLOQUEADO = false;
-
-// ── Productos a sincronizar ───────────────────────────────────────────────────
-// IDs extraídos del JS oficial + inspección en vivo del HTML
-// zonaPrecioPpal por defecto = '23' (Rosario Norte)
-// Otras zonas: '24' = Rosario Sur | '20' = Bahía Blanca | '0' = Todas (sin filtro)
+/**
+ * Granos a extraer.
+ * La clave es el sufijo de la clase CSS del sitio (<div class="board board-soja">)
+ * y 'cultivo' es el nombre exacto que espera el tablero en index.php.
+ */
 $PRODUCTOS = [
-    'Soja Cámara'      => ['producto_id' => '18',   'zona_id' => '23', 'zona' => 'Rosario Norte'],
-    'Maíz'             => ['producto_id' => '2',    'zona_id' => '23', 'zona' => 'Rosario Norte'],
-    'Trigo Cámara'     => ['producto_id' => '1',    'zona_id' => '23', 'zona' => 'Rosario Norte'],
-    'Girasol Cámara'   => ['producto_id' => '17',   'zona_id' => '23', 'zona' => 'Rosario Norte'],
-    'Sorgo'            => ['producto_id' => '3',    'zona_id' => '23', 'zona' => 'Rosario Norte'],
-    'Cebada Forrajera' => ['producto_id' => '7',    'zona_id' => '23', 'zona' => 'Rosario Norte'],
+    'soja'    => 'Soja Cámara',
+    'maiz'    => 'Maíz',
+    'trigo'   => 'Trigo Cámara',
+    'girasol' => 'Girasol Cámara',
+    'sorgo'   => 'Sorgo',
 ];
 
-
-// ── Utilidades ────────────────────────────────────────────────────────────────
-
-/**
- * Petición GET con cURL. Devuelve el body o false en caso de error.
- *
- * El sitio del MAGYP está detrás de un WAF (BunkerWeb) que corta los pedidos
- * que huelen a robot y devuelve una página HTML de 403. El User-Agent anterior
- * era 'AgroPlanner-SyncBot/1.0' — con la palabra "Bot" adentro, que es
- * justamente lo que esos filtros buscan. Por eso ahora se manda el juego de
- * cabeceras de un navegador común.
- */
-function sio_get(string $url): string|false
-{
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_TIMEOUT        => 30,
-        CURLOPT_SSL_VERIFYPEER => true,
-        CURLOPT_ENCODING       => '',   // acepta gzip/deflate, como un navegador
-        CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-                                . '(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-        CURLOPT_HTTPHEADER     => [
-            'Accept: application/json, text/javascript, */*; q=0.01',
-            'Accept-Language: es-AR,es;q=0.9,en;q=0.8',
-            'X-Requested-With: XMLHttpRequest',
-            'Referer: https://monitorsiogranos.magyp.gob.ar/monitorsiogranos.html',
-            'Origin: https://monitorsiogranos.magyp.gob.ar',
-            'Sec-Fetch-Site: same-origin',
-            'Sec-Fetch-Mode: cors',
-            'Sec-Fetch-Dest: empty',
-            'Connection: keep-alive',
-        ],
-    ]);
-    $body = curl_exec($ch);
-    $err  = curl_error($ch);
-    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    if ($body === false) {
-        log_msg("    cURL error: $err");
-        return false;
-    }
-
-    // El WAF responde una página HTML enorme. Se resume en una línea para que
-    // el log del cron siga siendo legible desde el panel, y se marca el bloqueo
-    // para no seguir insistiendo.
-    if ($code >= 400 || (isset($body[0]) && $body[0] === '<')) {
-        global $SIO_BLOQUEADO;
-        $SIO_BLOQUEADO = true;
-        $motivo = $code >= 400 ? "HTTP $code" : 'respuesta HTML en vez de JSON';
-        log_msg("    Bloqueado por el sitio ($motivo) — el WAF rechazó el pedido.");
-        return false;
-    }
-
-    return $body;
-}
-
-/**
- * Registra un mensaje con marca de tiempo en stdout.
- */
 function log_msg(string $msg): void
 {
     echo '[' . date('Y-m-d H:i:s') . "] $msg\n";
 }
 
 /**
- * Calcula la fecha de "hace una semana" en formato dd/mm/yyyy.
- * El JS del sitio calcula el rango fechaDesde=HOY, fechaHasta=haceUnaSemana.
+ * Descarga la pizarra. Devuelve el HTML o false.
  */
-function hace_una_semana(string $fechaDMY): string
+function bajar_pizarra(): string|false
 {
-    return restar_dias($fechaDMY, 7);
-}
+    $ch = curl_init(URL_PIZARRA);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_TIMEOUT        => 20,
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_ENCODING       => '',
+        CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                                . '(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        CURLOPT_HTTPHEADER     => [
+            'Accept: text/html,application/xhtml+xml,*/*;q=0.8',
+            'Accept-Language: es-AR,es;q=0.9,en;q=0.8',
+        ],
+    ]);
+    $html = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err  = curl_error($ch);
+    curl_close($ch);
 
-/**
- * Resta días a una fecha dd/mm/yyyy y devuelve el mismo formato.
- */
-function restar_dias(string $fechaDMY, int $dias): string
-{
-    [$d, $m, $y] = explode('/', $fechaDMY);
-    $ts = mktime(0, 0, 0, (int)$m, (int)$d - $dias, (int)$y);
-    return date('d/m/Y', $ts);
-}
-
-/**
- * GET que además decodifica el JSON, con reintento.
- * Cuando el sitio corta por exceso de pedidos devuelve una página HTML: eso no
- * parsea, se espera y se vuelve a pedir. Devuelve null si no hubo respuesta
- * válida (ojo: "0" es una respuesta válida y significa "sin operaciones").
- */
-function sio_get_json(string $url, int $reintentos = 1)
-{
-    global $SIO_BLOQUEADO;
-
-    for ($i = 0; $i <= $reintentos; $i++) {
-        if ($SIO_BLOQUEADO) return null;   // ya nos bloquearon: no se insiste
-
-        if ($i > 0) {
-            log_msg('    · respuesta no-JSON, reintento en ' . ESPERA_REINTENTO . 's');
-            sleep(ESPERA_REINTENTO);
-        }
-        $raw = sio_get($url);
-        if ($raw === false) continue;
-
-        $data = json_decode(trim($raw), true);
-        if (json_last_error() === JSON_ERROR_NONE) return $data;
+    if ($html === false || $html === '') {
+        log_msg("ERROR de red: " . ($err !== '' ? $err : 'respuesta vacía'));
+        return false;
     }
-    return null;
+    if ($code !== 200) {
+        log_msg("ERROR: la pizarra respondió HTTP $code.");
+        return false;
+    }
+    return $html;
 }
 
 /**
- * ¿El mercado operó ese día? La API responde true/false.
+ * Fecha de la pizarra: "Precios Pizarra del día 31/07/2026".
+ * Se busca dentro del bloque de precios para no agarrar fechas de otras partes
+ * de la página (hay una fecha de publicación del sitio en las metaetiquetas).
  */
-function tiene_datos(string $fechaDMY): bool
+function fecha_pizarra(string $html): ?string
 {
-    $url = ENDPOINT_TIENE_DATOS . '?cosas=' . urlencode(json_encode(['fecha' => $fechaDMY]));
-    return !empty(sio_get_json($url));
+    if (!preg_match('/board-prices.*?(\d{2})\/(\d{2})\/(\d{4})/s', $html, $m)) {
+        return null;
+    }
+    return "$m[3]-$m[2]-$m[1]";   // a formato SQL
 }
 
 /**
- * Extrae el último valor de precio de un array de la respuesta SIO-Granos.
- * Cada elemento del array tiene las claves 'fecha_concertacion' y 'valor'.
+ * Precio de un grano: <div class="board board-soja"> ... <div class="price"> $500.000,00 </div>
+ * El sitio usa el formato argentino: punto de miles y coma decimal.
  */
-function ultimo_precio(array $arr): ?float
+function precio_grano(string $html, string $slug): ?float
 {
-    if (empty($arr)) return null;
-    $ultimo = end($arr);
-    if (!isset($ultimo['valor'])) return null;
-    $val = str_replace([',', ' '], ['.', ''], (string) $ultimo['valor']);
-    return is_numeric($val) ? (float) $val : null;
-}
-
-// ── Paso 1: Obtener la última fecha con datos disponibles ─────────────────────
-log_msg('=== Iniciando sincronización SIO-Granos ===');
-
-// La fecha que informa el sitio es un punto de partida, NO una garantía de que
-// ese día haya operaciones. Devuelve el día corriente (con la hora en ":00")
-// aunque el mercado todavía no haya operado, así que hay que retroceder hasta
-// encontrar el último día con datos. Confiar en ella a ciegas fue lo que dejó
-// la sincronización congelada desde el 18/06/2026: el cron corre a las 00:00 y
-// a las 12:00, horarios en los que el día corriente casi nunca tiene datos, y
-// el script abortaba sin guardar nada en lugar de tomar el día hábil anterior.
-$rawFecha  = sio_get(ENDPOINT_ULTIMA_FECHA);
-$fechaBase = date('d/m/Y');
-
-if ($rawFecha !== false) {
-    $dataFecha = json_decode(trim($rawFecha), true);
-    if (json_last_error() === JSON_ERROR_NONE && !empty($dataFecha['fecha'])) {
-        $fechaBase = $dataFecha['fecha'];
-        log_msg('Fecha informada por el sitio: ' . $fechaBase . '  Hora: ' . ($dataFecha['hora'] ?? '—'));
-    } else {
-        log_msg('AVISO: respuesta inesperada de fecha (' . substr($rawFecha, 0, 80) . '). Se arranca desde hoy.');
+    $re = '/board-' . preg_quote($slug, '/') . '\b.*?class="price"[^>]*>\s*\$?\s*([\d.]+),(\d{2})/s';
+    if (!preg_match($re, $html, $m)) {
+        return null;
     }
-} else {
-    log_msg('AVISO: no respondió el endpoint de fecha. Se arranca desde hoy.');
+    $valor = (float) (str_replace('.', '', $m[1]) . '.' . $m[2]);
+    return $valor > 0 ? $valor : null;
 }
 
-// ── Paso 2: Retroceder hasta el último día con operaciones ───────────────────
-$fechaHoy = null;
-for ($i = 0; $i <= MAX_DIAS_ATRAS; $i++) {
-    if ($SIO_BLOQUEADO) break;
+// ── Descarga ─────────────────────────────────────────────────────────────────
+log_msg('=== Iniciando sincronización de precios (pizarra BCR) ===');
 
-    $candidata = restar_dias($fechaBase, $i);
-    if (tiene_datos($candidata)) {
-        $fechaHoy = $candidata;
-        break;
-    }
-    log_msg("  · $candidata sin operaciones (fin de semana, feriado o jornada aún sin cerrar)");
-}
-
-if ($SIO_BLOQUEADO) {
-    log_msg('ERROR: el sitio del MAGYP está bloqueando los pedidos desde este servidor (403 del WAF).');
-    log_msg('       No es un problema de datos: la petición no llega a la API. Hay que cambiar de fuente.');
+$html = bajar_pizarra();
+if ($html === false) {
+    log_msg('Abortando: no se pudo leer la pizarra.');
     exit(1);
 }
 
-if ($fechaHoy === null) {
-    log_msg('ERROR: no se encontró ningún día con datos en los últimos ' . MAX_DIAS_ATRAS . ' días. Abortando.');
+$fechaSQL = fecha_pizarra($html);
+if ($fechaSQL === null) {
+    log_msg('ERROR: no se encontró la fecha en la página. ¿Cambió el HTML del sitio?');
     exit(1);
 }
+log_msg('Pizarra del ' . date('d/m/Y', strtotime($fechaSQL)));
 
-$fechaHace = hace_una_semana($fechaHoy);
-[$d, $m, $y] = explode('/', $fechaHoy);
-$fechaSQL = "$y-$m-$d";
-
-log_msg("Último día con operaciones: $fechaHoy");
-log_msg("Rango de consulta:          $fechaHoy → $fechaHace  (7 días hacia atrás)");
-
-// ── Paso 3: Preparar el INSERT/UPDATE ────────────────────────────────────────
+// ── Guardado ─────────────────────────────────────────────────────────────────
 $sql = "
     INSERT INTO cotizaciones_siogranos
         (fecha, cultivo, producto_id, zona, zona_id,
          precio_promedio, precio_minimo, precio_maximo, precio_modal, moneda)
     VALUES
         (:fecha, :cultivo, :producto_id, :zona, :zona_id,
-         :promedio, :minimo, :maximo, :modal, 'ARS')
+         :promedio, NULL, NULL, NULL, 'ARS')
     ON DUPLICATE KEY UPDATE
         precio_promedio     = VALUES(precio_promedio),
-        precio_minimo       = VALUES(precio_minimo),
-        precio_maximo       = VALUES(precio_maximo),
-        precio_modal        = VALUES(precio_modal),
         fecha_actualizacion = CURRENT_TIMESTAMP
 ";
 $stmt = $pdo->prepare($sql);
 
-// ── Paso 4: Iterar sobre cada producto ───────────────────────────────────────
 $exitosos = 0;
 $fallidos = 0;
 
-foreach ($PRODUCTOS as $label => $cfg) {
-    // El JS usa: fechaDesde = HOY, fechaHasta = hace una semana
-    $params = [
-        'fechaDesde' => $fechaHoy,
-        'fechaHasta' => $fechaHace,
-        'producto'   => $cfg['producto_id'],
-        'puerto'     => $cfg['zona_id'],
-    ];
-    $cosas = json_encode($params, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
-    $url   = ENDPOINT_COTIZACIONES . '?cosas=' . urlencode($cosas);
+foreach ($PRODUCTOS as $slug => $cultivo) {
+    $precio = precio_grano($html, $slug);
 
-    usleep(PAUSA_ENTRE_PEDIDOS);
-    $inner = sio_get_json($url);
-
-    if ($SIO_BLOQUEADO) {
-        log_msg('  ✗ El sitio empezó a bloquear los pedidos. Se corta acá para no seguir insistiendo.');
-        $fallidos++;
-        break;
-    }
-
-    if ($inner === null) {
-        log_msg("  ✗ $label — Sin respuesta válida del servidor.");
-        $fallidos++;
-        continue;
-    }
-
-    // Cuando no hay operaciones devuelve "0" (string) o el int 0
-    if ($inner === '0' || $inner === 0) {
-        log_msg("  ⚠ $label — Sin operaciones en el rango consultado.");
-        $fallidos++;
-        continue;
-    }
-
-    // inner debe ser un array con claves 'minimos', 'promedios', 'maximos', 'modal'
-    if (!is_array($inner)) {
-        log_msg("  ✗ $label — Respuesta inesperada: " . substr(json_encode($inner), 0, 200));
-        $fallidos++;
-        continue;
-    }
-
-    $promedio = ultimo_precio($inner['promedios'] ?? []);
-    $minimo   = ultimo_precio($inner['minimos']   ?? []);
-    $maximo   = ultimo_precio($inner['maximos']   ?? []);
-    $modal    = ultimo_precio($inner['modal']     ?? []);
-
-    // Verificar que la fecha del último elemento coincide con fechaHoy
-    // (la API puede devolver el último día con datos si el solicitado no tiene)
-    $fechaRespuesta = null;
-    if (!empty($inner['minimos'])) {
-        $ultimoItem     = end($inner['minimos']);
-        $rawFechaItem   = $ultimoItem['fecha_concertacion'] ?? null;
-        // Convertir de YYYY-MM-DD a DD/MM/YYYY para comparar
-        if ($rawFechaItem) {
-            [$fy, $fm, $fd] = explode('-', $rawFechaItem);
-            $fechaRespuesta = "$fd/$fm/$fy";
-        }
-    }
-
-    // Cada grano opera sus propios días: el girasol o la cebada pueden no tener
-    // operaciones el día que sí operó la soja. En ese caso el dato igual sirve,
-    // así que se guarda con SU fecha en vez de descartarlo — si no, esos cultivos
-    // no aparecen nunca en el panel.
-    $fechaFilaSQL = $fechaSQL;
-    if ($fechaRespuesta && $fechaRespuesta !== $fechaHoy) {
-        [$rd, $rm, $ry]  = explode('/', $fechaRespuesta);
-        $fechaFilaSQL    = "$ry-$rm-$rd";
-        log_msg("  ℹ $label — no operó el $fechaHoy; se guarda su último dato, del $fechaRespuesta.");
-    }
-
-    if ($promedio === null && $minimo === null && $maximo === null) {
-        log_msg("  ⚠ $label — Precios vacíos en la respuesta.");
+    if ($precio === null) {
+        log_msg("  ✗ $cultivo — no se pudo leer el precio (¿el sitio dejó de publicarlo?).");
         $fallidos++;
         continue;
     }
 
     $stmt->execute([
-        ':fecha'       => $fechaFilaSQL,
-        ':cultivo'     => $label,
-        ':producto_id' => $cfg['producto_id'],
-        ':zona'        => $cfg['zona'],
-        ':zona_id'     => $cfg['zona_id'],
-        ':promedio'    => $promedio,
-        ':minimo'      => $minimo,
-        ':maximo'      => $maximo,
-        ':modal'       => $modal,
+        ':fecha'       => $fechaSQL,
+        ':cultivo'     => $cultivo,
+        ':producto_id' => $slug,
+        ':zona'        => ZONA,
+        ':zona_id'     => ZONA_ID,
+        ':promedio'    => $precio,
     ]);
 
-    log_msg(sprintf(
-        '  ✔ %-18s  Prom: %s  Min: %s  Max: %s  Modal: %s  ($/ton)',
-        $label,
-        $promedio !== null ? number_format($promedio, 0, ',', '.') : '—',
-        $minimo   !== null ? number_format($minimo,   0, ',', '.') : '—',
-        $maximo   !== null ? number_format($maximo,   0, ',', '.') : '—',
-        $modal    !== null ? number_format($modal,    0, ',', '.') : '—'
-    ));
+    log_msg(sprintf('  ✔ %-16s $%s /ton', $cultivo, number_format($precio, 0, ',', '.')));
     $exitosos++;
 }
 
-// ── Resultado final ───────────────────────────────────────────────────────────
-log_msg("=== Sincronización finalizada: $exitosos OK, $fallidos sin datos/errores ===");
+log_msg("=== Finalizado: $exitosos guardados, $fallidos sin dato ===");
 exit($exitosos === 0 ? 1 : 0);

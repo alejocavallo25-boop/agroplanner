@@ -20,17 +20,30 @@ $controller = new DashboardController($pdo, $usuario_id);
 $sio_precios = [];
 $sio_fecha   = null;
 try {
+    // Se toma la última fila DE CADA CULTIVO, no la fecha máxima global: no todos
+    // los granos cotizan el mismo día, y con el filtro global el girasol o el
+    // sorgo desaparecían del ticker los días que no operaron.
     $sio_stmt = $pdo->query("
-        SELECT cultivo, precio_promedio, precio_minimo, precio_maximo, fecha, zona
-        FROM cotizaciones_siogranos
-        WHERE fecha = (SELECT MAX(fecha) FROM cotizaciones_siogranos)
-          AND cultivo IN ('Soja Cámara', 'Maíz', 'Trigo Cámara', 'Girasol Cámara', 'Sorgo')
-        ORDER BY cultivo
+        SELECT c.cultivo, c.precio_promedio, c.precio_minimo, c.precio_maximo, c.fecha, c.zona
+        FROM cotizaciones_siogranos c
+        INNER JOIN (
+            SELECT cultivo, MAX(fecha) AS fecha
+            FROM cotizaciones_siogranos
+            WHERE cultivo IN ('Soja Cámara', 'Maíz', 'Trigo Cámara', 'Girasol Cámara', 'Sorgo')
+            GROUP BY cultivo
+        ) ult ON ult.cultivo = c.cultivo AND ult.fecha = c.fecha
+        WHERE c.cultivo IN ('Soja Cámara', 'Maíz', 'Trigo Cámara', 'Girasol Cámara', 'Sorgo')
+        ORDER BY c.cultivo, c.fecha_actualizacion
     ");
     $sio_rows = $sio_stmt->fetchAll();
     foreach ($sio_rows as $row) {
+        // Si hubiera más de una fila para el mismo cultivo y fecha (por ejemplo
+        // una vieja de SIO-Granos y una nueva de la pizarra), gana la más
+        // recientemente actualizada: el ORDER BY las deja al final.
         $sio_precios[$row['cultivo']] = $row;
-        $sio_fecha = $row['fecha'];
+        if ($sio_fecha === null || $row['fecha'] > $sio_fecha) {
+            $sio_fecha = $row['fecha'];
+        }
     }
 } catch (\Exception $e) {
     // Tabla aún no existe o sin datos — no mostramos sección SIO
@@ -328,10 +341,21 @@ require_once 'includes/header.php';
                             <span class="sio-val" data-ars="<?= (float)$p['precio_promedio'] ?>">$<?= number_format((float)$p['precio_promedio'], 0, ',', '.') ?></span>
                             <small class="sio-unit" style="font-size:0.62rem; color:var(--text-muted); font-weight:400;">ARS/ton</small>
                         </span>
+                        <?php
+                        // La pizarra de la Cámara publica un precio único, sin rango.
+                        // Cuando no hay mínimo/máximo (o son iguales) se muestra la fecha
+                        // de esa cotización, que además puede diferir entre cultivos.
+                        $tiene_rango = $p['precio_minimo'] !== null && $p['precio_maximo'] !== null
+                                    && (float)$p['precio_minimo'] !== (float)$p['precio_maximo'];
+                        ?>
                         <span style="font-size:0.65rem; color:var(--text-muted);">
+                            <?php if ($tiene_rango): ?>
                             <span class="sio-minmax" data-min="<?= (float)$p['precio_minimo'] ?>" data-max="<?= (float)$p['precio_maximo'] ?>">
                                 <?= number_format((float)$p['precio_minimo'],0,',','.') ?> – <?= number_format((float)$p['precio_maximo'],0,',','.') ?>
                             </span>
+                            <?php else: ?>
+                            <?= date('d/m/Y', strtotime($p['fecha'])) ?>
+                            <?php endif; ?>
                         </span>
                     </div>
                     <?php if ($cultivo !== end($sio_orden) || true): // Always show divider for the dollar block ?>
