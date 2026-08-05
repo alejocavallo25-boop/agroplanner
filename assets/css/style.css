@@ -12,6 +12,9 @@
     --surface-hover: rgba(255, 255, 255, 0.03);
     --input-bg: rgba(0, 0, 0, 0.2);
     --sidebar-width: 270px;
+    /* Ancho de la barra colapsada. 84px = 32px de sangría + 20px de icono + 32px,
+       así el icono queda ópticamente centrado y no se mueve al desplegarse. */
+    --sidebar-rail: 84px;
     --bg-card: rgba(31, 41, 55, 0.7);
     --border-color: rgba(255, 255, 255, 0.1);
 }
@@ -378,6 +381,97 @@ html {
     animation: fadeInSlideUp 0.3s ease-out forwards;
 }
 
+/* =====================
+   SIDEBAR COLAPSADO (rail)
+
+   En escritorio la barra queda como una columna de iconos y se despliega sola al
+   pasar el mouse por encima. Dos decisiones de fondo:
+
+   1. El contenido NO se corre. El margen izquierdo queda fijo en el ancho del
+      rail y la barra desplegada flota por arriba (position:fixed + z-index). Si
+      el contenido se corriera, la página entera saltaría cada vez que el mouse
+      roza el borde izquierdo, que es exactamente lo que vuelve insoportable a
+      este patrón cuando está mal hecho.
+
+   2. Los iconos no se mueven entre un estado y el otro: el ancho del rail está
+      calculado para que caigan en la misma x que cuando está desplegada. Sólo
+      aparece y desaparece el texto.
+
+   Se aplica sólo con (hover: hover) — en una tablet o un celular no existe el
+   hover, así que ahí sigue funcionando el cajón lateral de siempre.
+   ===================== */
+@media (min-width: 769px) and (hover: hover) {
+    .sidebar {
+        width: var(--sidebar-rail);
+        transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* :focus-within además de :hover — quien navega con teclado también la abre. */
+    .sidebar:hover,
+    .sidebar:focus-within {
+        width: var(--sidebar-width);
+        box-shadow: 14px 0 44px rgba(0, 0, 0, 0.45);
+    }
+
+    .main-content { margin-left: var(--sidebar-rail); }
+
+    /* Los iconos de los encabezados se alinean con los de los links. */
+    .sidebar .nav-section-title i {
+        width: 20px;
+        text-align: center;
+    }
+    .sidebar .brand { padding-left: 26px; }
+
+    /* Texto: se desvanece y deja el icono solo. Al abrir entra con un pelín de
+       retardo para que primero termine de ensancharse la barra. */
+    .sidebar .nav-txt,
+    .sidebar .nav-chevron,
+    .sidebar .sidebar-user-info,
+    .sidebar .sidebar-logout {
+        opacity: 0;
+        transition: opacity 0.15s ease;
+    }
+    .sidebar:hover .nav-txt,
+    .sidebar:hover .nav-chevron,
+    .sidebar:hover .sidebar-user-info,
+    .sidebar:hover .sidebar-logout,
+    .sidebar:focus-within .nav-txt,
+    .sidebar:focus-within .nav-chevron,
+    .sidebar:focus-within .sidebar-user-info,
+    .sidebar:focus-within .sidebar-logout {
+        opacity: 1;
+        transition: opacity 0.2s ease 0.1s;
+    }
+
+    /* Colapsada no se despliega ninguna sección, aunque esté marcada activa. */
+    .sidebar:not(:hover):not(:focus-within) .nav-section-links {
+        max-height: 0;
+        opacity: 0;
+    }
+
+    /* Rótulo sin icono: no dice nada en un rail de iconos. */
+    .sidebar:not(:hover):not(:focus-within) .nav-section-header-plain {
+        height: 0;
+        padding-top: 0;
+        padding-bottom: 0;
+        margin-top: 0;
+        margin-bottom: 0;
+        overflow: hidden;
+    }
+
+    /* El texto no debe reflotar mientras se achica: se recorta contra el borde. */
+    .sidebar .nav-link,
+    .sidebar .nav-section-title,
+    .sidebar .brand {
+        white-space: nowrap;
+    }
+
+    /* El avatar es redondo y de tamaño fijo: sin esto flex lo aplasta cuando el
+       nombre y el botón de salir siguen ocupando lugar dentro del rail. */
+    .sidebar-user { overflow: hidden; }
+    .sidebar-user-avatar { flex: none; }
+}
+
 /* ===== HEADER ===== */
 header {
     display: flex;
@@ -674,6 +768,15 @@ input[type="password"], select, textarea {
 @media (min-width: 769px) {
     .modal-wrapper {
         padding-left: calc(var(--sidebar-width) + 20px);
+    }
+}
+
+/* Con la barra en modo rail el modal se centra contra el rail, no contra la barra
+   desplegada. Va acá abajo y no junto al resto del bloque del rail porque tiene
+   que ganarle por orden a la regla de arriba: misma especificidad, manda la última. */
+@media (min-width: 769px) and (hover: hover) {
+    .modal-wrapper {
+        padding-left: calc(var(--sidebar-rail) + 20px);
     }
 }
 
