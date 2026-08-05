@@ -437,14 +437,16 @@ function colorGrupo($g) {
             Matriz de Costos y Labores
         </h2>
         <div style="display:flex; gap:8px; flex-wrap: wrap;">
-            <a id="excelBtn" href="api/reporte_excel.php?tipo=operaciones"
-               class="btn" style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.3); color:#10b981; font-size:0.85rem;">
-                <i class="fas fa-file-excel"></i> Excel
-            </a>
-            <a id="pdfBtn" href="api/reporte_pdf.php?tipo=operaciones" target="_blank"
-               class="btn" style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); color:#ff7b72; font-size:0.85rem;">
-                <i class="fas fa-file-pdf"></i> PDF
-            </a>
+            <?php
+            require_once 'includes/exportar.php';
+            boton_exportar([
+                ['etiqueta' => 'Excel', 'href' => 'api/reporte_excel.php?tipo=operaciones',
+                 'icono' => 'fa-file-excel', 'color' => '#10b981', 'detalle' => 'Planilla editable'],
+                ['etiqueta' => 'PDF',   'href' => 'api/reporte_pdf.php?tipo=operaciones',
+                 'icono' => 'fa-file-pdf',   'color' => '#ff7b72', 'detalle' => 'Listo para imprimir',
+                 'nueva_pestana' => true],
+            ]);
+            ?>
             <button class="btn btn-primary" onclick="openAddModal()">
                 <i class="fas fa-plus"></i> Registrar Gasto
             </button>

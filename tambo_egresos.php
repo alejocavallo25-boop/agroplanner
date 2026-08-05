@@ -544,14 +544,16 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
                 $qs_export .= '&grupo=' . urlencode($f_cat);
             }
             ?>
-            <a id="excelBtn" href="api/reporte_excel.php<?= $qs_export ?>&tipo=tambo_egresos"
-               class="btn" style="background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.25); color:#38bdf8; font-size:0.85rem;">
-                <i class="fas fa-file-excel"></i> Excel
-            </a>
-            <a id="pdfBtn" href="api/reporte_pdf.php<?= $qs_export ?>&tipo=tambo_egresos" target="_blank"
-               class="btn" style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); color:#ff7b72; font-size:0.85rem;">
-                <i class="fas fa-file-pdf"></i> PDF
-            </a>
+            <?php
+            require_once 'includes/exportar.php';
+            boton_exportar([
+                ['etiqueta' => 'Excel', 'href' => 'api/reporte_excel.php' . $qs_export . '&tipo=tambo_egresos',
+                 'icono' => 'fa-file-excel', 'color' => '#10b981', 'detalle' => 'Planilla editable'],
+                ['etiqueta' => 'PDF',   'href' => 'api/reporte_pdf.php' . $qs_export . '&tipo=tambo_egresos',
+                 'icono' => 'fa-file-pdf',   'color' => '#ff7b72', 'detalle' => 'Listo para imprimir',
+                 'nueva_pestana' => true],
+            ]);
+            ?>
             <button class="btn btn-primary" style="background: rgba(16,185,129,0.15); color: #34d399; border:1px solid rgba(16,185,129,0.3);" onclick="openReplicarModal()">
                 <i class="fas fa-copy"></i> Replicar Mes
             </button>
