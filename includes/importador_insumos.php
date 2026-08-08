@@ -80,6 +80,29 @@ function imp_a_numero($valor): ?float
 }
 
 /**
+ * Número en formato máquina a texto con coma decimal.
+ *
+ * Las celdas numéricas de un .xlsx guardan siempre el valor con punto decimal,
+ * sin importar el idioma de quien lo escribió: la hoja muestra "0,62" pero el
+ * XML dice "0.62". Si ese texto entra crudo a imp_a_numero(), la heurística
+ * argentina lee un precio como "123.456" como separador de miles y lo convierte
+ * en 123456: un error de mil veces sobre el precio. Pasándolos por acá, los
+ * números del Excel llegan en la misma notación que el resto del sistema y no
+ * hay nada que interpretar.
+ */
+function imp_numero_a_texto_local($valor): string
+{
+    $n = (float)$valor;
+    if (!is_finite($n)) return '';
+    if ($n == (int)$n && abs($n) < 1e15) {
+        return (string)(int)$n;
+    }
+    // Hasta 6 decimales, sin ceros de relleno al final.
+    $s = number_format($n, 6, ',', '');
+    return rtrim(rtrim($s, '0'), ',');
+}
+
+/**
  * Número de serie de Excel a fecha ISO.
  *
  * Excel cuenta días desde el 30/12/1899, que es justo 25569 días antes del epoch
@@ -253,11 +276,13 @@ function imp_columna_a_indice(string $ref): int
 }
 
 /**
- * .xlsx a grilla de celdas.
+ * .xlsx a una grilla de celdas por hoja.
  *
  * Un .xlsx es un ZIP: las cadenas de texto viven compartidas en sharedStrings.xml
  * y la hoja sólo guarda índices. Los formatos de fecha se resuelven mirando el
  * numFmtId del estilo de cada celda, porque en el XML una fecha es un número suelto.
+ *
+ * @return array Lista de ['nombre' => string, 'grid' => array], en el orden del libro.
  */
 function imp_parse_xlsx(string $ruta): array
 {
@@ -270,31 +295,35 @@ function imp_parse_xlsx(string $ruta): array
     }
 
     try {
-        // ── Qué hoja leer: la primera del libro, resuelta por relaciones ──────
-        $destino = 'xl/worksheets/sheet1.xml';
+        // ── Qué hojas tiene el libro, en orden y resueltas por relaciones ─────
+        //
+        // Se leen TODAS, no sólo la primera: es muy común que la hoja 1 sea una
+        // portada, una tabla dinámica o un instructivo, y que los datos estén en
+        // la segunda. Después imp_procesar() se queda con la que más insumos da.
+        $hojas = [];
         $wb   = $zip->getFromName('xl/workbook.xml');
         $rels = $zip->getFromName('xl/_rels/workbook.xml.rels');
         if ($wb !== false && $rels !== false) {
             $xwb = @simplexml_load_string($wb);
             $xr  = @simplexml_load_string($rels);
-            if ($xwb !== false && $xr !== false && isset($xwb->sheets->sheet[0])) {
-                $rid = (string)$xwb->sheets->sheet[0]->attributes('r', true)['id'];
+            if ($xwb !== false && $xr !== false && isset($xwb->sheets->sheet)) {
+                $destinos = [];
                 foreach ($xr->Relationship as $rel) {
-                    if ((string)$rel['Id'] === $rid) {
-                        $destino = 'xl/' . ltrim((string)$rel['Target'], '/');
-                        break;
+                    $destinos[(string)$rel['Id']] = 'xl/' . ltrim((string)$rel['Target'], '/');
+                }
+                foreach ($xwb->sheets->sheet as $sh) {
+                    // Las hojas ocultas suelen ser auxiliares de fórmulas.
+                    if ((string)$sh['state'] !== '' && (string)$sh['state'] !== 'visible') continue;
+                    $rid = (string)$sh->attributes('r', true)['id'];
+                    if (isset($destinos[$rid])) {
+                        $hojas[] = ['nombre' => (string)$sh['name'], 'ruta' => $destinos[$rid]];
                     }
+                    if (count($hojas) >= 12) break;   // tope razonable de trabajo
                 }
             }
         }
-
-        // ── Guarda contra zip bombs: un remito no pesa 200 MB descomprimido ───
-        $stat = $zip->statName($destino);
-        if ($stat === false) {
-            throw new RuntimeException('El .xlsx no tiene hojas legibles.');
-        }
-        if ($stat['size'] > 60 * 1024 * 1024) {
-            throw new RuntimeException('La hoja es demasiado grande para procesar. Recortala o exportá sólo las filas que necesitás.');
+        if (!$hojas) {
+            $hojas[] = ['nombre' => 'Hoja1', 'ruta' => 'xl/worksheets/sheet1.xml'];
         }
 
         // ── Textos compartidos ───────────────────────────────────────────────
@@ -341,52 +370,69 @@ function imp_parse_xlsx(string $ruta): array
             }
         }
 
-        // ── La hoja ──────────────────────────────────────────────────────────
-        $hoja = $zip->getFromName($destino);
-        if ($hoja === false) {
-            throw new RuntimeException('El .xlsx no tiene hojas legibles.');
-        }
-        $xh = @simplexml_load_string($hoja);
-        if ($xh === false || !isset($xh->sheetData)) {
-            throw new RuntimeException('No se pudo interpretar la hoja del .xlsx.');
-        }
+        // ── Cada hoja a su grilla ────────────────────────────────────────────
+        $resultado = [];
+        foreach ($hojas as $h) {
+            // Guarda contra zip bombs: un remito no pesa 200 MB descomprimido.
+            $stat = $zip->statName($h['ruta']);
+            if ($stat === false || $stat['size'] > 60 * 1024 * 1024) continue;
 
-        $grid = [];
-        foreach ($xh->sheetData->row as $fila) {
-            $celdas = [];
-            $maxCol = -1;
-            foreach ($fila->c as $c) {
-                $idx  = isset($c['r']) ? imp_columna_a_indice((string)$c['r']) : $maxCol + 1;
-                $tipo = (string)$c['t'];
+            $xml = $zip->getFromName($h['ruta']);
+            if ($xml === false) continue;
+            $xh = @simplexml_load_string($xml);
+            if ($xh === false || !isset($xh->sheetData)) continue;
 
-                if ($tipo === 's') {                       // índice a sharedStrings
-                    $v = $textos[(int)$c->v] ?? '';
-                } elseif ($tipo === 'inlineStr') {
-                    $v = isset($c->is->t) ? (string)$c->is->t : '';
-                } elseif ($tipo === 'b') {
-                    $v = ((string)$c->v === '1') ? 'SI' : 'NO';
-                } else {
-                    $v = isset($c->v) ? (string)$c->v : '';
-                    $estilo = isset($c['s']) ? (int)$c['s'] : -1;
-                    if ($v !== '' && is_numeric($v) && !empty($estiloEsFecha[$estilo])) {
-                        $v = imp_serial_a_fecha($v) ?? $v;
+            $grid = [];
+            foreach ($xh->sheetData->row as $fila) {
+                $celdas = [];
+                $maxCol = -1;
+                foreach ($fila->c as $c) {
+                    $idx  = isset($c['r']) ? imp_columna_a_indice((string)$c['r']) : $maxCol + 1;
+                    $tipo = (string)$c['t'];
+
+                    if ($tipo === 's') {                       // índice a sharedStrings
+                        $v = $textos[(int)$c->v] ?? '';
+                    } elseif ($tipo === 'inlineStr') {
+                        $v = isset($c->is->t) ? (string)$c->is->t : '';
+                    } elseif ($tipo === 'b') {
+                        $v = ((string)$c->v === '1') ? 'SI' : 'NO';
+                    } else {
+                        $v = isset($c->v) ? (string)$c->v : '';
+                        $estilo = isset($c['s']) ? (int)$c['s'] : -1;
+                        if ($v !== '' && is_numeric($v)) {
+                            if (!empty($estiloEsFecha[$estilo])) {
+                                $v = imp_serial_a_fecha($v) ?? $v;
+                            } else {
+                                // El XML trae el número con punto decimal; se pasa a
+                                // notación local para que después no se lea como miles.
+                                $v = imp_numero_a_texto_local($v);
+                            }
+                        }
                     }
+
+                    $celdas[$idx] = trim($v);
+                    if ($idx > $maxCol) $maxCol = $idx;
                 }
+                if (!$celdas) continue;
 
-                $celdas[$idx] = trim($v);
-                if ($idx > $maxCol) $maxCol = $idx;
+                // Relleno los huecos para que todas las filas tengan la misma forma.
+                $plana = [];
+                for ($i = 0; $i <= $maxCol; $i++) $plana[] = $celdas[$i] ?? '';
+                if (implode('', $plana) === '') continue;
+
+                $grid[] = $plana;
+                if (count($grid) >= IMP_MAX_FILAS) break;
             }
-            if (!$celdas) continue;
 
-            // Relleno los huecos para que todas las filas tengan la misma forma.
-            $plana = [];
-            for ($i = 0; $i <= $maxCol; $i++) $plana[] = $celdas[$i] ?? '';
-            if (implode('', $plana) === '') continue;
-
-            $grid[] = $plana;
-            if (count($grid) >= IMP_MAX_FILAS) break;
+            if ($grid) {
+                $resultado[] = ['nombre' => $h['nombre'], 'grid' => $grid];
+            }
         }
-        return $grid;
+
+        if (!$resultado) {
+            throw new RuntimeException('El .xlsx no tiene ninguna hoja con datos legibles.');
+        }
+        return $resultado;
     } finally {
         $zip->close();
     }
@@ -536,18 +582,106 @@ function imp_parse_pdf(string $ruta, ?string &$aviso = null): array
 // MAPEO: DE LA GRILLA A LOS ÍTEMS
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Palabras que identifican cada campo en un encabezado de tabla. */
+/**
+ * Palabras que identifican cada campo en un encabezado, con su puntaje.
+ *
+ * Más puntaje = palabra más específica. Sirve para desempatar cuando dos
+ * columnas pelean por el mismo campo: entre "Precio unitario" e "Importe", gana
+ * el unitario, que es el dato que va al stock.
+ */
 function imp_diccionario_campos(): array
 {
     return [
-        'nombre'      => ['nombre', 'descripcion', 'denominacion', 'detalle', 'producto', 'insumo', 'articulo', 'item', 'concepto', 'mercaderia'],
-        'cantidad'    => ['cantidad', 'cant', 'ctd', 'stock', 'unidades', 'bultos'],
-        'unidad'      => ['unidad', 'um', 'medida', 'presentacion', 'envase'],
-        'precio'      => ['precio', 'unitario', 'costo', 'p unit', 'punit'],
-        'vencimiento' => ['vencimiento', 'vto', 'vence', 'caducidad', 'expira'],
-        'tipo'        => ['tipo', 'rubro', 'categoria', 'familia'],
-        'referencia'  => ['referencia', 'ref', 'codigo', 'cod', 'sku'],
+        'nombre' => [
+            'descripcion' => 9, 'denominacion' => 9, 'producto' => 9, 'insumo' => 9,
+            'nombre' => 8, 'articulo' => 8, 'mercaderia' => 8,
+            'detalle' => 7, 'concepto' => 7, 'material' => 6, 'item' => 6,
+        ],
+        'cantidad' => [
+            'cantidad' => 9, 'cant' => 8, 'cdad' => 8, 'ctd' => 8,
+            'unidades' => 7, 'bultos' => 7, 'stock' => 6, 'qty' => 6,
+        ],
+        'unidad' => [
+            'unidad de medida' => 10, 'unidad' => 8, 'medida' => 7,
+            'presentacion' => 7, 'envase' => 6, 'um' => 6, 'u m' => 6,
+        ],
+        'precio' => [
+            'precio unitario' => 10, 'costo unitario' => 10, 'valor unitario' => 10,
+            'precio' => 8, 'unitario' => 8, 'punit' => 8, 'p unit' => 8, 'p u' => 7,
+            'costo' => 6, 'valor' => 5, 'importe' => 4, 'monto' => 4,
+        ],
+        'vencimiento' => [
+            'fecha de vencimiento' => 10, 'vencimiento' => 9, 'caducidad' => 9,
+            'vence' => 8, 'vto' => 8, 'expira' => 8,
+        ],
+        'tipo'       => ['tipo' => 8, 'rubro' => 7, 'categoria' => 7, 'familia' => 6],
+        'referencia' => ['referencia' => 8, 'codigo' => 8, 'sku' => 8, 'ref' => 6, 'cod' => 6],
     ];
+}
+
+/**
+ * Cuánto se parece un encabezado a un campo.
+ *
+ * Se busca la palabra clave completa en cualquier parte del texto, no sólo al
+ * principio: "Fecha de vencimiento", "Valor unitario" y "Precio por kg" tienen
+ * la palabra que importa en el medio o al final. El límite de palabra evita los
+ * falsos positivos que traería buscar el fragmento suelto — "um" está dentro de
+ * "volumen" y de "consumo", pero no como palabra.
+ */
+function imp_puntaje_encabezado(string $encabezado, array $claves): int
+{
+    $n = imp_normalizar($encabezado);
+    if ($n === '') return 0;
+
+    $mejor = 0;
+    foreach ($claves as $clave => $puntos) {
+        if (preg_match('/\b' . preg_quote((string)$clave, '/') . '\b/', $n)) {
+            $mejor = max($mejor, $puntos);
+        }
+    }
+    if ($mejor === 0) return 0;
+
+    // "Importe total" o "Subtotal" son el total del renglón, no el precio por
+    // unidad: se los castiga para que pierdan contra una columna de unitario.
+    if (preg_match('/\b(total|subtotal|acumulado)\b/', $n)) {
+        $mejor -= 5;
+    }
+
+    return max(0, $mejor);
+}
+
+/**
+ * Mapea una fila candidata a encabezado: qué columna es qué campo.
+ *
+ * Se juntan todos los pares posibles (columna, campo) con su puntaje y se
+ * asignan de mayor a menor, cada campo una sola vez y cada columna a un solo
+ * campo. Así, con "Cantidad | Precio unitario | Importe total" delante, el
+ * precio se toma del unitario y el total se descarta.
+ */
+function imp_mapear_encabezado(array $fila): array
+{
+    $dic = imp_diccionario_campos();
+
+    $candidatos = [];
+    foreach ($fila as $col => $celda) {
+        foreach ($dic as $campo => $claves) {
+            $p = imp_puntaje_encabezado((string)$celda, $claves);
+            if ($p > 0) {
+                $candidatos[] = ['col' => $col, 'campo' => $campo, 'puntaje' => $p];
+            }
+        }
+    }
+    usort($candidatos, fn($a, $b) => $b['puntaje'] <=> $a['puntaje']);
+
+    $mapeo = []; $columnasUsadas = []; $total = 0;
+    foreach ($candidatos as $c) {
+        if (isset($mapeo[$c['campo']]) || isset($columnasUsadas[$c['col']])) continue;
+        $mapeo[$c['campo']]        = $c['col'];
+        $columnasUsadas[$c['col']] = true;
+        $total                    += $c['puntaje'];
+    }
+
+    return ['mapeo' => $mapeo, 'puntaje' => $total];
 }
 
 /**
@@ -566,31 +700,18 @@ function imp_mapear(array $grid): array
         return ['modo' => 'linea', 'encabezado' => null, 'mapeo' => []];
     }
 
-    $dic = imp_diccionario_campos();
-
     // ── 1. Encabezado explícito ──────────────────────────────────────────────
     $mejorFila = null; $mejorMapeo = []; $mejorPuntaje = 0;
     $limite = min(count($grid), 25);   // el encabezado siempre está arriba
 
     for ($f = 0; $f < $limite; $f++) {
-        $mapeo = []; $puntaje = 0;
-        foreach ($grid[$f] as $col => $celda) {
-            $n = imp_normalizar((string)$celda);
-            if ($n === '') continue;
-            foreach ($dic as $campo => $claves) {
-                if (isset($mapeo[$campo])) continue;
-                foreach ($claves as $clave) {
-                    if ($n === $clave || strpos($n, $clave) === 0) {
-                        $mapeo[$campo] = $col;
-                        $puntaje++;
-                        break 2;
-                    }
-                }
-            }
-        }
-        // Sin nombre no hay tabla que valga; y con un solo acierto es casualidad.
-        if (isset($mapeo['nombre']) && $puntaje >= 2 && $puntaje > $mejorPuntaje) {
-            $mejorPuntaje = $puntaje; $mejorFila = $f; $mejorMapeo = $mapeo;
+        $r = imp_mapear_encabezado($grid[$f]);
+        // Sin una columna de nombre no hay tabla que valga, y con un solo campo
+        // reconocido es casualidad.
+        if (isset($r['mapeo']['nombre']) && count($r['mapeo']) >= 2 && $r['puntaje'] > $mejorPuntaje) {
+            $mejorPuntaje = $r['puntaje'];
+            $mejorFila    = $f;
+            $mejorMapeo   = $r['mapeo'];
         }
     }
 
@@ -825,30 +946,54 @@ function imp_buscar_coincidencias(array $items, array $inventario): array
 function imp_procesar(string $tipo, string $ruta, array $inventario): array
 {
     $aviso = null;
+    $hoja  = null;
 
+    // Cada candidato es una grilla a evaluar. Sólo el .xlsx trae más de una.
     switch ($tipo) {
         case 'xlsx':
-            $grid = imp_parse_xlsx($ruta);
+            $candidatos = imp_parse_xlsx($ruta);
             break;
         case 'pdf':
-            $grid = imp_parse_pdf($ruta, $aviso);
+            $candidatos = [['nombre' => null, 'grid' => imp_parse_pdf($ruta, $aviso)]];
             break;
         case 'texto':
-            $grid = imp_parse_texto_plano($ruta);
+            $candidatos = [['nombre' => null, 'grid' => imp_parse_texto_plano($ruta)]];
             break;
         case 'csv':
         default:
-            $grid = imp_parse_texto_plano(imp_leer_texto($ruta));
+            $candidatos = [['nombre' => null, 'grid' => imp_parse_texto_plano(imp_leer_texto($ruta))]];
             break;
     }
 
-    $info  = imp_mapear($grid);
-    $items = imp_grid_a_items($grid, $info);
-    $items = imp_buscar_coincidencias($items, $inventario);
+    // Se queda con la hoja que más insumos reconocibles produce. Ante un empate
+    // gana la primera, que es la que el usuario ve al abrir el libro.
+    $mejor = null;
+    foreach ($candidatos as $cand) {
+        $info  = imp_mapear($cand['grid']);
+        $items = imp_grid_a_items($cand['grid'], $info);
+
+        if ($mejor === null || count($items) > count($mejor['items'])) {
+            $mejor = [
+                'nombre' => $cand['nombre'],
+                'grid'   => $cand['grid'],
+                'info'   => $info,
+                'items'  => $items,
+            ];
+        }
+    }
+
+    $grid  = $mejor['grid'];
+    $info  = $mejor['info'];
+    $hoja  = $mejor['nombre'];
+    $items = imp_buscar_coincidencias($mejor['items'], $inventario);
+
+    if (count($candidatos) > 1 && $hoja !== null && $items) {
+        $aviso = 'El archivo tiene ' . count($candidatos) . ' hojas con datos; se tomó "' . $hoja . '", que es la que trae insumos reconocibles.';
+    }
 
     if (!$items && $aviso === null) {
         $aviso = $grid
-            ? 'Se leyó el archivo pero no se reconoció ninguna fila de insumos. Revisá que haya una columna con el nombre o descripción del producto.'
+            ? 'Se leyó el archivo pero no se reconoció ninguna fila de insumos. Revisá que haya una columna con el nombre o descripción del producto, o corregí a mano qué columna es cada campo.'
             : 'El archivo está vacío o no se pudo leer su contenido.';
     }
 
@@ -857,6 +1002,7 @@ function imp_procesar(string $tipo, string $ruta, array $inventario): array
         'encabezado' => $info['encabezado'],
         'mapeo'      => $info['mapeo'],
         'grid'       => $grid,
+        'hoja'       => $hoja,
         'items'      => array_values($items),
         'aviso'      => $aviso,
     ];
