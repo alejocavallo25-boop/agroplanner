@@ -9,6 +9,7 @@ $page_title = 'Tablero de Control Agrícola';
 validate_csrf();
 
 require_once 'controllers/DashboardController.php';
+require_once 'includes/frescura.php';
 
 $controller = new DashboardController($pdo, $usuario_id);
 
@@ -308,11 +309,24 @@ require_once 'includes/header.php';
                     <span class="badge" style="background:rgba(16,185,129,0.1); color:var(--accent); border:1px solid var(--accent-glow); padding:4px 10px; font-size:0.7rem; white-space:nowrap;">
                         <i class="fas fa-chart-line"></i> MERCADO SIO-GRANOS
                     </span>
+                    <?php
+                    // La fecha sola no alcanza: un precio de hace una semana se
+                    // leía igual de confiable que el de hoy. Cuando la fuente deja
+                    // de publicar, esto lo dice con todas las letras.
+                    $sio_frescura = evaluar_frescura($sio_fecha);
+                    ?>
                     <?php if ($sio_fecha): ?>
-                    <span style="font-size:0.7rem; color:var(--text-muted); white-space:nowrap;">
-                        <i class="fas fa-clock" style="margin-right:3px;"></i>
-                        <?= date('d/m/Y', strtotime($sio_fecha)) ?>
-                    </span>
+                        <?php if ($sio_frescura['viejo']): ?>
+                        <span class="dato-viejo" title="El último dato publicado por la Cámara es del <?= date('d/m/Y', strtotime($sio_fecha)) ?>. Los precios que ves son de esa fecha.">
+                            <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+                            <?= htmlspecialchars($sio_frescura['texto']) ?>
+                        </span>
+                        <?php else: ?>
+                        <span style="font-size:0.7rem; color:var(--text-muted); white-space:nowrap;">
+                            <i class="fas fa-clock" style="margin-right:3px;"></i>
+                            <?= htmlspecialchars($sio_frescura['texto']) ?>
+                        </span>
+                        <?php endif; ?>
                     <?php endif; ?>
                 </div>
 
@@ -680,6 +694,29 @@ require_once 'includes/header.php';
     let dolarVenta = 0;
     let currentCurrency = 'ARS';
 
+    /**
+     * Sin cotización no se puede convertir, y hay que decirlo.
+     *
+     * Antes, si la API del dólar fallaba, el ticker se quedaba en "..." y el botón
+     * USD se marcaba activo pero los precios seguían mostrándose en pesos: el
+     * usuario creía estar mirando dólares y miraba pesos. Se prefiere apagar el
+     * botón y decir "sin dato" antes que convertir con un número inventado.
+     */
+    function marcarDolarSinDato() {
+        const ticker = document.getElementById('dolar-ticker');
+        if (ticker) {
+            ticker.innerText = 'sin dato';
+            ticker.classList.add('dato-viejo');
+        }
+        const btn = document.getElementById('btnCurrencyUSD');
+        if (btn) {
+            btn.disabled = true;
+            btn.style.opacity = '0.4';
+            btn.style.cursor = 'not-allowed';
+            btn.title = 'No se pudo obtener la cotización del dólar, así que no se puede convertir.';
+        }
+    }
+
     function setTickerCurrency(cur) {
         currentCurrency = cur;
         document.getElementById('btnCurrencyARS').classList.toggle('active', cur === 'ARS');
@@ -717,14 +754,18 @@ require_once 'includes/header.php';
     document.addEventListener('DOMContentLoaded', function() {
         // ── Ticker dólar ──
         fetch('https://dolarapi.com/v1/dolares/mayorista')
-            .then(res => res.json())
+            .then(res => {
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                return res.json();
+            })
             .then(data => {
-                if (data.venta) {
-                    dolarVenta = parseFloat(data.venta);
-                    const ticker = document.getElementById('dolar-ticker');
-                    if (ticker) ticker.innerText = '$' + data.venta.toLocaleString('es-AR');
-                }
-            });
+                const venta = parseFloat(data && data.venta);
+                if (!isFinite(venta) || venta <= 0) throw new Error('respuesta sin cotizacion');
+                dolarVenta = venta;
+                const ticker = document.getElementById('dolar-ticker');
+                if (ticker) ticker.innerText = '$' + venta.toLocaleString('es-AR');
+            })
+            .catch(marcarDolarSinDato);
 
         // ── Inicializar gráficos ──
         <?php if($ciclo_sel): ?>

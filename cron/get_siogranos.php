@@ -90,26 +90,10 @@ function log_msg(string $msg): void
     @file_put_contents(ARCHIVO_LOG, $linea, FILE_APPEND | LOCK_EX);
 }
 
-/**
- * Días hábiles entre dos fechas, sin contar sábados ni domingos.
- *
- * La pizarra sólo se publica en días hábiles: el viernes a la tarde y el lunes a
- * la mañana el último tablero es el mismo, y eso es normal. Contando en días
- * corridos, todos los lunes darían falsa alarma.
- */
-function dias_habiles(string $desdeSQL, string $hastaSQL): int
-{
-    $d = new DateTime($desdeSQL);
-    $h = new DateTime($hastaSQL);
-    if ($d >= $h) return 0;
-
-    $n = 0;
-    while ($d < $h) {
-        $d->modify('+1 day');
-        if ((int)$d->format('N') <= 5) $n++;
-    }
-    return $n;
-}
+// dias_habiles() vive en includes/frescura.php: la misma regla la usa el tablero
+// para marcar un precio como desactualizado. Una sola definición para que el log
+// y la pantalla nunca digan cosas distintas sobre el mismo dato.
+require_once __DIR__ . '/../includes/frescura.php';
 
 /**
  * Descarga la pizarra. Devuelve el HTML o false.

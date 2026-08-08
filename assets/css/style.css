@@ -882,6 +882,23 @@ input[type="password"], select, textarea {
     gap: 10px;
 }
 
+/* Marca de dato traído de afuera que dejó de actualizarse. Ámbar y no rojo a
+   propósito: el número no está mal, está viejo, y la diferencia importa cuando
+   con eso se decide una venta. */
+.dato-viejo {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    white-space: nowrap;
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
 /* =====================
    BOTÓN EXPORTAR (menú de formatos)
 
