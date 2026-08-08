@@ -250,13 +250,21 @@ class DashboardController {
             }
             
             // --- INGRESOS ---
+            //
+            // El COLLATE explicito va sobre la EXPRESION de columnas, nunca sobre un
+            // parametro. Con EMULATE_PREPARES en false, al preparar la consulta el
+            // marcador ? todavia no tiene tipo y MySQL lo trata como binario, asi que
+            // "? COLLATE utf8mb4_unicode_ci" aborta con:
+            //   1253 COLLATION 'utf8mb4_unicode_ci' is not valid for CHARACTER SET 'binary'
+            // Del lado del parametro no hace falta: la conexion ya fija la colacion
+            // en config/database.php, asi que el literal y el parametro coinciden solos.
             $stmtI = $this->pdo->prepare("
                 SELECT SUM(pv.ingreso_total) as total, SUM(pv.kg_cosechados) as kgs
                 FROM produccion_ventas pv 
                 LEFT JOIN cultivos c ON pv.cultivo_id = c.id 
                 WHERE pv.lote_id = ? AND (pv.campania_vendida = ? OR c.ciclo = ?)
-                AND (COALESCE(NULLIF(c.nombre, ''), NULLIF(pv.cultivo_vendido, ''), 'Sin Especificar') COLLATE utf8mb4_unicode_ci = ? 
-                     OR (? COLLATE utf8mb4_unicode_ci = 'Sin Especificar' AND c.nombre IS NULL AND pv.cultivo_vendido IS NULL))
+                AND (COALESCE(NULLIF(c.nombre, ''), NULLIF(pv.cultivo_vendido, ''), 'Sin Especificar') COLLATE utf8mb4_unicode_ci = ?
+                     OR (? = 'Sin Especificar' AND c.nombre IS NULL AND pv.cultivo_vendido IS NULL))
             ");
             $stmtI->execute([$lote_id, $ciclo_sel, $ciclo_sel, $esp, $esp]);
             $resI = $stmtI->fetch();

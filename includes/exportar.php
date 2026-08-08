@@ -22,20 +22,25 @@
  * @param array  $opciones Cada una: etiqueta, href y opcionalmente icono, color,
  *                         detalle, nueva_pestana.
  * @param string $etiqueta Texto del botón que abre el menú.
+ * @param string $clases   Clases extra para el disparador. 'exp-btn-sm' lo achica
+ *                         para que entre dentro de una fila de tabla.
  */
-function boton_exportar(array $opciones, string $etiqueta = 'Exportar'): void
+function boton_exportar(array $opciones, string $etiqueta = 'Exportar', string $clases = ''): void
 {
     $opciones = array_values(array_filter($opciones, fn($o) => !empty($o['href']) && !empty($o['etiqueta'])));
     if (!$opciones) {
         return;
     }
 
+    $clases = trim($clases);
+
     // Con un solo formato el menú sobra: se muestra el enlace directo y listo.
     if (count($opciones) === 1) {
         $o = $opciones[0];
         printf(
-            '<a href="%s" class="btn exp-btn"%s><i class="fas %s" aria-hidden="true" style="color:%s"></i> %s</a>',
+            '<a href="%s" class="btn exp-btn %s"%s><i class="fas %s" aria-hidden="true" style="color:%s"></i> %s</a>',
             htmlspecialchars($o['href']),
+            htmlspecialchars($clases),
             !empty($o['nueva_pestana']) ? ' target="_blank" rel="noopener"' : '',
             htmlspecialchars($o['icono'] ?? 'fa-download'),
             htmlspecialchars($o['color'] ?? 'currentColor'),
@@ -45,7 +50,7 @@ function boton_exportar(array $opciones, string $etiqueta = 'Exportar'): void
     }
     ?>
     <div class="exp-wrap">
-        <button type="button" class="btn exp-btn" aria-haspopup="true" aria-expanded="false">
+        <button type="button" class="btn exp-btn <?= htmlspecialchars($clases) ?>" aria-haspopup="true" aria-expanded="false">
             <i class="fas fa-download" aria-hidden="true"></i>
             <span><?= htmlspecialchars($etiqueta) ?></span>
             <i class="fas fa-chevron-down exp-caret" aria-hidden="true"></i>

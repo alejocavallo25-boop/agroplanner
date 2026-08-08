@@ -2,6 +2,7 @@
 require_once 'config/auth.php';
 require_once 'config/database.php';
 require_tambo();
+require_once 'includes/exportar.php';
 $usuario_id = $_SESSION['usuario_id'];
 $page_title = 'Egresos del Tambo';
 
@@ -545,7 +546,6 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
             }
             ?>
             <?php
-            require_once 'includes/exportar.php';
             boton_exportar([
                 ['etiqueta' => 'Excel', 'href' => 'api/reporte_excel.php' . $qs_export . '&tipo=tambo_egresos',
                  'icono' => 'fa-file-excel', 'color' => '#10b981', 'detalle' => 'Planilla editable'],

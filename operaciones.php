@@ -3,6 +3,7 @@ require_once 'config/auth.php';
 require_agricultura();
 require_once 'config/database.php';
 require_once 'includes/cultivos.php';
+require_once 'includes/exportar.php';
 $usuario_id = $_SESSION['usuario_id'];
 $page_title = 'Registro de Costos y Labores';
 
@@ -438,7 +439,6 @@ function colorGrupo($g) {
         </h2>
         <div style="display:flex; gap:8px; flex-wrap: wrap;">
             <?php
-            require_once 'includes/exportar.php';
             boton_exportar([
                 ['etiqueta' => 'Excel', 'href' => 'api/reporte_excel.php?tipo=operaciones',
                  'icono' => 'fa-file-excel', 'color' => '#10b981', 'detalle' => 'Planilla editable'],
@@ -565,7 +565,13 @@ function colorGrupo($g) {
                             <i class="fas fa-file-invoice" title="Receta de Aplicación" style="color:#f59e0b;"></i>
                             <b>Receta (Labor + Insumos)</b>
                             <div style="margin-top: 5px;">
-                                <a href="api/excel_receta.php?id=<?= $op['id'] ?>" class="btn btn-sm" style="display:inline-flex; align-items:center; gap:4px; background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:3px 8px; font-size:0.75rem; border-radius:6px; text-decoration:none;"><i class="fas fa-file-excel"></i> Excel</a>
+                                <?php boton_exportar([
+                                    ['etiqueta' => 'Excel', 'href' => 'api/excel_receta.php?id=' . (int)$op['id'],
+                                     'icono' => 'fa-file-excel', 'color' => '#10b981', 'detalle' => 'Planilla editable'],
+                                    ['etiqueta' => 'PDF',   'href' => 'api/pdf_receta.php?id=' . (int)$op['id'],
+                                     'icono' => 'fa-file-pdf',   'color' => '#ff7b72', 'detalle' => 'Listo para imprimir',
+                                     'nueva_pestana' => true],
+                                ], 'Receta', 'exp-btn-sm'); ?>
                                 <div style="display:inline-block; position:relative; margin-left:4px;">
                                     <button type="button" onclick="toggleInsumosList(<?= $op['id'] ?>)" class="btn" style="background:transparent; border:1px solid rgba(255,255,255,0.1); padding:3px 8px; font-size:0.75rem; color:var(--text-primary); border-radius:6px;"><i class="fas fa-ellipsis-h"></i> Detalles</button>
                                     <div id="insumos-list-<?= $op['id'] ?>" style="display:none; position:absolute; z-index:99; background:var(--bg-card); border:1px solid rgba(255,255,255,0.1); padding:10px; border-radius:8px; width:max-content; top:100%; left:0; box-shadow:0 4px 15px rgba(0,0,0,0.5); margin-top:5px;">
