@@ -3,6 +3,7 @@ require_once 'config/auth.php';
 require_agricultura();
 require_once 'config/database.php';
 require_once 'includes/cultivos.php';
+require_once 'includes/exportar.php';
 $usuario_id = $_SESSION['usuario_id'];
 $page_title = 'Producción y Ventas';
 validate_csrf();
@@ -192,9 +193,20 @@ require_once 'includes/header.php';
             Registro de Cosechas y Ventas
         </h2>
         <?php $buscador_placeholder = 'Buscar campaña, cultivo, lote, kg, precio, nota...'; include 'includes/buscador.php'; ?>
-        <button class="btn btn-primary" onclick="openAddModal()">
-            <i class="fas fa-plus"></i> Registrar Entrega
-        </button>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <?php
+            // Producción todavía no tiene reporte PDF, así que por ahora hay un
+            // solo formato: boton_exportar() con una sola opción resuelve un
+            // enlace directo en vez de un desplegable de un único ítem.
+            boton_exportar([
+                ['etiqueta' => 'Exportar a Excel', 'href' => 'api/reporte_excel.php?tipo=produccion',
+                 'icono' => 'fa-file-excel', 'color' => '#10b981'],
+            ]);
+            ?>
+            <button class="btn btn-primary" onclick="openAddModal()">
+                <i class="fas fa-plus"></i> Registrar Entrega
+            </button>
+        </div>
     </div>
 
     <?php if (empty($ventas_por_campania)): ?>

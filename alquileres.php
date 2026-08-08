@@ -2,6 +2,7 @@
 require_once 'config/auth.php';
 require_agricultura();
 require_once 'config/database.php';
+require_once 'includes/exportar.php';
 $usuario_id = $_SESSION['usuario_id'];
 $page_title = 'Gestión de Alquileres';
 
@@ -438,10 +439,13 @@ require_once 'includes/header.php';
         </h2>
         <?php $buscador_placeholder = 'Buscar lote, cultivo, campaña, monto, fecha...'; include 'includes/buscador.php'; ?>
         <div style="display:flex; gap:8px;">
-            <a href="api/reporte_pdf.php?tipo=alquileres" target="_blank" class="btn"
-                style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); color:#ff7b72; font-size:0.85rem;">
-                <i class="fas fa-file-pdf"></i> PDF
-            </a>
+            <?php boton_exportar([
+                ['etiqueta' => 'Excel', 'href' => 'api/reporte_excel.php?tipo=alquileres',
+                 'icono' => 'fa-file-excel', 'color' => '#10b981', 'detalle' => 'Planilla editable'],
+                ['etiqueta' => 'PDF',   'href' => 'api/reporte_pdf.php?tipo=alquileres',
+                 'icono' => 'fa-file-pdf',   'color' => '#ff7b72', 'detalle' => 'Listo para imprimir',
+                 'nueva_pestana' => true],
+            ]); ?>
             <button class="btn btn-primary" onclick="openNewAlqModal()">
                 <i class="fas fa-plus"></i> Registrar Pago
             </button>

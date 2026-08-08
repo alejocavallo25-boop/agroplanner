@@ -5,6 +5,7 @@ error_reporting(E_ALL);
 
 require_once __DIR__ . '/../config/auth.php';
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../includes/rentabilidad.php';
 $usuario_id = $_SESSION['usuario_id'];
 
 $tipo = $_GET['tipo'] ?? 'operaciones';
@@ -701,15 +702,15 @@ $fechaGen = date('d/m/Y H:i');
                     <?php $hay_filas = false; foreach ($dash_cultivos as $especie => $d): ?>
                         <?php foreach ($d['lotes'] as $l):
                             $hay_filas = true;
-                            $sup = (float)$l['sup'] > 0 ? (float)$l['sup'] : 0;
-                            $costo_total_lote = (float)$l['costo_dir'] + (float)$l['alquiler'];
-                            $margen_lote = (float)$l['ingreso'] - $costo_total_lote;
-                            $ingreso_ha  = $sup > 0 ? (float)$l['ingreso'] / $sup : 0;
-                            $costo_ha    = $sup > 0 ? (float)$l['costo_dir'] / $sup : 0;
-                            $alquiler_ha = $sup > 0 ? (float)$l['alquiler'] / $sup : 0;
-                            $margen_ha   = $sup > 0 ? $margen_lote / $sup : 0;
-                            $precio_prom = (float)$l['kgs'] > 0 ? (float)$l['ingreso'] / (float)$l['kgs'] : 0;
-                            $pe_kg_ha    = ($precio_prom > 0 && $sup > 0) ? ($costo_total_lote / $precio_prom) / $sup : 0;
+                            // Las cuentas viven en includes/rentabilidad.php: las comparte
+                            // con el reporte Excel para que los dos den siempre lo mismo.
+                            $calc = rentabilidad_lote($l);
+                            $sup         = $calc['sup'];
+                            $ingreso_ha  = $calc['ingreso_ha'];
+                            $costo_ha    = $calc['costo_ha'];
+                            $alquiler_ha = $calc['alquiler_ha'];
+                            $margen_ha   = $calc['margen_ha'];
+                            $pe_kg_ha    = $calc['rinde_indiferencia_ha'];
                         ?>
                         <tr>
                             <td><span class="badge badge-green"><?= htmlspecialchars($especie) ?></span></td>

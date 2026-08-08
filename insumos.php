@@ -2,6 +2,7 @@
 require_once 'config/auth.php';
 require_agricultura();
 require_once 'config/database.php';
+require_once 'includes/exportar.php';
 $usuario_id = $_SESSION['usuario_id'];
 $page_title = 'Gestión de Insumos (Stock)';
 
@@ -503,10 +504,22 @@ function tipoBadge($tipo) {
         </h2>
         <?php $buscador_placeholder = 'Buscar insumo, tipo, precio, depósito, vto...'; include 'includes/buscador.php'; ?>
         <div style="display:flex; gap:8px;">
-            <a id="pdfBtnInsumos" href="api/reporte_pdf.php?tipo=insumos" target="_blank"
-               class="btn" style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); color:#ff7b72; font-size:0.85rem;">
-                <i class="fas fa-file-pdf"></i> PDF
-            </a>
+            <?php
+            // Se arrastran los filtros de tipo y depósito que están activos en
+            // pantalla: se exporta lo que se está viendo, no el inventario entero.
+            $exp_params = http_build_query(array_filter([
+                'tipo'     => 'insumos',
+                't_insumo' => $f_tipo !== 'todos' ? $f_tipo : null,
+                'dep_id'   => $f_dep === 'sin' ? -1 : ($f_dep !== 'todos' ? (int)$f_dep : null),
+            ], fn($v) => $v !== null && $v !== ''));
+            boton_exportar([
+                ['etiqueta' => 'Excel', 'href' => 'api/reporte_excel.php?' . $exp_params,
+                 'icono' => 'fa-file-excel', 'color' => '#10b981', 'detalle' => 'Planilla editable'],
+                ['etiqueta' => 'PDF',   'href' => 'api/reporte_pdf.php?' . $exp_params,
+                 'icono' => 'fa-file-pdf',   'color' => '#ff7b72', 'detalle' => 'Listo para imprimir',
+                 'nueva_pestana' => true],
+            ]);
+            ?>
             <button class="btn" onclick="impAbrir()" title="Cargar insumos desde un remito, una lista de precios o una planilla"
                     style="background:rgba(99,102,241,0.18); border:1px solid rgba(99,102,241,0.45); color:#c7d2fe; font-size:0.85rem;">
                 <i class="fas fa-file-import"></i> Importar

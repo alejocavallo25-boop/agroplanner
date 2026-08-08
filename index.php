@@ -10,6 +10,7 @@ validate_csrf();
 
 require_once 'controllers/DashboardController.php';
 require_once 'includes/frescura.php';
+require_once 'includes/exportar.php';
 
 $controller = new DashboardController($pdo, $usuario_id);
 
@@ -457,8 +458,9 @@ require_once 'includes/header.php';
 <?php else: ?>
 
     <?php
-    // URL del reporte PDF del panel general, preservando los filtros activos.
-    $pdf_params = http_build_query(array_filter([
+    // Parámetros del reporte del panel general, preservando los filtros activos.
+    // Los comparten el PDF y el Excel: se exporta lo mismo que se está mirando.
+    $reporte_params = http_build_query(array_filter([
         'tipo'    => 'dashboard',
         'ciclo'   => $ciclo_sel,
         'lote'    => $lote_sel,
@@ -471,10 +473,13 @@ require_once 'includes/header.php';
             <i class="fas fa-chart-pie" style="color:var(--accent); margin-right:8px;"></i>
             Resumen de la Campaña <?= htmlspecialchars($ciclo_sel) ?>
         </h2>
-        <a href="api/reporte_pdf.php?<?= htmlspecialchars($pdf_params) ?>" target="_blank"
-           class="btn" style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); color:#ff7b72; font-size:0.85rem;">
-            <i class="fas fa-file-pdf"></i> Reporte PDF
-        </a>
+        <?php boton_exportar([
+            ['etiqueta' => 'Excel', 'href' => 'api/reporte_excel.php?' . $reporte_params,
+             'icono' => 'fa-file-excel', 'color' => '#10b981', 'detalle' => 'Detalle por lote, editable'],
+            ['etiqueta' => 'PDF',   'href' => 'api/reporte_pdf.php?' . $reporte_params,
+             'icono' => 'fa-file-pdf',   'color' => '#ff7b72', 'detalle' => 'Listo para imprimir',
+             'nueva_pestana' => true],
+        ], 'Exportar reporte'); ?>
     </div>
 
     <!-- Resumen Global del Ciclo (cards clicables) -->
