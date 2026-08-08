@@ -46,15 +46,20 @@ function dias_habiles(string $desdeSQL, string $hastaSQL): int
  * La tolerancia por defecto es de 2 días hábiles: el tablero del día se publica
  * a la tarde, así que a la mañana siempre se está mirando el del día anterior.
  *
+ * $hoySQL existe para las pruebas. Sin él habría que escribir los casos en
+ * función del día en que se corren, y una prueba que pasa el martes y falla el
+ * sábado no sirve para nada.
+ *
  * @return array{viejo:bool, dias:int, texto:string}
  */
-function evaluar_frescura(?string $fechaSQL, int $toleranciaHabiles = 2): array
+function evaluar_frescura(?string $fechaSQL, int $toleranciaHabiles = 2, ?string $hoySQL = null): array
 {
     if ($fechaSQL === null || $fechaSQL === '' || strtotime($fechaSQL) === false) {
         return ['viejo' => true, 'dias' => 0, 'texto' => 'sin dato'];
     }
 
-    $dias = dias_habiles(date('Y-m-d', strtotime($fechaSQL)), date('Y-m-d'));
+    $hoy  = $hoySQL ?? date('Y-m-d');
+    $dias = dias_habiles(date('Y-m-d', strtotime($fechaSQL)), $hoy);
 
     if ($dias <= $toleranciaHabiles) {
         return ['viejo' => false, 'dias' => $dias, 'texto' => date('d/m/Y', strtotime($fechaSQL))];
