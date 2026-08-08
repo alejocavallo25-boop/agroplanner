@@ -1,0 +1,15 @@
+# Los scripts de esta carpeta se ejecutan por URL (el cron del hPanel los llama
+# con wget), asi que la carpeta tiene que seguir siendo accesible. Lo que no
+# tiene por que ser descargable es el registro que dejan al correr: vive dentro
+# del webroot y sin esto cualquiera podria leerlo desde el navegador.
+<FilesMatch "\.log$">
+    # Apache 2.4 / LiteSpeed
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    # Apache 2.2
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
