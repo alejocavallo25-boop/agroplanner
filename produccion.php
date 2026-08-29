@@ -280,7 +280,9 @@ require_once 'includes/header.php';
                     <tr>
                         <th>Fecha</th>
                         <th>Kilogramos</th>
-                        <th>Precio/kg (USD)</th>
+                        <?php /* Decía "(USD)" fijo, pero cada entrega se muestra con
+                                 el símbolo de SU moneda en la celda de abajo. */ ?>
+                        <th>Precio/kg</th>
                         <th>Ingreso</th>
                         <th>Notas</th>
                         <th>Acciones</th>

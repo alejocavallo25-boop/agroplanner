@@ -1,0 +1,24 @@
+# Esta carpeta no tiene por que ser accesible desde el navegador.
+#
+# Vive dentro del webroot porque el deploy trae el repo entero, pero nada de
+# lo que hay aca lo consume la aplicacion: son scripts que se corren a mano,
+# una vez, desde phpMyAdmin o por consola.
+#
+# Sin esto, cualquiera puede descargar los .sql y leer el esquema completo de
+# la base —cada tabla, cada columna, cada relacion—, que es material de sobra
+# para armar una inyeccion dirigida. Comprobado: los .sql devolvian 200 y los
+# .php se ejecutaban.
+#
+# Se bloquea la carpeta entera y no solo los .sql: los .php de migracion se
+# corren por consola, nunca por URL.
+
+# Apache 2.4 / LiteSpeed (Hostinger)
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+
+# Apache 2.2
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>

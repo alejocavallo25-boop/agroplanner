@@ -1236,6 +1236,23 @@ input[type="password"], select, textarea {
     border: 1px solid oklch(0.470 0.120 70 / 0.35);
 }
 
+/* El catálogo de insumos guarda el precio en dólares (precio_estimado_usd) y el
+   formulario de costos lo copia tal cual. Si la operación quedó en pesos, el
+   número y la moneda no coinciden: ésa es exactamente la contradicción que dejó
+   mal etiquetadas las cargas viejas. Se avisa en la fila y no se corrige solo,
+   porque quien carga es el único que sabe qué pagó. */
+.aviso-precio-usd {
+    display: flex;
+    align-items: flex-start;
+    gap: 5px;
+    margin-top: 4px;
+    font-size: 0.75rem;
+    line-height: 1.35;
+    color: var(--se-warning);
+}
+
+.aviso-precio-usd i { margin-top: 2px; flex: none; }
+
 /* =====================
    BOTÓN EXPORTAR (menú de formatos)
 

@@ -826,7 +826,10 @@ function colorGrupo($g) {
                             style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--n-0); color: var(--text-primary);">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 5px;">
-                        <label for="priceHaLabor">Precio $ / Ha.</label>
+                        <?php /* Este decía pesos y el de los insumos decía dólares, en
+                                 el mismo formulario. Ahora los dos siguen al selector
+                                 de moneda de más arriba. */ ?>
+                        <label for="priceHaLabor" class="lbl-moneda-precio" data-base="Precio / Ha.">Precio / Ha.</label>
                         <input type="number" step="0.0001" name="precio_unitario" id="priceHaLabor" placeholder="Ej: 4500"
                             style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--n-0); color: var(--text-primary);">
                     </div>
@@ -986,7 +989,7 @@ function addInsumoRow(ins_id = '', cant = '', price = '', nom_libre = '') {
                 <input type="number" step="0.0001" name="cantidad_ha_ins[]" class="cant-ins-input" value="${cant}" oninput="updateCostoPreview()" placeholder="Ej: 0.15" style="padding:8px; border-radius:6px; border:1px solid var(--border); background:var(--n-0); color:var(--text-primary);" ${req}>
             </div>
             <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
-                <label style="font-size:0.8rem;">Precio USD</label>
+                <label style="font-size:0.8rem;" class="lbl-moneda-precio" data-base="Precio unit.">Precio unit.</label>
                 <input type="number" step="0.0001" name="precio_unitario_ins[]" class="price-ins-input" value="${price}" oninput="updateCostoPreview()" placeholder="Ej: 6.50" style="padding:8px; border-radius:6px; border:1px solid var(--border); background:var(--n-0); color:var(--text-primary);" ${req}>
             </div>
         </div>
@@ -997,7 +1000,47 @@ function addInsumoRow(ins_id = '', cant = '', price = '', nom_libre = '') {
         onInsumoChangeRow(selectElement, true);
     }
     toggleFormMode();
+    sincronizarLabelsMoneda();
 }
+
+/* Las etiquetas de precio llevan el símbolo de la moneda elegida arriba.
+   Antes una decía pesos y la otra dólares en el mismo formulario, y ésa
+   es la contradicción que dejó cargas mal etiquetadas. Las filas de
+   insumos se agregan por JS, así que hay que re-sincronizar al crearlas. */
+function sincronizarLabelsMoneda() {
+    const sel = document.getElementById('monedaSelect');
+    const esUSD = !!sel && sel.value === 'USD';
+    const sim = esUSD ? 'US$' : '$';
+    document.querySelectorAll('.lbl-moneda-precio').forEach(l => {
+        l.textContent = `${l.dataset.base} (${sim})`;
+    });
+    avisarPrecioCatalogo(esUSD);
+}
+
+/* El precio que copia el catálogo está en dólares. Si la operación quedó
+   en pesos, avisamos en la fila misma en vez de corregir por nuestra
+   cuenta: quien carga es el único que sabe qué pagó. */
+function avisarPrecioCatalogo(esUSD) {
+    document.querySelectorAll('.insumo-row[data-precio-catalogo="1"]').forEach(row => {
+        const campo = row.querySelector('.price-ins-input');
+        if (!campo) return;
+        let nota = row.querySelector('.aviso-precio-usd');
+        if (!nota) {
+            nota = document.createElement('div');
+            nota.className = 'aviso-precio-usd';
+            nota.innerHTML = '<i class="fas fa-exclamation-triangle"></i> ' +
+                'El precio del catálogo está en dólares. Cambiá la moneda a US$ ' +
+                'o escribí el precio en pesos.';
+            campo.parentElement.appendChild(nota);
+        }
+        nota.style.display = esUSD ? 'none' : 'block';
+    });
+}
+document.addEventListener('DOMContentLoaded', () => {
+    const sel = document.getElementById('monedaSelect');
+    if (sel) sel.addEventListener('change', sincronizarLabelsMoneda);
+    sincronizarLabelsMoneda();
+});
 
 function onInsumoChangeRow(sel, skipPriceOverride = false) {
     const opt = sel.options[sel.selectedIndex];
@@ -1026,7 +1069,14 @@ function onInsumoChangeRow(sel, skipPriceOverride = false) {
 
     // Al elegir un insumo, completar el precio con el precio cargado del insumo (editable).
     // skipPriceOverride=true solo al cargar una operación existente para respetar su precio guardado.
-    if (precio > 0 && !skipPriceOverride) priceField.value = precio;
+    // El catálogo guarda `precio_estimado_usd`: lo que se copia acá son DÓLARES. Si la
+    // operación está en pesos, el número y la moneda no coinciden, que es justo como
+    // quedaron mal etiquetadas las cargas viejas. No lo cambiamos solos —la regla de la
+    // app es guardar lo que se pagó, no reinterpretarlo— pero sí lo avisamos.
+    if (precio > 0 && !skipPriceOverride) {
+        priceField.value = precio;
+        row.dataset.precioCatalogo = '1';
+    }
 
     ind.style.display = 'block';
     if (stock <= 0) {
@@ -1036,6 +1086,7 @@ function onInsumoChangeRow(sel, skipPriceOverride = false) {
         ind.style.color = 'var(--accent)';
         ind.innerHTML = `<i class="fas fa-check-circle"></i> Stock: ${stock} ${unidad}`;
     }
+    sincronizarLabelsMoneda();
     updateCostoPreview();
 }
 
