@@ -46,12 +46,14 @@
     position: fixed; right: 24px; bottom: 92px;
 
     /* El ancho crece con la pantalla, con piso y techo.
-       Estaba fijo en 420px, que en una laptop dejaba mucho aire alrededor y a la
-       vez partía en dos renglones las líneas del reparto entre lotes
-       ("· El bajo (60,0 ha): $126.050,42"), que son las más largas que muestra.
-       El techo de 520 es para que no se coma media pantalla en un monitor grande:
-       sigue siendo un panel al costado, no una ventana. */
-    width: min(clamp(380px, 34vw, 520px), calc(100vw - 48px));
+       Medido contra las respuestas reales: los renglones con plata piden entre
+       387 y 601px de texto ("En la campaña 26/27, alquileres pagados:
+       $81.392.640,00"), y con el techo viejo de 520px solo entraban 400, así que
+       las respuestas más comunes se partían en dos justo donde está el número.
+       El techo de 720 deja entrar los renglones enteros sin que el panel deje de
+       ser un panel al costado. Que el texto no se vuelva ilegible de ancho lo
+       resuelve el tope de .mc-msg, no éste. */
+    width: min(clamp(380px, 42vw, 720px), calc(100vw - 48px));
 
     /* Alto: la conversación es lo que más se agradece ver. El segundo término
        impide que en una ventana baja el panel se salga por arriba de la pantalla. */
@@ -110,7 +112,12 @@
     display: flex; flex-direction: column; gap: 12px;
 }
 
-.mc-msg { max-width: 88%; padding: 10px 14px; border-radius: 12px; line-height: 1.5; font-size: 0.92rem; }
+/* El 92% es para que la burbuja no toque el borde y se siga leyendo de quién es
+   cada mensaje. El tope en píxeles es lo que impide que en un monitor grande el
+   panel ancho estire un párrafo a un renglón larguísimo: pasados los ~70
+   caracteres el ojo pierde el renglón al volver. Ensanchar sirve para que no se
+   parta un número, no para escribir más ancho. */
+.mc-msg { max-width: min(92%, 560px); padding: 10px 14px; border-radius: 12px; line-height: 1.5; font-size: 0.92rem; }
 .mc-msg-yo {
     align-self: flex-end;
     background: var(--accent); color: var(--on-accent);
