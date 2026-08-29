@@ -767,9 +767,10 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
             'respuesta' => 'Soy Cafrita' . $vocativo . '. Te llevo las cuentas del campo.',
             'detalle' => 'Puedo darte ' . implode(', ', array_map(fn($m) => $m['etiqueta'], $cat))
                        . '. Y desglosar el gasto por etapa, por tipo de insumo o por proveedor, '
-                       . 'filtrar por lote, cultivo o mes, y comparar campañas, lotes o meses entre sí.',
+                       . 'filtrar por lote, cultivo o mes, y comparar campañas, lotes o meses entre sí. '
+                       . 'También te digo el clima y la lluvia de cada lote.',
             'valor' => null, 'filtros' => [], 'link' => null,
-            'sugerencias' => ['¿En qué gasté más?', '¿Cuál es mi mejor lote?', '¿Cuánto gasté en agosto?'],
+            'sugerencias' => ['¿En qué gasté más?', '¿Cómo está el clima?', '¿Cuánto gasté en agosto?'],
         ];
     }
 
@@ -827,7 +828,9 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
             'ok' => true, 'tipo' => 'social',
             'respuesta' => $saludo, 'detalle' => $detalle,
             'valor' => null, 'filtros' => [], 'link' => null,
-            'sugerencias' => ['¿En qué gasté más?', '¿Cuál es mi mejor lote?', '¿Cuánto gasté en siembra?'],
+            /* Va el clima entre los atajos del saludo: es lo que nadie adivina
+               que se puede preguntar, y es lo primero que uno mira a la mañana. */
+            'sugerencias' => ['¿En qué gasté más?', '¿Cómo está el clima?', '¿Cuál es mi mejor lote?'],
         ];
     }
 
@@ -1116,6 +1119,128 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
         ];
     }
 
+    /* ── Clima y pronóstico ──────────────────────────────────────────────────
+       Va ANTES de la lluvia a propósito: "¿va a llover?" lleva la palabra
+       "llover" y caería en el archivo histórico, contestando con el pasado una
+       pregunta sobre el futuro. Es la peor forma de equivocarse, porque el
+       número que devuelve parece bueno. */
+    if (motor_pide_clima($texto)) {
+        $lote_clima = $lote;
+        if ($lote_clima === null) {
+            $todos = $ctrl->getLotesDelCiclo($campania);
+            if (count($todos) === 1) {
+                $lote_clima = $todos[0];
+            } else {
+                $nombres = array_map(fn($l) => $l['nombre'], $todos);
+                return [
+                    'ok' => false, 'tipo' => 'falta_dato',
+                    'respuesta' => '¿De qué lote querés saber el clima?',
+                    'detalle' => $nombres ? 'Tenés: ' . implode(', ', $nombres) . '.'
+                                          : 'Todavía no hay lotes cargados.',
+                    'valor' => null,
+                    'filtros' => ['ciclo' => $campania, 'lote' => null, 'cultivo' => $cultivo, 'metrica' => null],
+                    'link' => 'lotes.php',
+                    'sugerencias' => array_map(fn($n) => '¿Cómo está el clima en ' . $n . '?', array_slice($nombres, 0, 3)),
+                ];
+            }
+        }
+
+        $st = $pdo->prepare("SELECT id, nombre, latitud, longitud FROM lotes WHERE id = ? AND usuario_id = ?");
+        $st->execute([(int)$lote_clima['id'], $usuarioId]);
+        $lt = $st->fetch();
+
+        if (!$lt || !$lt['latitud'] || !$lt['longitud']) {
+            return [
+                'ok' => false, 'tipo' => 'falta_dato',
+                'respuesta' => 'El lote ' . ($lt['nombre'] ?? '') . ' no tiene ubicación cargada, '
+                             . 'así que no puedo traer el clima.',
+                'detalle' => 'Marcá el lote en el mapa desde Lotes y Cultivos y vuelvo a poder contestarte.',
+                'valor' => null,
+                'filtros' => ['ciclo' => $campania, 'lote' => (int)$lote_clima['id'], 'cultivo' => $cultivo, 'metrica' => null],
+                'link' => 'lotes.php', 'sugerencias' => [],
+            ];
+        }
+
+        $cl = motor_clima($lt);
+        if ($cl === null) {
+            return [
+                'ok' => false, 'tipo' => 'sin_datos',
+                'respuesta' => 'No pude traer el clima en este momento.',
+                'detalle' => 'El clima lo consulto a un servicio meteorológico externo; '
+                           . 'si no hay internet o está caído, no lo tengo. Probá de nuevo en un rato.',
+                'valor' => null,
+                'filtros' => ['ciclo' => $campania, 'lote' => (int)$lt['id'], 'cultivo' => $cultivo, 'metrica' => null],
+                'link' => 'clima_historico.php?id=' . (int)$lt['id'], 'sugerencias' => [],
+            ];
+        }
+
+        $num = fn($v, $d = 0) => number_format($v, $d, ',', '.');
+
+        $partes = [];
+        if ($cl['humedad'] !== null) $partes[] = 'humedad ' . $cl['humedad'] . '%';
+        if ($cl['viento']  !== null) $partes[] = 'viento ' . $num($cl['viento']) . ' km/h';
+        if ($cl['mm_ahora'] > 0)     $partes[] = 'cayendo ' . $num($cl['mm_ahora'], 1) . ' mm';
+
+        /* Se nombran los días en vez de dar la fecha: "el jueves" se ubica solo,
+           "04/09" hay que ir a mirarlo al calendario. */
+        $semana = ['Sun' => 'el domingo', 'Mon' => 'el lunes', 'Tue' => 'el martes',
+                   'Wed' => 'el miércoles', 'Thu' => 'el jueves', 'Fri' => 'el viernes',
+                   'Sat' => 'el sábado'];
+        $prons  = [];
+        $helada = null;
+        $minima = null;
+        foreach ($cl['dias'] as $i => $d) {
+            if ($i === 0) continue;                 // hoy ya está en el estado actual
+            $ts  = strtotime($d['fecha']);
+            $etq = $i === 1 ? 'mañana' : ($semana[date('D', $ts)] ?? date('d/m', $ts));
+            $t   = $etq . ' ' . $num($d['max']) . '°/' . $num($d['min']) . '°';
+            if ($d['mm'] >= 1.0) {
+                $t .= ' con ' . $num($d['mm'], 1) . ' mm';
+                if ($d['prob'] !== null) $t .= ' (' . $d['prob'] . '%)';
+            }
+            $prons[] = $t;
+            if ($helada === null && $d['min'] !== null && $d['min'] <= 3) {
+                $helada = ['etq' => $etq, 'min' => $d['min']];
+            }
+            if ($d['min'] !== null && ($minima === null || $d['min'] < $minima)) $minima = $d['min'];
+        }
+
+        $detalle = ($partes ? ucfirst(implode(', ', $partes)) . '. ' : '')
+                 . ($prons ? 'Para adelante: ' . implode('; ', $prons) . '. ' : '')
+                 . 'Es el pronóstico para las coordenadas del lote, no un dato que hayas cargado vos.';
+
+        /* Si preguntó puntualmente por heladas, la respuesta arranca contestando
+           eso. Devolver el parte completo sin decir sí o no es no escuchar la
+           pregunta, y encima es la que se hace cuando hay algo en juego. */
+        if (strpos($texto, 'helada') !== false) {
+            $encabezado = $helada
+                ? 'Sí: en ' . $lt['nombre'] . ', ' . $helada['etq'] . ' la mínima baja a '
+                  . $num($helada['min'], 1) . '°.'
+                : 'No se esperan heladas en ' . $lt['nombre'] . ' en los próximos días'
+                  . ($minima !== null ? ': la mínima más baja es de ' . $num($minima, 1) . '°' : '') . '.';
+        } else {
+            $encabezado = 'En ' . $lt['nombre'] . ' ahora hay ' . $num($cl['temp'], 1) . '°, '
+                        . $cl['desc'] . '.';
+            if ($helada) {
+                $detalle = ($partes ? ucfirst(implode(', ', $partes)) . '. ' : '')
+                         . ($prons ? 'Para adelante: ' . implode('; ', $prons) . '. ' : '')
+                         . 'Ojo que ' . $helada['etq'] . ' la mínima baja a ' . $num($helada['min'], 1)
+                         . '°, que es temperatura de helada. '
+                         . 'Es el pronóstico para las coordenadas del lote, no un dato que hayas cargado vos.';
+            }
+        }
+
+        return [
+            'ok' => true, 'tipo' => 'clima',
+            'respuesta' => $encabezado,
+            'detalle' => $detalle,
+            'valor' => $cl['temp'],
+            'filtros' => ['ciclo' => $campania, 'lote' => (int)$lt['id'], 'cultivo' => $cultivo, 'metrica' => null],
+            'link' => 'clima_historico.php?id=' . (int)$lt['id'],
+            'sugerencias' => ['¿Va a llover?', '¿Cuánto llovió este mes?', '¿Cuál es mi mejor lote?'],
+        ];
+    }
+
     /* ── Lluvia ──────────────────────────────────────────────────────────────
        La lluvia es de un lugar, no de una campaña: sin lote no hay respuesta
        posible. Si el productor tiene uno solo se asume ése; si tiene varios se
@@ -1207,7 +1332,7 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
             'ok' => true, 'tipo' => 'lluvia',
             'respuesta' => 'En ' . $lt['nombre'] . ', ' . $etiqueta . ' llovieron '
                          . number_format($ll['mm'], 0, ',', '.') . ' mm.',
-            'detalle' => $ll['dias'] . ' días con lluvia'
+            'detalle' => $ll['dias'] . ($ll['dias'] === 1 ? ' día con lluvia' : ' días con lluvia')
                        . ($prom !== null ? ', un promedio de ' . number_format($prom, 0, ',', '.') . ' mm por mes' : '')
                        . '. Es el registro histórico para las coordenadas del lote, no un dato que hayas cargado vos.',
             'valor' => $ll['mm'],
@@ -3185,20 +3310,15 @@ function motor_pide_lluvia(string $t): bool {
  *
  * @return array|null  ['mm','dias_con_lluvia','desde','hasta'] o null si falló.
  */
-function motor_lluvia(array $lote, string $desde, string $hasta): ?array {
-    $lat = $lote['latitud']  ?? null;
-    $lng = $lote['longitud'] ?? null;
-    if (!$lat || !$lng) return null;
-
-    $url = 'https://archive-api.open-meteo.com/v1/archive'
-         . '?latitude=' . rawurlencode((string)$lat)
-         . '&longitude=' . rawurlencode((string)$lng)
-         . '&start_date=' . rawurlencode($desde)
-         . '&end_date=' . rawurlencode($hasta)
-         . '&daily=precipitation_sum&timezone=UTC';
-
-    // Timeout corto y explícito: es un chat, no puede quedarse colgado esperando
-    // a un servicio de afuera. Si no contesta rápido, se avisa y listo.
+/**
+ * Trae y decodifica un JSON de Open-Meteo.
+ *
+ * Timeout corto y explícito: es un chat, no puede quedarse colgado esperando a
+ * un servicio de afuera. Si no contesta rápido, se avisa y listo. Devuelve null
+ * ante cualquier problema —sin internet, servicio caído, respuesta rota— y el
+ * que llama tiene que decirlo, nunca inventar un número de reemplazo.
+ */
+function motor_meteo_json(string $url): ?array {
     $ctx = stream_context_create([
         'http' => ['timeout' => 6, 'ignore_errors' => true],
         'ssl'  => ['verify_peer' => false, 'verify_peer_name' => false],
@@ -3217,6 +3337,24 @@ function motor_lluvia(array $lote, string $desde, string $hasta): ?array {
     if (!$raw) return null;
 
     $d = json_decode($raw, true);
+    return is_array($d) ? $d : null;
+}
+
+function motor_lluvia(array $lote, string $desde, string $hasta): ?array {
+    $lat = $lote['latitud']  ?? null;
+    $lng = $lote['longitud'] ?? null;
+    if (!$lat || !$lng) return null;
+
+    $url = 'https://archive-api.open-meteo.com/v1/archive'
+         . '?latitude=' . rawurlencode((string)$lat)
+         . '&longitude=' . rawurlencode((string)$lng)
+         . '&start_date=' . rawurlencode($desde)
+         . '&end_date=' . rawurlencode($hasta)
+         . '&daily=precipitation_sum&timezone=UTC';
+
+    $d = motor_meteo_json($url);
+    if ($d === null) return null;
+
     $serie = $d['daily']['precipitation_sum'] ?? null;
     if (!is_array($serie)) return null;
 
@@ -3227,6 +3365,102 @@ function motor_lluvia(array $lote, string $desde, string $hasta): ?array {
         if ($v >= 1.0) $dias++;   // por debajo de 1 mm es rocío, no lluvia útil
     }
     return ['mm' => $mm, 'dias' => $dias, 'desde' => $desde, 'hasta' => $hasta];
+}
+
+/* =====================================================================
+   CLIMA ACTUAL Y PRONÓSTICO
+
+   Mismo origen y mismas advertencias que la lluvia: es de afuera, necesita
+   internet y puede fallar. La diferencia es el tiempo verbal, y por eso son
+   dos cosas distintas: "cuánto llovió" mira el archivo histórico, "va a
+   llover" mira el pronóstico. Preguntar por el futuro y recibir el pasado es
+   la peor respuesta posible, porque el número parece bueno.
+
+   Se elige qué mostrar por lo que se hace con el dato: el viento decide si se
+   puede pulverizar, la mínima si hay que preocuparse por una helada, y los
+   milímetros de los próximos días si conviene entrar al lote o esperar.
+   ===================================================================== */
+
+function motor_pide_clima(string $t): bool {
+    /* Va ANTES que motor_pide_lluvia en el router: "¿va a llover?" contiene
+       "llover" y caería en la lluvia histórica, contestando con el pasado una
+       pregunta sobre el futuro. */
+    foreach (['clima','pronostico','pronóstico','que tiempo','qué tiempo',
+              'tiempo hace','el tiempo en','temperatura','temperaturas',
+              'va a llover','van a llover','llovera','lloverá','va a haber lluvia',
+              'esta lloviendo','está lloviendo','viento','helada','heladas',
+              'humedad','hace frio','hace frío','hace calor','grados'] as $p) {
+        if (strpos($t, $p) !== false) return true;
+    }
+    return false;
+}
+
+/** Códigos WMO de Open-Meteo a castellano. */
+function motor_clima_texto(int $c): string {
+    $m = [
+        0 => 'despejado', 1 => 'mayormente despejado', 2 => 'parcialmente nublado',
+        3 => 'nublado', 45 => 'con niebla', 48 => 'con niebla',
+        51 => 'con llovizna', 53 => 'con llovizna', 55 => 'con llovizna',
+        56 => 'con llovizna helada', 57 => 'con llovizna helada',
+        61 => 'con lluvia leve', 63 => 'con lluvia', 65 => 'con lluvia fuerte',
+        66 => 'con lluvia helada', 67 => 'con lluvia helada',
+        71 => 'con nieve', 73 => 'con nieve', 75 => 'con nieve fuerte',
+        77 => 'con nieve', 80 => 'con chaparrones', 81 => 'con chaparrones',
+        82 => 'con chaparrones fuertes', 85 => 'con chaparrones de nieve',
+        86 => 'con chaparrones de nieve', 95 => 'con tormenta',
+        96 => 'con tormenta y granizo', 99 => 'con tormenta y granizo',
+    ];
+    return $m[$c] ?? 'sin datos de cielo';
+}
+
+/**
+ * Estado actual y pronóstico a cuatro días para las coordenadas del lote.
+ *
+ * @return array|null  null si el lote no tiene ubicación o si el servicio falló.
+ */
+function motor_clima(array $lote): ?array {
+    $lat = $lote['latitud']  ?? null;
+    $lng = $lote['longitud'] ?? null;
+    if (!$lat || !$lng) return null;
+
+    /* timezone=auto: las horas y los cortes de día vienen en la hora del lote,
+       no en UTC. Sin eso "mañana" puede referirse a otro día. */
+    $url = 'https://api.open-meteo.com/v1/forecast'
+         . '?latitude=' . rawurlencode((string)$lat)
+         . '&longitude=' . rawurlencode((string)$lng)
+         . '&current=temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m'
+         . '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max'
+         . '&forecast_days=4&timezone=auto';
+
+    $d = motor_meteo_json($url);
+    if ($d === null) return null;
+
+    $ahora = $d['current'] ?? null;
+    $dia   = $d['daily']   ?? null;
+    if (!is_array($ahora) || !isset($ahora['temperature_2m'])) return null;
+
+    $dias = [];
+    if (is_array($dia) && !empty($dia['time'])) {
+        foreach ($dia['time'] as $i => $fecha) {
+            $dias[] = [
+                'fecha' => $fecha,
+                'max'   => isset($dia['temperature_2m_max'][$i]) ? (float)$dia['temperature_2m_max'][$i] : null,
+                'min'   => isset($dia['temperature_2m_min'][$i]) ? (float)$dia['temperature_2m_min'][$i] : null,
+                'mm'    => isset($dia['precipitation_sum'][$i]) ? (float)$dia['precipitation_sum'][$i] : 0.0,
+                'prob'  => isset($dia['precipitation_probability_max'][$i]) ? (int)$dia['precipitation_probability_max'][$i] : null,
+                'desc'  => motor_clima_texto((int)($dia['weather_code'][$i] ?? -1)),
+            ];
+        }
+    }
+
+    return [
+        'temp'    => (float)$ahora['temperature_2m'],
+        'humedad' => isset($ahora['relative_humidity_2m']) ? (int)$ahora['relative_humidity_2m'] : null,
+        'viento'  => isset($ahora['wind_speed_10m']) ? (float)$ahora['wind_speed_10m'] : null,
+        'mm_ahora'=> isset($ahora['precipitation']) ? (float)$ahora['precipitation'] : 0.0,
+        'desc'    => motor_clima_texto((int)($ahora['weather_code'] ?? -1)),
+        'dias'    => $dias,
+    ];
 }
 
 /* =====================================================================
@@ -3494,7 +3728,8 @@ function motor_sin_entender($ctrl, string $motivo): array {
         'ok' => false, 'tipo' => 'sin_entender',
         'respuesta' => $motivo,
         'detalle' => 'Puedo darte: ' . implode(', ', array_map(fn($m) => $m['etiqueta'], $cat)) . '. '
-                   . 'Y desglosar el gasto por ' . motor_frase_categorias() . ', o por proveedor.',
+                   . 'Y desglosar el gasto por ' . motor_frase_categorias() . ', o por proveedor. '
+                   . 'También el clima y la lluvia de cada lote.',
         'valor' => null, 'filtros' => [], 'link' => null,
         'sugerencias' => $ejemplos,
     ];
