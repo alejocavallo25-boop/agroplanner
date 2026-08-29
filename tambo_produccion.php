@@ -199,7 +199,7 @@ if ($filtro_tipo === '' || $filtro_tipo === 'buena' || $filtro_tipo === 'otra') 
     foreach ($stmt_leche->fetchAll() as $row) {
         if ($filtro_tipo !== '' && $row['tipo_raw'] !== $filtro_tipo)
             continue;
-        $tipo_label = $row['tipo_raw'] === 'buena' ? '<i class="fas fa-check-circle" style="color:var(--accent);"></i> Leche Buena' : '<i class="fas fa-exclamation-triangle" style="color:#60a5fa;"></i> Leche Otra';
+        $tipo_label = $row['tipo_raw'] === 'buena' ? '<i class="fas fa-check-circle" style="color:var(--accent);"></i> Leche Buena' : '<i class="fas fa-exclamation-triangle" style="color:var(--mod-tambo);"></i> Leche Otra';
         $history[] = [
             'id' => $row['id'],
             'fecha' => $row['fecha'],
@@ -224,9 +224,9 @@ if ($filtro_tipo === '' || $filtro_tipo === 'venta_carne' || $filtro_tipo === 'd
         if ($filtro_tipo !== '' && $row['tipo_raw'] !== $filtro_tipo)
             continue;
 
-        $tipo_label = '<i class="fas fa-drumstick-bite" style="color:#f87171;"></i> Venta de Carne';
+        $tipo_label = '<i class="fas fa-drumstick-bite" style="color:var(--danger);"></i> Venta de Carne';
         if ($row['tipo_raw'] === 'diferencia_inventario') {
-            $tipo_label = '<i class="fas fa-boxes-stacked" style="color:#f59e0b;"></i> Diferencia Inventario';
+            $tipo_label = '<i class="fas fa-boxes-stacked" style="color:var(--se-warning);"></i> Diferencia Inventario';
         } else {
             $cabezas = $row['cantidad_animales'] ? ' x ' . $row['cantidad_animales'] : '';
             $tipo_label .= ' (' . ucfirst($row['categoria_animal']) . $cabezas . ')';
@@ -299,8 +299,8 @@ require_once 'includes/header.php';
 
 <style>
     .kpi-card {
-        background: rgba(255, 255, 255, 0.04);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: var(--n-25);
+        border: 1px solid var(--border);
         border-radius: 16px;
         padding: 20px;
         display: flex;
@@ -321,7 +321,7 @@ require_once 'includes/header.php';
         right: 0;
         height: 2px;
         border-radius: 16px 16px 0 0;
-        background: linear-gradient(90deg, #10b981, #34d399);
+        background: linear-gradient(90deg, var(--accent), var(--accent));
     }
 
     .kpi-icon {
@@ -333,8 +333,8 @@ require_once 'includes/header.php';
         justify-content: center;
         font-size: 1.1rem;
         margin-bottom: 4px;
-        background: rgba(16, 185, 129, .12);
-        color: #10b981;
+        background: var(--accent-soft);
+        color: var(--accent);
     }
 
     .kpi-label {
@@ -358,8 +358,8 @@ require_once 'includes/header.php';
     }
 
     .chart-card {
-        background: rgba(255, 255, 255, .03);
-        border: 1px solid rgba(255, 255, 255, .08);
+        background: var(--n-25);
+        border: 1px solid var(--border);
         border-radius: 16px;
         padding: 24px;
     }
@@ -368,7 +368,7 @@ require_once 'includes/header.php';
         display: flex;
         gap: 4px;
         margin-bottom: 20px;
-        border-bottom: 1px solid rgba(255, 255, 255, .07);
+        border-bottom: 1px solid var(--border);
         padding-bottom: 0;
     }
 
@@ -429,9 +429,9 @@ require_once 'includes/header.php';
     textarea {
         padding: 10px 12px;
         border-radius: 8px;
-        border: 1px solid rgba(255, 255, 255, .1);
-        background: rgba(0, 0, 0, .2);
-        color: white;
+        border: 1px solid var(--border);
+        background: var(--n-100);
+        color: var(--text-primary);
         font-family: inherit;
         font-size: .9rem;
         width: 100%;
@@ -456,7 +456,7 @@ require_once 'includes/header.php';
 
 <!-- Filtro Global Mensual -->
 <div style="display:flex; justify-content: flex-end; align-items: center; margin-bottom: 16px;">
-    <input type="month" value="<?= $mes_sel ?>" onchange="location.href='tambo_produccion.php?mes='+this.value+'&tipo_historial=<?= urlencode($filtro_tipo) ?>'" style="padding: 8px 14px; border-radius: 20px; border: 1px solid var(--accent); background: rgba(16,185,129,0.1); color: white; cursor: pointer; font-weight: 500;">
+    <input type="month" value="<?= $mes_sel ?>" onchange="location.href='tambo_produccion.php?mes='+this.value+'&tipo_historial=<?= urlencode($filtro_tipo) ?>'" style="padding: 8px 14px; border-radius: 20px; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--text-primary); cursor: pointer; font-weight: 500;">
 </div>
 
 <!-- KPIs Leche -->
@@ -468,9 +468,9 @@ require_once 'includes/header.php';
         <span class="kpi-sub">Total acumulado en <?= date('F Y', strtotime($mes_start)) ?></span>
     </div>
     <div class="kpi-card" style="margin-bottom: 0;">
-        <div class="kpi-icon" style="color: #60a5fa; background: rgba(59,130,246,0.12);"><i class="fas fa-flask"></i></div>
+        <div class="kpi-icon" style="color: var(--mod-tambo); background: var(--tambo-soft);"><i class="fas fa-flask"></i></div>
         <span class="kpi-label">Litros Leche Otra</span>
-        <span class="kpi-value" style="color: #60a5fa;"><?= number_format((float) $stats_mes['total_otra'], 0) ?> L</span>
+        <span class="kpi-value" style="color: var(--mod-tambo);"><?= number_format((float) $stats_mes['total_otra'], 0) ?> L</span>
         <span class="kpi-sub">Total acumulado en <?= date('F Y', strtotime($mes_start)) ?></span>
     </div>
 </div>
@@ -497,7 +497,7 @@ require_once 'includes/header.php';
                     <input type="month" name="fecha" value="<?= date('Y-m') ?>" onclick="this.showPicker && this.showPicker();" required>
                 </div>
                 <div class="form-group">
-                    <label>Tipo de Leche</label>
+                    <label for="tipoLeche">Tipo de Leche</label>
                     <select name="destino" id="tipoLeche" onchange="toggleNotasLeche()">
                         <option value="buena">✓ Buena</option>
                         <option value="otra">⚠ Otra (Descripción)</option>
@@ -506,7 +506,7 @@ require_once 'includes/header.php';
             </div>
 
             <div class="form-group" id="notasLecheContainer" style="display:none;">
-                <label>Descripción / Observación de "Otra"</label>
+                <label for="notasLeche">Descripción / Observación de "Otra"</label>
                 <textarea name="notas" id="notasLeche" rows="2" placeholder="Describa el tipo de leche..."></textarea>
             </div>
 
@@ -538,7 +538,7 @@ require_once 'includes/header.php';
                         <input type="month" name="fecha_carne" value="<?= date('Y-m') ?>" onclick="this.showPicker && this.showPicker();" required>
                     </div>
                     <div class="form-group">
-                        <label>Tipo de Ingreso (Carne)</label>
+                        <label for="tipoCarneSelect">Tipo de Ingreso (Carne)</label>
                         <select name="tipo_carne" id="tipoCarneSelect" required onchange="toggleCategoriaCarne()">
                             <option value="venta_carne">Venta de Carne</option>
                         </select>
@@ -548,7 +548,7 @@ require_once 'includes/header.php';
                 <div class="form-group" id="categoriaAnimalContainer">
                     <div style="display:flex; gap:15px;">
                         <div style="flex:1;">
-                            <label>Categoría Animal</label>
+                            <label for="categoriaAnimalSelect">Categoría Animal</label>
                             <select name="categoria_animal" id="categoriaAnimalSelect">
                                 <option value="vaca">Vaca</option>
                                 <option value="vaquillona">Vaquillona</option>
@@ -558,7 +558,7 @@ require_once 'includes/header.php';
                             </select>
                         </div>
                         <div style="flex:1;">
-                            <label>Cantidad (Cabezas) <small style="color:var(--text-muted);">(Opcional)</small></label>
+                            <label for="carneCantidad">Cantidad (Cabezas) <small style="color:var(--text-muted);">(Opcional)</small></label>
                             <input type="text" inputmode="decimal" class="format-number" name="cantidad_animales" id="carneCantidad" placeholder="Ej: 5"
                                 oninput="calcTotalCarne()">
                         </div>
@@ -567,31 +567,31 @@ require_once 'includes/header.php';
 
                 <div class="form-grid-2" id="kgPrecioContainer">
                     <div class="form-group">
-                        <label>Kg Vivo <small style="color:var(--text-muted);">(Opcional)</small></label>
+                        <label for="carneKgVivo">Kg Vivo <small style="color:var(--text-muted);">(Opcional)</small></label>
                         <input type="text" inputmode="decimal" class="format-number" name="kg_vivo" id="carneKgVivo" placeholder="Ej: 450"
                             oninput="calcTotalCarne()">
                     </div>
                     <div class="form-group">
-                        <label>Precio por Kg Vivo ($) <small style="color:var(--text-muted);">(Opcional)</small></label>
+                        <label for="carnePrecioKg">Precio por Kg Vivo ($) <small style="color:var(--text-muted);">(Opcional)</small></label>
                         <input type="text" inputmode="decimal" class="format-number" name="precio_kg" id="carnePrecioKg" placeholder="Ej: 1,500"
                             oninput="calcTotalCarne()">
                     </div>
                 </div>
 
                 <div class="form-group">
-                    <label>Monto Total ($)</label>
+                    <label for="carneMontoTotal">Monto Total ($)</label>
                     <input type="text" inputmode="decimal" class="format-number" name="monto_carne" id="carneMontoTotal" required
                         placeholder="Ej: 250,000" style="font-weight:bold; color:var(--accent);" oninput="calcPromedioCarne()">
-                    <div style="margin-top:8px; padding:10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1); border-radius:8px; display:flex; justify-content:space-between; align-items:center;">
+                    <div style="margin-top:8px; padding:10px; background:var(--n-25); border:1px solid var(--border); border-radius:8px; display:flex; justify-content:space-between; align-items:center;">
                         <div style="display:flex; flex-direction:column;">
                             <span style="font-size:0.8rem; font-weight:700; color:var(--text-primary);">Total Promedio</span>
                             <span style="font-size:0.7rem; color:var(--text-muted);">(Total dividido 12) *Éste es el valor que se guarda como ingreso.</span>
                         </div>
-                        <span id="carneMontoPromedio" style="font-weight:bold; color:#34d399; font-size:1.1rem;">$0</span>
+                        <span id="carneMontoPromedio" style="font-weight:bold; color:var(--accent); font-size:1.1rem;">$0</span>
                     </div>
                 </div>
                 <div class="form-group">
-                    <label>Notas / Descripción</label>
+                    <label for="notasCarne">Notas / Descripción</label>
                     <textarea name="notas_carne" id="notasCarne" rows="2"
                         placeholder="Ej: Venta de 2 vacas de rechazo..."></textarea>
                 </div>
@@ -618,15 +618,15 @@ require_once 'includes/header.php';
                 </div>
                 <div style="display:flex; gap:14px;">
                     <div class="form-group" style="flex:1;">
-                        <label>Mes Stock Cierre</label>
+                        <label for="difMesAct">Mes Stock Cierre</label>
                         <input type="month" id="difMesAct" name="mes_label_act" onchange="calcPeriodosDif()">
                     </div>
                     <div class="form-group" style="flex:1;">
-                        <label>Mes Stock Inicio</label>
+                        <label for="difMesAnt">Mes Stock Inicio</label>
                         <input type="month" id="difMesAnt" name="mes_label_ant" onchange="calcPeriodosDif()">
                     </div>
                     <div class="form-group" style="width:120px;">
-                        <label>Periodos <small>(Meses)</small></label>
+                        <label for="difPeriodos">Periodos <small>(Meses)</small></label>
                         <input type="number" id="difPeriodos" name="cant_periodos" value="1" min="1" oninput="calcGranTotalDif()" style="text-align:center; font-weight:bold; color:var(--accent);">
                     </div>
                 </div>
@@ -635,7 +635,7 @@ require_once 'includes/header.php';
             <div style="overflow-x:auto;">
                 <table style="width:100%; border-collapse:collapse; min-width:800px; font-size:0.85rem;">
                     <thead>
-                        <tr style="border-bottom:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.02);">
+                        <tr style="border-bottom:1px solid var(--border); background:var(--n-25);">
                             <th style="padding:10px; text-align:left; color:var(--text-muted);">Categoría</th>
                             <th style="padding:10px; text-align:center; color:var(--text-muted); width:110px;">Stock de Cierre</th>
                             <th style="padding:10px; text-align:center; color:var(--text-muted); width:110px;">Stock Inicio</th>
@@ -646,7 +646,7 @@ require_once 'includes/header.php';
                     </thead>
                     <tbody>
                         <?php foreach ($CATEGORIAS_DIF as $cat => $def_crit): ?>
-                        <tr class="dif-row" data-cat="<?= htmlspecialchars($cat) ?>" style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                        <tr class="dif-row" data-cat="<?= htmlspecialchars($cat) ?>" style="border-bottom:1px solid var(--border);">
                             <td style="padding:8px 10px; font-weight:600;"><?= htmlspecialchars($cat) ?></td>
                             <td style="padding:8px 10px;"><input type="number" name="cant_actual[<?= htmlspecialchars($cat) ?>]" class="dif-ca" value="0" min="0" oninput="calcFilaDif(this)" style="padding:6px; font-size:0.85rem; text-align:center;"></td>
                             <td style="padding:8px 10px;"><input type="number" name="cant_anterior[<?= htmlspecialchars($cat) ?>]" class="dif-cb" value="0" min="0" oninput="calcFilaDif(this)" style="padding:6px; font-size:0.85rem; text-align:center;"></td>
@@ -661,7 +661,7 @@ require_once 'includes/header.php';
                             <td colspan="5" style="padding:12px 10px; text-align:right; font-weight:bold;">GRAN TOTAL DIF. INVENTARIO</td>
                             <td style="padding:12px 10px; text-align:right; font-weight:bold; font-size:1.05rem;" id="difGranTotal">$0</td>
                         </tr>
-                        <tr style="background:rgba(255,255,255,0.02);">
+                        <tr style="background:var(--n-25);">
                             <td colspan="5" style="padding:12px 10px; text-align:right; font-weight:bold; font-size:0.85rem; color:var(--text-muted);">PROMEDIO MENSUAL (Total / Periodos)</td>
                             <td style="padding:12px 10px; text-align:right; font-weight:bold; font-size:0.95rem; color:var(--text-muted);" id="difPromedioMensual">$0</td>
                         </tr>
@@ -674,7 +674,7 @@ require_once 'includes/header.php';
                 <textarea name="notas_dif" rows="2" placeholder="Observaciones del período..."></textarea>
             </div>
 
-            <button type="submit" class="btn btn-primary" style="align-self: flex-start; margin-top: 10px; width:100%; background:#a78bfa; border-color:#a78bfa;">
+            <button type="submit" class="btn btn-primary" style="align-self: flex-start; margin-top: 10px; width:100%; background:var(--mod-tambo); border-color:var(--mod-tambo);">
                 <i class="fas fa-save"></i> Registrar Diferencia de Inventario
             </button>
         </form>
@@ -688,14 +688,14 @@ require_once 'includes/header.php';
         <div><i class="fas fa-list"></i> Detalle de Ingresos (ARS)</div>
         <?php $buscador_placeholder = 'Buscar tipo, categoría, litros, monto, nota...'; include 'includes/buscador.php'; ?>
         <form method="GET"
-            style="display:flex; gap:14px; align-items:center; flex-wrap:wrap; background:rgba(255,255,255,0.02); padding:10px 16px; border-radius:10px; border:1px solid rgba(255,255,255,0.05); margin-bottom:10px;">
+            style="display:flex; gap:14px; align-items:center; flex-wrap:wrap; background:var(--n-25); padding:10px 16px; border-radius:10px; border:1px solid var(--border); margin-bottom:10px;">
             <input type="hidden" name="mes" value="<?= htmlspecialchars($mes_sel) ?>">
             <input type="hidden" name="q" value="<?= htmlspecialchars($q) ?>">
 
             <div style="display:flex; align-items:center; gap:8px;">
                 <label style="font-size:0.85rem; color:var(--text-muted); margin:0; font-weight:600;">Tipo:</label>
                 <select name="tipo_historial" onchange="this.form.submit()"
-                    style="padding:8px 12px; border-radius:6px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.2); color:white; font-family:inherit; font-size:0.9rem; min-width:170px; outline:none;">
+                    style="padding:8px 12px; border-radius:6px; border:1px solid var(--border); background:var(--n-0); color:var(--text-primary); font-family:inherit; font-size:0.9rem; min-width:170px; outline:none;">
                     <option value="">Todos los tipos</option>
                     <option value="buena" <?= $filtro_tipo == 'buena' ? 'selected' : '' ?>>🥛 Leche Buena</option>
                     <option value="otra" <?= $filtro_tipo == 'otra' ? 'selected' : '' ?>>⚠️ Leche Otra</option>
@@ -708,7 +708,7 @@ require_once 'includes/header.php';
 
             <?php if ($filtro_tipo): ?>
                 <a href="tambo_produccion.php?mes=<?= urlencode($mes_sel) ?>" class="btn"
-                    style="padding:8px 14px; background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.2); border-radius:6px; text-decoration:none; font-size:0.85rem; display:flex; align-items:center; gap:6px;"><i
+                    style="padding:8px 14px; background:var(--danger-soft); color:var(--danger); border:1px solid var(--danger-soft); border-radius:6px; text-decoration:none; font-size:0.85rem; display:flex; align-items:center; gap:6px;"><i
                         class="fas fa-times"></i> Limpiar</a>
             <?php endif; ?>
         </form>
@@ -716,7 +716,7 @@ require_once 'includes/header.php';
     <div class="table-container" style="overflow-x: auto;">
         <table style="width: 100%; border-collapse: collapse; text-align: left;">
             <thead>
-                <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
+                <tr style="border-bottom: 1px solid var(--border);">
                     <th
                         style="padding: 12px; color: var(--text-muted); font-size: 0.85rem; font-weight: 600; text-transform: uppercase;">
                         Fecha</th>
@@ -745,7 +745,7 @@ require_once 'includes/header.php';
                     </tr>
                 <?php else: ?>
                     <?php foreach ($history_paginated as $row): ?>
-                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <tr style="border-bottom: 1px solid var(--border);">
                             <td style="padding: 12px;"><strong><?= date('d/m/Y', strtotime($row['fecha'])) ?></strong></td>
                             <td style="padding: 12px;"><?= $row['tipo'] ?></td>
                             <td style="padding: 12px; font-size: 0.85rem; color: var(--text-muted);">
@@ -787,13 +787,13 @@ require_once 'includes/header.php';
     <?php if ($total_pages > 1): ?>
     <div style="display:flex; justify-content: center; gap:10px; margin:20px 0; padding-bottom:10px;">
         <?php if ($page > 1): ?>
-            <a href="?page=<?= $page-1 ?>&mes=<?= urlencode($mes_sel) ?>&tipo_historial=<?= urlencode($filtro_tipo) ?>&q=<?= urlencode($q) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
+            <a href="?page=<?= $page-1 ?>&mes=<?= urlencode($mes_sel) ?>&tipo_historial=<?= urlencode($filtro_tipo) ?>&q=<?= urlencode($q) ?>" class="btn" style="background:var(--n-100); color:var(--text-primary); padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
         <?php endif; ?>
         
         <span style="color:var(--text-muted); align-self:center; font-size:0.9rem;">Página <?= $page ?> de <?= $total_pages ?></span>
 
         <?php if ($page < $total_pages): ?>
-            <a href="?page=<?= $page+1 ?>&mes=<?= urlencode($mes_sel) ?>&tipo_historial=<?= urlencode($filtro_tipo) ?>&q=<?= urlencode($q) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
+            <a href="?page=<?= $page+1 ?>&mes=<?= urlencode($mes_sel) ?>&tipo_historial=<?= urlencode($filtro_tipo) ?>&q=<?= urlencode($q) ?>" class="btn" style="background:var(--n-100); color:var(--text-primary); padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
         <?php endif; ?>
     </div>
     <?php endif; ?>
@@ -916,11 +916,11 @@ require_once 'includes/header.php';
 
         const tdDif = row.querySelector('.dif-dif');
         tdDif.textContent = dif > 0 ? '+' + dif : dif;
-        tdDif.style.color = dif > 0 ? '#34d399' : (dif < 0 ? '#f87171' : 'inherit');
+        tdDif.style.color = dif > 0 ? 'var(--accent)' : (dif < 0 ? 'var(--danger)' : 'inherit');
 
         const tdVt = row.querySelector('.dif-vt');
         tdVt.textContent = (vt >= 0 ? '+' : '') + '$' + formatVal(Math.abs(vt).toFixed(2));
-        tdVt.style.color = vt > 0 ? '#34d399' : (vt < 0 ? '#f87171' : 'inherit');
+        tdVt.style.color = vt > 0 ? 'var(--accent)' : (vt < 0 ? 'var(--danger)' : 'inherit');
 
         calcGranTotalDif();
     }

@@ -3,6 +3,8 @@ require_once 'config/auth.php';
 require_agricultura();
 require_once 'config/database.php';
 require_once 'includes/exportar.php';
+// Muestra los importes en pesos o en dólares; no cambia nada de lo guardado.
+require_once 'includes/moneda.php';
 $usuario_id = $_SESSION['usuario_id'];
 $page_title = 'Gestión de Insumos (Stock)';
 
@@ -287,17 +289,17 @@ require_once 'includes/header.php';
 
 function badgeVenc($fv, $hoy, $en30d) {
     if (!$fv) return '<span style="color:var(--text-muted);font-size:0.8em;">—</span>';
-    if ($fv < $hoy)   return '<span class="badge" style="background:rgba(239,68,68,0.15);color:#ff7b72;border:1px solid rgba(239,68,68,0.3);">⚠ Vencido</span>';
-    if ($fv <= $en30d) return '<span class="badge" style="background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);">⏰ Próximo</span>';
+    if ($fv < $hoy)   return '<span class="badge" style="background:oklch(0.450 0.160 28 / 0.10);color:var(--danger);border:1px solid oklch(0.450 0.160 28 / 0.10);">⚠ Vencido</span>';
+    if ($fv <= $en30d) return '<span class="badge" style="background:oklch(0.470 0.120 70 / 0.10);color:var(--se-warning);border:1px solid oklch(0.470 0.120 70 / 0.10);">⏰ Próximo</span>';
     $dias = (new DateTime($fv))->diff(new DateTime($hoy))->days;
     return '<span style="color:var(--accent);font-size:0.82em;">✓ '.$dias.'d</span>';
 }
 
 function tipoBadge($tipo) {
     $map = [
-        'semilla'      => ['color'=>'#50c878','bg'=>'rgba(80,200,120,0.15)', 'border'=>'rgba(80,200,120,0.3)',  'icon'=>'fa-seedling'],
-        'fertilizante' => ['color'=>'#60a5fa','bg'=>'rgba(59,130,246,0.15)', 'border'=>'rgba(59,130,246,0.3)',  'icon'=>'fa-flask'],
-        'agroquimico'  => ['color'=>'#f59e0b','bg'=>'rgba(245,158,11,0.15)', 'border'=>'rgba(245,158,11,0.3)',  'icon'=>'fa-spray-can'],
+        'semilla'      => ['color'=>'var(--accent)','bg'=>'rgba(80,200,120,0.15)', 'border'=>'rgba(80,200,120,0.3)',  'icon'=>'fa-seedling'],
+        'fertilizante' => ['color'=>'var(--accent)','bg'=>'oklch(0.480 0.100 240 / 0.10)', 'border'=>'oklch(0.480 0.100 240 / 0.10)',  'icon'=>'fa-flask'],
+        'agroquimico'  => ['color'=>'var(--se-warning)','bg'=>'oklch(0.470 0.120 70 / 0.10)', 'border'=>'oklch(0.470 0.120 70 / 0.10)',  'icon'=>'fa-spray-can'],
         'inoculante'   => ['color'=>'#c084fc','bg'=>'rgba(168,85,247,0.15)', 'border'=>'rgba(168,85,247,0.3)',  'icon'=>'fa-vial'],
     ];
     $s = $map[$tipo] ?? ['color'=>'var(--text-muted)','bg'=>'rgba(255,255,255,0.05)','border'=>'rgba(255,255,255,0.1)','icon'=>'fa-box'];
@@ -310,30 +312,30 @@ function tipoBadge($tipo) {
 .tipo-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
 .tipo-tab {
     padding: 7px 16px; border-radius: 20px; font-size: 0.82rem; font-weight: 600;
-    cursor: pointer; border: 1px solid var(--border); background: rgba(255,255,255,0.04);
+    cursor: pointer; border: 1px solid var(--border); background: var(--n-25);
     color: var(--text-muted); transition: all 0.2s; white-space: nowrap;
 }
 .tipo-tab:hover { border-color: var(--accent); color: var(--text-primary); }
-.tipo-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
+.tipo-tab.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
 
 /* ── DEPÓSITO CHIPS (filtro) ── */
 .dep-filter-btn {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 6px 14px; border-radius: 20px; font-size: 0.82rem; font-weight: 600;
-    cursor: pointer; border: 1px solid var(--border); background: rgba(255,255,255,0.04);
+    cursor: pointer; border: 1px solid var(--border); background: var(--n-25);
     color: var(--text-muted); transition: all 0.2s; white-space: nowrap;
 }
-.dep-filter-btn:hover { border-color: #818cf8; color: #c7d2fe; }
-.dep-filter-btn.active { background: rgba(99,102,241,0.2); color: #c7d2fe; border-color: rgba(99,102,241,0.5); }
+.dep-filter-btn:hover { border-color: var(--accent); color: var(--accent); }
+.dep-filter-btn.active { background:var(--accent-soft); color:var(--accent); border-color: var(--border); }
 
 /* ── TARJETAS DEPÓSITO ── */
 .dep-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; margin-bottom: 24px; }
 .dep-card {
-    background: rgba(99,102,241,0.06); border: 1px solid rgba(99,102,241,0.25);
+    background:var(--n-0); border:1px solid var(--border);
     border-radius: 14px; padding: 18px; position: relative;
     transition: background 0.2s, transform 0.2s;
 }
-.dep-card:hover { background: rgba(99,102,241,0.12); transform: translateY(-2px); }
+.dep-card:hover { background: var(--n-50); transform: translateY(-2px); }
 .dep-card-actions { position: absolute; top: 10px; right: 10px; display: flex; gap: 4px; opacity: 0; transition: opacity 0.2s; }
 .dep-card:hover .dep-card-actions { opacity: 1; }
 
@@ -343,33 +345,33 @@ function tipoBadge($tipo) {
 .stock-unit { font-size: 0.78rem; color: var(--text-muted); }
 
 /* ── VENC ── */
-.venc-item { display: flex; align-items: center; gap: 14px; padding: 12px 16px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.02); transition: background 0.2s; }
-.venc-item:hover { background: rgba(255,255,255,0.04); }
+.venc-item { display: flex; align-items: center; gap: 14px; padding: 12px 16px; border-radius: 10px; border: 1px solid var(--border); background: var(--n-25); transition: background 0.2s; }
+.venc-item:hover { background: var(--n-25); }
 .venc-date { font-size: 0.8rem; font-weight: 700; min-width: 72px; text-align: center; padding: 6px 10px; border-radius: 8px; }
-.venc-date.vencido { background: rgba(239,68,68,0.15); color: #ff7b72; }
-.venc-date.proximo { background: rgba(245,158,11,0.15); color: #f59e0b; }
-.venc-date.ok      { background: rgba(16,185,129,0.1);  color: var(--accent); }
+.venc-date.vencido { background: oklch(0.450 0.160 28 / 0.10); color: var(--danger); }
+.venc-date.proximo { background: oklch(0.470 0.120 70 / 0.10); color: var(--se-warning); }
+.venc-date.ok      { background: var(--accent-soft);  color: var(--accent); }
 
 /* ── SORT ── */
-.sort-select { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: var(--text-primary); font-size: 0.85rem; cursor: pointer; }
+.sort-select { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--n-100); color: var(--text-primary); font-size: 0.85rem; cursor: pointer; }
 .sort-select:focus { outline: none; border-color: var(--accent); }
 </style>
 
 <!-- ===== ALERTAS DE STOCK ===== -->
 <?php if (!empty($alertas_stock)): ?>
-<div class="glass-panel" style="margin-bottom: 20px; border-color: rgba(245,158,11,0.3);">
-    <h2 style="font-size:1rem; font-weight:600; margin-bottom:14px; color:#f59e0b;">
+<div class="glass-panel" style="margin-bottom: 20px; border-color: oklch(0.470 0.120 70 / 0.10);">
+    <h2 style="font-size:1rem; font-weight:600; margin-bottom:14px; color:var(--se-warning);">
         <i class="fas fa-exclamation-triangle" style="margin-right:8px;"></i>
         Alertas de Stock Bajo (<?= count($alertas_stock) ?> insumo<?= count($alertas_stock) > 1 ? 's' : '' ?>)
     </h2>
     <div style="display:flex; flex-wrap:wrap; gap:10px;">
         <?php foreach ($alertas_stock as $al): ?>
-        <div style="display:flex; align-items:center; gap:10px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25); border-radius:10px; padding:10px 14px;">
-            <i class="fas fa-box-open" style="color:#f59e0b;"></i>
+        <div style="display:flex; align-items:center; gap:10px; background:oklch(0.470 0.120 70 / 0.10); border:1px solid oklch(0.470 0.120 70 / 0.10); border-radius:10px; padding:10px 14px;">
+            <i class="fas fa-box-open" style="color:var(--se-warning);"></i>
             <div>
                 <div style="font-weight:600; font-size:0.9rem;"><?= htmlspecialchars($al['nombre']) ?></div>
                 <div style="font-size:0.78rem; color:var(--text-muted);">
-                    Stock actual: <strong style="color:#f59e0b"><?= number_format((float)$al['stock_actual'],2,',','.') ?></strong>
+                    Stock actual: <strong style="color:var(--se-warning)"><?= number_format((float)$al['stock_actual'],2,',','.') ?></strong>
                     &nbsp;/&nbsp; Mínimo: <strong><?= number_format((float)$al['stock_minimo'],2,',','.') ?></strong>
                     <?= $al['unidad_stock'] ? htmlspecialchars($al['unidad_stock']) : '' ?>
                 </div>
@@ -384,11 +386,11 @@ function tipoBadge($tipo) {
 <div class="glass-panel" style="margin-bottom: 20px;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px;">
         <h2 style="font-size:1.1rem; font-weight:600; margin:0;">
-            <i class="fas fa-warehouse" style="color:#818cf8; margin-right:8px;"></i>
+            <i class="fas fa-warehouse" style="color: var(--accent); margin-right:8px;"></i>
             Mis Depósitos / Almacenes
         </h2>
         <button class="btn" onclick="openDepositoModal()"
-            style="background:rgba(99,102,241,0.2); border:1px solid rgba(99,102,241,0.4); color:#c7d2fe; font-size:0.85rem;">
+            style="background:var(--n-0); border:1px solid var(--border); color:var(--text-primary); font-size:0.85rem;">
             <i class="fas fa-plus"></i> Nuevo Depósito
         </button>
     </div>
@@ -406,7 +408,7 @@ function tipoBadge($tipo) {
         <div class="dep-card">
             <div class="dep-card-actions">
                 <button type="button" class="btn"
-                    style="padding:3px 7px; font-size:0.75rem; color:var(--accent); background:rgba(0,0,0,0.4); border-radius:6px;"
+                    style="padding:3px 7px; font-size:0.75rem; color:var(--accent); background:var(--n-100); border-radius:6px;"
                     onclick='editDeposito(<?= json_encode($dep, JSON_HEX_APOS|JSON_HEX_QUOT) ?>)'>
                     <i class="fas fa-edit"></i>
                 </button>
@@ -415,7 +417,7 @@ function tipoBadge($tipo) {
                     <input type="hidden" name="action" value="delete_deposito">
                     <input type="hidden" name="dep_id" value="<?= $dep['id'] ?>">
                     <button type="submit" class="btn"
-                        style="padding:3px 7px; font-size:0.75rem; color:var(--danger); background:rgba(0,0,0,0.4); border-radius:6px;">
+                        style="padding:3px 7px; font-size:0.75rem; color:var(--danger); background:var(--n-100); border-radius:6px;">
                         <i class="fas fa-trash"></i>
                     </button>
                 </form>
@@ -429,12 +431,12 @@ function tipoBadge($tipo) {
             <?php endif; ?>
             <div style="display:flex; gap:14px; margin-top:10px;">
                 <div>
-                    <div style="font-size:1.3rem; font-weight:800; color:#a5b4fc;"><?= $dep_resumen['items'] ?></div>
-                    <div style="font-size:0.72rem; color:var(--text-muted);">ítems</div>
+                    <div style="font-size:1.3rem; font-weight:800; color: var(--accent);"><?= $dep_resumen['items'] ?></div>
+                    <div style="font-size: 0.8rem; color:var(--text-muted);">ítems</div>
                 </div>
                 <div>
-                    <div style="font-size:1.1rem; font-weight:700; color:var(--accent);">$<?= number_format($dep_resumen['valor_usd'], 0, ',', '.') ?></div>
-                    <div style="font-size:0.72rem; color:var(--text-muted);">valor est. USD</div>
+                    <div style="font-size:1.1rem; font-weight:700; color:var(--accent);"><?= ap_plata(moneda_convertir($pdo, $usuario_id, $dep_resumen['valor_usd'], 'USD'), 0) ?></div>
+                    <div style="font-size: 0.8rem; color:var(--text-muted);">valor est. <?= moneda_actual() ?></div>
                 </div>
             </div>
         </div>
@@ -442,7 +444,7 @@ function tipoBadge($tipo) {
 
         <!-- Tarjeta: Sin depósito -->
         <?php if (isset($resumen_dep['sin']) && $resumen_dep['sin']['items'] > 0): ?>
-        <div class="dep-card" style="background:rgba(255,255,255,0.02); border-color:rgba(255,255,255,0.1);">
+        <div class="dep-card" style="background:var(--n-25); border-color:var(--border);">
             <div style="font-size:1.5rem; margin-bottom:8px; opacity:0.4;">📦</div>
             <div style="font-weight:600; font-size:0.95rem; color:var(--text-muted); margin-bottom:10px;">Sin depósito asignado</div>
             <div style="font-size:1.3rem; font-weight:800; color:var(--text-muted);"><?= $resumen_dep['sin']['items'] ?> <span style="font-size:0.7rem;">ítems</span></div>
@@ -467,8 +469,9 @@ function tipoBadge($tipo) {
         </div>
 
         <div style="display:flex; align-items:center; gap:8px;">
+            <?php moneda_toggle(); ?>
             <i class="fas fa-sort" style="color: var(--text-muted); font-size: 0.9rem;"></i>
-            <select class="sort-select" id="sortSelect" onchange="setOrden(this.value)">
+            <select class="sort-select" id="sortSelect" aria-label="Ordenar el listado" onchange="setOrden(this.value)">
                 <?php $f_order = $_GET['order'] ?? 'nombre-az'; ?>
                 <option value="nombre-az" <?= $f_order === 'nombre-az' ? 'selected' : '' ?>>Nombre A → Z</option>
                 <option value="nombre-za" <?= $f_order === 'nombre-za' ? 'selected' : '' ?>>Nombre Z → A</option>
@@ -483,7 +486,7 @@ function tipoBadge($tipo) {
 
     <!-- Filtro por depósito -->
     <?php if (!empty($depositos)): ?>
-    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.05);">
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
         <button class="dep-filter-btn <?= $f_dep === 'todos' ? 'active' : '' ?>" onclick="setDeposito('todos')">🏚 Todos los depósitos</button>
         <?php foreach ($depositos as $dep): ?>
         <button class="dep-filter-btn <?= (string)$f_dep === (string)$dep['id'] ? 'active' : '' ?>" onclick="setDeposito('<?= $dep['id'] ?>')">
@@ -521,7 +524,7 @@ function tipoBadge($tipo) {
             ]);
             ?>
             <button class="btn" onclick="impAbrir()" title="Cargar insumos desde un remito, una lista de precios o una planilla"
-                    style="background:rgba(99,102,241,0.18); border:1px solid rgba(99,102,241,0.45); color:#c7d2fe; font-size:0.85rem;">
+                    style="background:var(--n-0); border:1px solid var(--border); color:var(--text-primary); font-size:0.85rem;">
                 <i class="fas fa-file-import"></i> Importar
             </button>
             <button class="btn btn-primary" onclick="openNewInsumoModal()">
@@ -550,30 +553,40 @@ function tipoBadge($tipo) {
                     data-venc="<?= $ins['fecha_vencimiento'] ?? '' ?>"
                     data-deposito="<?= $ins['deposito_id'] ?? 'sin' ?>">
                     <td data-label="Insumo">
-                        <div style="font-size: 1.05rem; font-weight: 600; color: white; margin-bottom: 6px;">
+                        <div style="font-size: 1.05rem; font-weight: 600; color: var(--text-primary); margin-bottom: 6px;">
                             <?= htmlspecialchars($ins['nombre']) ?>
                         </div>
                         <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
                             <?= tipoBadge($ins['tipo_insumo']) ?>
                             <?php if ($ins['deposito_nombre']): ?>
-                                <span style="display:inline-flex; align-items:center; gap:4px; background:rgba(99,102,241,0.12); color:#a5b4fc; border:1px solid rgba(99,102,241,0.25); border-radius:6px; padding:2px 6px; font-size:0.75rem; font-weight:600;">
-                                    <i class="fas fa-warehouse" style="font-size:0.65rem;"></i>
+                                <span style="display:inline-flex; align-items:center; gap:4px; background:var(--accent-soft); color:var(--accent); border:1px solid var(--border); border-radius:6px; padding:2px 6px; font-size:0.75rem; font-weight:600;">
+                                    <i class="fas fa-warehouse" style="font-size: 0.8rem;"></i>
                                     <?= htmlspecialchars($ins['deposito_nombre']) ?>
                                 </span>
                             <?php else: ?>
-                                <span style="display:inline-flex; align-items:center; gap:4px; background:rgba(255,255,255,0.05); color:var(--text-muted); border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:2px 6px; font-size:0.75rem;">
-                                    <i class="fas fa-box" style="font-size:0.65rem;"></i> Sin depósito
+                                <span style="display:inline-flex; align-items:center; gap:4px; background:var(--n-100); color:var(--text-muted); border:1px solid var(--border); border-radius:6px; padding:2px 6px; font-size:0.75rem;">
+                                    <i class="fas fa-box" style="font-size: 0.8rem;"></i> Sin depósito
                                 </span>
                             <?php endif; ?>
                         </div>
                     </td>
+                    <?php /* El catálogo guarda el precio en dólares, siempre: la
+                             columna es precio_estimado_usd y el formulario lo pide
+                             así. Mirando en pesos se convierte con la cotización de
+                             referencia —un precio de catálogo no tiene fecha—, y se
+                             deja a la vista el de dólares, que es el que se cargó. */ ?>
                     <td data-label="Precio Est.">
-                        <span style="font-weight: 600;">$<?= number_format($ins['precio_estimado_usd'], 2, ',', '.') ?></span>
+                        <span style="font-weight: 600;">
+                            <?= ap_plata(moneda_convertir($pdo, $usuario_id, $ins['precio_estimado_usd'], 'USD')) ?>
+                        </span>
+                        <?php if (moneda_actual() !== 'USD'): ?>
+                            <br><small style="color:var(--text-muted);">US$<?= number_format($ins['precio_estimado_usd'], 2, ',', '.') ?></small>
+                        <?php endif; ?>
                     </td>
                     <td data-label="Stock Actual">
                         <?php $st = (float)($ins['stock_actual'] ?? 0); ?>
                         <div class="stock-display">
-                            <span class="stock-val" style="color: <?= $st <= 0 ? 'var(--danger)' : ($st < 10 ? '#f59e0b' : 'var(--accent)') ?>;">
+                            <span class="stock-val" style="color: <?= $st <= 0 ? 'var(--danger)' : ($st < 10 ? 'var(--se-warning)' : 'var(--accent)') ?>;">
                                 <?= number_format($st, 2, ',', '.') ?>
                             </span>
                             <?php if(!empty($ins['unidad_stock'])): ?>
@@ -619,13 +632,13 @@ function tipoBadge($tipo) {
     <?php if ($total_pages > 1): ?>
     <div style="display:flex; justify-content: center; gap:10px; margin-top:20px; padding-bottom:10px;">
         <?php if ($page > 1): ?>
-            <a href="?page=<?= $page-1 ?>&tipo=<?= $f_tipo ?>&deposito_id=<?= $f_dep ?>&order=<?= $f_order ?>&q=<?= urlencode($q) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
+            <a href="?page=<?= $page-1 ?>&tipo=<?= $f_tipo ?>&deposito_id=<?= $f_dep ?>&order=<?= $f_order ?>&q=<?= urlencode($q) ?>" class="btn" style="background:var(--n-100); color:var(--text-primary); padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
         <?php endif; ?>
         
         <span style="color:var(--text-muted); align-self:center; font-size:0.9rem;">Página <?= $page ?> de <?= $total_pages ?></span>
 
         <?php if ($page < $total_pages): ?>
-            <a href="?page=<?= $page+1 ?>&tipo=<?= $f_tipo ?>&deposito_id=<?= $f_dep ?>&order=<?= $f_order ?>&q=<?= urlencode($q) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
+            <a href="?page=<?= $page+1 ?>&tipo=<?= $f_tipo ?>&deposito_id=<?= $f_dep ?>&order=<?= $f_order ?>&q=<?= urlencode($q) ?>" class="btn" style="background:var(--n-100); color:var(--text-primary); padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
         <?php endif; ?>
     </div>
     <?php endif; ?>
@@ -658,17 +671,17 @@ function tipoBadge($tipo) {
                     <?= tipoBadge($ins['tipo_insumo']) ?>
                     &nbsp;Stock: <strong><?= number_format((float)($ins['stock_actual'] ?? 0), 2, ',', '.') ?> <?= htmlspecialchars($ins['unidad_stock'] ?? $ins['unidad_medida']) ?></strong>
                     <?php if ($ins['deposito_nombre']): ?>
-                    &bull; <span style="color:#a5b4fc;"><i class="fas fa-warehouse" style="font-size:0.7rem;"></i> <?= htmlspecialchars($ins['deposito_nombre']) ?></span>
+                    &bull; <span style="color: var(--accent);"><i class="fas fa-warehouse" style="font-size:0.7rem;"></i> <?= htmlspecialchars($ins['deposito_nombre']) ?></span>
                     <?php endif; ?>
                 </div>
             </div>
             <div style="text-align: right; font-size: 0.82rem; white-space: nowrap;">
                 <?php if($diasNum < 0): ?>
-                    <span style="color: #ff7b72; font-weight: 700;">Venció hace <?= abs($diasNum) ?> días</span>
+                    <span style="color: var(--danger); font-weight: 700;">Venció hace <?= abs($diasNum) ?> días</span>
                 <?php elseif($diasNum === 0): ?>
-                    <span style="color: #f59e0b; font-weight: 700;">⚠ Vence hoy</span>
+                    <span style="color: var(--se-warning); font-weight: 700;">⚠ Vence hoy</span>
                 <?php else: ?>
-                    <span style="color: <?= $cls === 'proximo' ? '#f59e0b' : 'var(--accent)' ?>; font-weight: 600;">
+                    <span style="color: <?= $cls === 'proximo' ? 'var(--se-warning)' : 'var(--accent)' ?>; font-weight: 600;">
                         En <?= $diasNum ?> días
                     </span>
                 <?php endif; ?>
@@ -689,27 +702,27 @@ function tipoBadge($tipo) {
             <input type="hidden" name="dep_id"  id="depId"     value="">
 
             <div style="display:flex; flex-direction:column; gap:5px;">
-                <label>Nombre del Depósito <span style="color:var(--danger);">*</span></label>
+                <label for="depNombre">Nombre del Depósito <span style="color:var(--danger);">*</span></label>
                 <input type="text" name="dep_nombre" id="depNombre" required
                     placeholder="Ej: Galpón Norte, Silo 1, Depósito Campo Sur"
-                    style="padding:10px; border-radius:6px; border:1px solid var(--border); background:rgba(0,0,0,0.2); color:white;">
+                    style="padding:10px; border-radius:6px; border:1px solid var(--border); background:var(--n-0); color:var(--text-primary);">
             </div>
             <div style="display:flex; flex-direction:column; gap:5px;">
-                <label>Descripción <small style="color:var(--text-muted);">(Opcional)</small></label>
+                <label for="depDesc">Descripción <small style="color:var(--text-muted);">(Opcional)</small></label>
                 <input type="text" name="dep_descripcion" id="depDesc"
                     placeholder="Ej: Para herbicidas, semillas de soja..."
-                    style="padding:10px; border-radius:6px; border:1px solid var(--border); background:rgba(0,0,0,0.2); color:white;">
+                    style="padding:10px; border-radius:6px; border:1px solid var(--border); background:var(--n-0); color:var(--text-primary);">
             </div>
             <div style="display:flex; flex-direction:column; gap:5px;">
-                <label>Ubicación <small style="color:var(--text-muted);">(Opcional)</small></label>
+                <label for="depUbic">Ubicación <small style="color:var(--text-muted);">(Opcional)</small></label>
                 <input type="text" name="dep_ubicacion" id="depUbic"
                     placeholder="Ej: Ruta 9 Km 45, Campo El Ombú"
-                    style="padding:10px; border-radius:6px; border:1px solid var(--border); background:rgba(0,0,0,0.2); color:white;">
+                    style="padding:10px; border-radius:6px; border:1px solid var(--border); background:var(--n-0); color:var(--text-primary);">
             </div>
 
             <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:4px;">
-                <button type="button" class="btn" onclick="closeDepModal()" style="background:rgba(255,255,255,0.1);color:white;">Cancelar</button>
-                <button type="submit" class="btn" style="background:rgba(99,102,241,0.3); border:1px solid rgba(99,102,241,0.5); color:#c7d2fe;">
+                <button type="button" class="btn" onclick="closeDepModal()" style="background:rgba(255,255,255,0.1);color:var(--text-primary);">Cancelar</button>
+                <button type="submit" class="btn" style="background:var(--n-0); border:1px solid var(--border); color:var(--text-primary);">
                     <i class="fas fa-save"></i> Guardar Depósito
                 </button>
             </div>
@@ -728,18 +741,18 @@ function tipoBadge($tipo) {
 
             <!-- Nombre -->
             <div style="display:flex; flex-direction:column; gap:5px;">
-                <label>Nombre del Insumo</label>
+                <label for="nombreInput">Nombre del Insumo</label>
                 <input type="text" name="nombre" id="nombreInput" required
                     placeholder="Ej: Glifosato 64%, Urea, Soja Don Mario"
-                    style="padding:10px; border-radius:6px; border:1px solid var(--border); background:rgba(0,0,0,0.2); color:white;">
+                    style="padding:10px; border-radius:6px; border:1px solid var(--border); background:var(--n-0); color:var(--text-primary);">
             </div>
 
             <!-- Tipo + Unidad + Depósito -->
             <div class="form-grid-2">
                 <div style="display:flex; flex-direction:column; gap:5px;">
-                    <label>Tipo de Insumo</label>
+                    <label for="tipoInput">Tipo de Insumo</label>
                     <select name="tipo_insumo" id="tipoInput" required
-                        style="padding:10px; border-radius:6px; border:1px solid var(--border); background:var(--bg-color); color:white;">
+                        style="padding:10px; border-radius:6px; border:1px solid var(--border); background:var(--bg-color); color:var(--text-primary);">
                         <option value="semilla">🌱 Semilla</option>
                         <option value="fertilizante">💧 Fertilizante</option>
                         <option value="agroquimico">🧪 Agroquímico</option>
@@ -748,9 +761,9 @@ function tipoBadge($tipo) {
                     </select>
                 </div>
                 <div style="display:flex; flex-direction:column; gap:5px;">
-                    <label>Unidad de Medida</label>
+                    <label for="unidadInput">Unidad de Medida</label>
                     <select name="unidad_medida" id="unidadInput" required
-                        style="padding:10px; border-radius:6px; border:1px solid var(--border); background:var(--bg-color); color:white;">
+                        style="padding:10px; border-radius:6px; border:1px solid var(--border); background:var(--bg-color); color:var(--text-primary);">
                         <option value="kg">Kilogramos (kg)</option>
                         <option value="lt">Litros (lt)</option>
                         <option value="dosis">Dosis</option>
@@ -761,13 +774,13 @@ function tipoBadge($tipo) {
 
             <!-- Depósito -->
             <div style="display:flex; flex-direction:column; gap:5px;">
-                <label>
-                    <i class="fas fa-warehouse" style="color:#818cf8; margin-right:5px;"></i>
+                <label for="depositoInput">
+                    <i class="fas fa-warehouse" style="color: var(--accent); margin-right:5px;"></i>
                     Depósito / Almacén
                     <small style="color:var(--text-muted);">(Opcional)</small>
                 </label>
                 <select name="deposito_id" id="depositoInput"
-                    style="padding:10px; border-radius:6px; border:1px solid rgba(99,102,241,0.4); background:var(--bg-color); color:white;">
+                    style="padding:10px; border-radius:6px; border:1px solid var(--border); background:var(--bg-color); color:var(--text-primary);">
                     <option value="">— Sin depósito asignado —</option>
                     <?php foreach($depositos as $dep): ?>
                     <option value="<?= $dep['id'] ?>"><?= htmlspecialchars($dep['nombre']) ?><?= $dep['ubicacion'] ? ' · '.$dep['ubicacion'] : '' ?></option>
@@ -782,45 +795,45 @@ function tipoBadge($tipo) {
             </div>
 
             <div style="display:flex; flex-direction:column; gap:5px;">
-                <label>Stock Mínimo (Punto de Reorden) <small style="color:var(--text-muted);">(Opcional)</small></label>
+                <label for="stockMinInput">Stock Mínimo (Punto de Reorden) <small style="color:var(--text-muted);">(Opcional)</small></label>
                 <input type="number" step="0.01" name="stock_minimo" id="stockMinInput"
                     placeholder="Ej: 50 — se alertará cuando llegue a este valor"
-                    style="padding:10px; border-radius:6px; border:1px solid rgba(245,158,11,0.4); background:rgba(245,158,11,0.05); color:white;">
+                    style="padding:10px; border-radius:6px; border:1px solid oklch(0.470 0.120 70 / 0.10); background:oklch(0.470 0.120 70 / 0.10); color:var(--text-primary);">
             </div>
 
             <!-- Precio + Stock -->
             <div class="form-grid-2">
                 <div style="display:flex; flex-direction:column; gap:5px;">
-                    <label>Precio Est. (USD / Unidad)</label>
+                    <label for="precioInput">Precio Est. (USD / Unidad)</label>
                     <input type="number" step="0.0001" name="precio_estimado_usd" id="precioInput" required
                         placeholder="Ej: 6.50"
-                        style="padding:10px; border-radius:6px; border:1px solid var(--border); background:rgba(0,0,0,0.2); color:white;">
+                        style="padding:10px; border-radius:6px; border:1px solid var(--border); background:var(--n-0); color:var(--text-primary);">
                 </div>
                 <div style="display:flex; flex-direction:column; gap:5px;">
-                    <label>Stock Actual</label>
+                    <label for="stockInput">Stock Actual</label>
                     <input type="number" step="0.01" name="stock_actual" id="stockInput"
                         placeholder="Ej: 200"
-                        style="padding:10px; border-radius:6px; border:1px solid var(--border); background:rgba(0,0,0,0.2); color:white;">
+                        style="padding:10px; border-radius:6px; border:1px solid var(--border); background:var(--n-0); color:var(--text-primary);">
                 </div>
             </div>
 
             <!-- Unidad Stock + Vencimiento -->
             <div class="form-grid-2">
                 <div style="display:flex; flex-direction:column; gap:5px;">
-                    <label>Unidad de Stock <small style="color:var(--text-muted);">(Opcional)</small></label>
+                    <label for="unidadStockInput">Unidad de Stock <small style="color:var(--text-muted);">(Opcional)</small></label>
                     <input type="text" name="unidad_stock" id="unidadStockInput"
                         placeholder="Ej: litros, bolsas, kg"
-                        style="padding:10px; border-radius:6px; border:1px solid var(--border); background:rgba(0,0,0,0.2); color:white;">
+                        style="padding:10px; border-radius:6px; border:1px solid var(--border); background:var(--n-0); color:var(--text-primary);">
                 </div>
                 <div style="display:flex; flex-direction:column; gap:5px;">
-                    <label>Fecha Vencimiento <small style="color:var(--text-muted);">(Opcional)</small></label>
+                    <label for="vencInput">Fecha Vencimiento <small style="color:var(--text-muted);">(Opcional)</small></label>
                     <input type="date" name="fecha_vencimiento" id="vencInput"
-                        style="padding:10px; border-radius:6px; border:1px solid var(--border); background:rgba(0,0,0,0.2); color:white;">
+                        style="padding:10px; border-radius:6px; border:1px solid var(--border); background:var(--n-0); color:var(--text-primary);">
                 </div>
             </div>
 
             <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:6px;">
-                <button type="button" class="btn" onclick="closeModal()" style="background: rgba(255,255,255,0.1); color: white;">Cancelar</button>
+                <button type="button" class="btn" onclick="closeModal()" style="background: rgba(255,255,255,0.1); color: var(--text-primary);">Cancelar</button>
                 <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Guardar</button>
             </div>
         </form>
@@ -838,34 +851,34 @@ function tipoBadge($tipo) {
 .imp-zona {
     display: flex; flex-direction: column; align-items: center; gap: 8px;
     padding: 32px 20px; border-radius: 12px; cursor: pointer; text-align: center;
-    border: 2px dashed rgba(99,102,241,0.4); background: rgba(99,102,241,0.05);
+    border: 2px dashed var(--rule-strong); background: var(--n-50);
     transition: background 0.2s, border-color 0.2s;
 }
 .imp-zona:hover, .imp-zona:focus-visible, .imp-zona.encima {
-    background: rgba(99,102,241,0.12); border-color: rgba(99,102,241,0.8); outline: none;
+    background: var(--n-50); border-color: var(--border); outline: none;
 }
-.imp-zona i { font-size: 1.9rem; color: #818cf8; }
+.imp-zona i { font-size: 1.9rem; color: var(--accent); }
 .imp-zona strong { font-size: 0.95rem; color: var(--text-primary); }
 .imp-zona span { font-size: 0.78rem; color: var(--text-muted); }
 
 .imp-pegar { margin-top: 16px; }
-.imp-pegar summary { cursor: pointer; font-size: 0.87rem; color: #a5b4fc; padding: 6px 0; }
+.imp-pegar summary { cursor: pointer; font-size: 0.87rem; color: var(--accent); padding: 6px 0; }
 .imp-pegar p { font-size: 0.8rem; color: var(--text-muted); margin: 8px 0; }
 .imp-pegar textarea {
     width: 100%; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.82rem;
     padding: 10px; border-radius: 8px; border: 1px solid var(--border);
-    background: rgba(0,0,0,0.25); color: var(--text-primary); resize: vertical;
+    background: var(--n-100); color: var(--text-primary); resize: vertical;
 }
 
 .imp-nota {
     margin-top: 16px; padding: 11px 14px; border-radius: 9px; font-size: 0.8rem; line-height: 1.5;
-    background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.28); color: var(--text-muted);
+    background: oklch(0.470 0.120 70 / 0.10); border: 1px solid oklch(0.470 0.120 70 / 0.10); color: var(--text-muted);
 }
-.imp-nota strong { color: #f59e0b; }
+.imp-nota strong { color: var(--se-warning); }
 
 .imp-error {
     margin-top: 16px; padding: 12px 14px; border-radius: 9px; font-size: 0.85rem; line-height: 1.5;
-    background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.35); color: #ff9d96;
+    background: oklch(0.450 0.160 28 / 0.10); border: 1px solid oklch(0.450 0.160 28 / 0.10); color: #ff9d96;
 }
 .imp-acciones { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
 
@@ -876,8 +889,8 @@ function tipoBadge($tipo) {
 .imp-analisis { padding: 12px 0 4px; text-align: center; }
 .imp-escaner {
     position: relative; width: 92px; height: 116px; margin: 0 auto 26px;
-    border-radius: 8px; background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(99,102,241,0.45); overflow: hidden;
+    border-radius: 8px; background: var(--n-100);
+    border: 1px solid var(--border); overflow: hidden;
 }
 .imp-escaner b {
     display: block; height: 7px; margin: 11px 14px 0; border-radius: 3px;
@@ -888,7 +901,7 @@ function tipoBadge($tipo) {
 .imp-escaner b:nth-child(5) { width: 45%; }
 .imp-haz {
     position: absolute; left: 0; right: 0; height: 34px; top: -34px;
-    background: linear-gradient(180deg, transparent, rgba(129,140,248,0.55), transparent);
+    background: linear-gradient(180deg, transparent, oklch(0.480 0.100 240 / 0.10), transparent);
     animation: impBarrer 1.6s ease-in-out infinite;
 }
 @keyframes impBarrer {
@@ -905,9 +918,9 @@ function tipoBadge($tipo) {
     content: ''; width: 15px; height: 15px; border-radius: 50%; flex: none;
     border: 2px solid currentColor; opacity: 0.5;
 }
-.imp-pasos li.activo { opacity: 1; color: #a5b4fc; }
+.imp-pasos li.activo { opacity: 1; color: var(--accent); }
 .imp-pasos li.activo::before {
-    border-color: #a5b4fc; border-top-color: transparent; opacity: 1;
+    border-color: var(--accent); border-top-color: transparent; opacity: 1;
     animation: impGirar 0.7s linear infinite;
 }
 .imp-pasos li.listo { opacity: 1; color: var(--accent); }
@@ -929,23 +942,23 @@ function tipoBadge($tipo) {
 
 .imp-aviso {
     padding: 11px 14px; border-radius: 9px; font-size: 0.83rem; line-height: 1.5; margin-bottom: 14px;
-    background: rgba(245,158,11,0.09); border: 1px solid rgba(245,158,11,0.3); color: var(--text-muted);
+    background: oklch(0.470 0.120 70 / 0.10); border: 1px solid oklch(0.470 0.120 70 / 0.10); color: var(--text-muted);
 }
 .imp-barra {
     display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end;
     padding-bottom: 14px; margin-bottom: 6px; border-bottom: 1px solid var(--border);
 }
 .imp-campo { display: flex; flex-direction: column; gap: 4px; }
-.imp-campo span { font-size: 0.72rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
+.imp-campo span { font-size: 0.8rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
 .imp-campo select { padding: 7px 10px !important; font-size: 0.82rem !important; width: auto !important; min-width: 130px; }
 
 .imp-tabla-wrap { overflow-x: auto; margin: 4px 0 8px; }
 .imp-tabla { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
 .imp-tabla th {
-    text-align: left; padding: 9px 8px; font-size: 0.71rem; text-transform: uppercase;
+    text-align: left; padding: 9px 8px; font-size: 0.8rem; text-transform: uppercase;
     letter-spacing: 0.4px; color: var(--text-muted); border-bottom: 1px solid var(--border); white-space: nowrap;
 }
-.imp-tabla td { padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); vertical-align: middle; }
+.imp-tabla td { padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 .imp-tabla tr.excluida { opacity: 0.35; }
 .imp-tabla input[type=text], .imp-tabla input[type=number], .imp-tabla input[type=date], .imp-tabla select {
     padding: 6px 8px !important; font-size: 0.82rem !important; border-radius: 6px !important; width: 100%;
@@ -956,7 +969,7 @@ function tipoBadge($tipo) {
 .imp-col-num    { width: 96px; }
 .imp-col-num input { text-align: right; font-variant-numeric: tabular-nums; }
 .imp-col-fecha  { width: 145px; }
-.imp-ref { display: block; font-size: 0.71rem; color: var(--text-muted); margin-top: 3px; }
+.imp-ref { display: block; font-size: 0.8rem; color: var(--text-muted); margin-top: 3px; }
 .imp-contador { margin-right: auto; font-size: 0.85rem; color: var(--text-muted); }
 </style>
 
@@ -977,12 +990,12 @@ function tipoBadge($tipo) {
                 <strong>Arrastrá el archivo o hacé clic para elegirlo</strong>
                 <span>Excel (.xlsx) · CSV · PDF digital — hasta 8 MB</span>
             </div>
-            <input type="file" id="impInput" accept=".xlsx,.xlsm,.csv,.txt,.tsv,.pdf" hidden>
+            <input type="file" id="impInput" aria-label="Elegir el archivo a importar" accept=".xlsx,.xlsm,.csv,.txt,.tsv,.pdf" hidden>
 
             <details class="imp-pegar">
                 <summary><i class="fas fa-paste"></i> …o pegar la tabla a mano</summary>
                 <p>Copiá los renglones de un mail o de un Excel abierto, o escribilos: <strong>cantidad, descripción y precio</strong>.</p>
-                <textarea id="impTexto" rows="5" placeholder="2 bolsas  Urea granulada  0,62&#10;10 lt  Glifosato 64%  5,80"></textarea>
+                <textarea id="impTexto" rows="5" aria-label="Pegar acá el listado de insumos" placeholder="2 bolsas  Urea granulada  0,62&#10;10 lt  Glifosato 64%  5,80"></textarea>
                 <div class="imp-acciones">
                     <button type="button" class="btn btn-primary" onclick="impAnalizarTexto()">
                         <i class="fas fa-wand-magic-sparkles"></i> Analizar el texto
@@ -999,7 +1012,7 @@ function tipoBadge($tipo) {
             <div id="impError" class="imp-error" hidden></div>
 
             <div class="imp-acciones">
-                <button type="button" class="btn" onclick="impCerrar()" style="background:rgba(255,255,255,0.1); color:white;">Cancelar</button>
+                <button type="button" class="btn" onclick="impCerrar()" style="background:rgba(255,255,255,0.1); color:var(--text-primary);">Cancelar</button>
             </div>
         </div>
 
@@ -1030,7 +1043,7 @@ function tipoBadge($tipo) {
 
         <div class="imp-barra">
             <div id="impRemap" style="display:flex; flex-wrap:wrap; gap:12px;"></div>
-            <label class="imp-campo">
+            <label for="impDepGlobal" class="imp-campo">
                 <span>Depósito para todos</span>
                 <select id="impDepGlobal" onchange="impAplicarDeposito(this.value)">
                     <option value="">— Sin depósito —</option>
@@ -1061,7 +1074,7 @@ function tipoBadge($tipo) {
 
         <div class="imp-acciones">
             <span class="imp-contador" id="impContador"></span>
-            <button type="button" class="btn" onclick="impVolver()" style="background:rgba(255,255,255,0.1); color:white;">Volver</button>
+            <button type="button" class="btn" onclick="impVolver()" style="background:rgba(255,255,255,0.1); color:var(--text-primary);">Volver</button>
             <button type="button" class="btn btn-primary" onclick="impConfirmar()">
                 <i class="fas fa-check"></i> Cargar seleccionados
             </button>
@@ -1663,4 +1676,5 @@ function impConfirmar() {
 }
 </script>
 
+<?php require_once 'includes/chat_motor.php'; ?>
 <?php require_once 'includes/footer.php'; ?>

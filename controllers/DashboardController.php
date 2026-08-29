@@ -1,56 +1,53 @@
 <?php
 // controllers/DashboardController.php
 
+require_once __DIR__ . '/../includes/dolar.php';
+
 class DashboardController {
     private $pdo;
     private $usuario_id;
-    private $dolarRef = null;
-    private $dolarTablaLista = false;
+    private $dolarInfo = null;
 
-    // Dólar de referencia cuando el usuario no tiene NINGÚN tipo de cambio cargado.
-    // Solo se usa como último recurso para no dividir por cero; en cuanto exista
-    // al menos un valor en tambo_dolar_mes se usa ese (o el del mes del pago).
-    const DOLAR_FALLBACK = 1000.0;
+    /* La moneda en que se DEVUELVEN los totales. No es la de los datos: cada
+       movimiento guarda la suya y se convierte con la cotización de su propio mes.
+       Se guarda en el controlador porque quien lo usa —el panel, el chat, los
+       reportes— lo decide una vez por pedido y después hace muchas consultas.
+       Pasarla en cada llamada obligaba a tocar diecisiete lugares para cambiar una
+       cosa que es la misma en todos. */
+    private $moneda = 'ARS';
 
     public function __construct($pdo, $usuario_id) {
         $this->pdo = $pdo;
         $this->usuario_id = $usuario_id;
     }
 
-    /**
-     * Garantiza que la tabla de tipo de cambio exista. Un usuario que solo usa
-     * Agricultura podría no haber abierto nunca el módulo Tambo (donde se crea),
-     * y el dashboard hace JOIN contra ella para convertir alquileres en ARS.
-     */
-    private function ensureDolarTabla() {
-        if ($this->dolarTablaLista) return;
-        $this->pdo->exec("CREATE TABLE IF NOT EXISTS `tambo_dolar_mes` (
-            `id`              INT(11)       NOT NULL AUTO_INCREMENT,
-            `usuario_id`      INT(11)       NOT NULL,
-            `mes`             VARCHAR(7)    NOT NULL,
-            `dolar_mayorista` DECIMAL(12,4) NOT NULL,
-            `fuente`          ENUM('api','manual') NOT NULL DEFAULT 'api',
-            `creado_en`       TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            `actualizado_en`  TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (`id`),
-            UNIQUE KEY `uk_usuario_mes` (`usuario_id`, `mes`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-        $this->dolarTablaLista = true;
+    /** Fija la moneda de presentación para todo lo que se pida después. */
+    public function setMoneda(string $moneda): void {
+        $this->moneda = ($moneda === 'USD') ? 'USD' : 'ARS';
+    }
+
+    public function getMoneda(): string {
+        return $this->moneda;
     }
 
     /**
-     * Tipo de cambio de respaldo: el último dólar mayorista cargado por el usuario.
-     * Se usa cuando un pago en ARS no tiene dólar para SU mes exacto, y como base
-     * general. Cae a DOLAR_FALLBACK solo si el usuario no cargó ningún dólar.
+     * Tipo de cambio de referencia y qué tan confiable es.
+     *
+     * Se usa para convertir a USD los alquileres pagados en pesos cuando el mes
+     * del pago no tiene cotización propia. Lo importante es el campo `estimado`:
+     * dice que el usuario no cargó NINGUNA cotización y que el número es el valor
+     * fijo del código. Antes eso se resolvía en silencio con un 1000 hardcodeado,
+     * y con el mayorista cerca de 1500 el costo de alquiler salía 50% inflado sin
+     * que nada lo indicara. Ahora la pantalla lo puede decir.
+     *
+     * @return array{valor:float, fuente:string, estimado:bool, mes:?string}
      */
-    private function getDolarReferencia() {
-        if ($this->dolarRef !== null) return $this->dolarRef;
-        $this->ensureDolarTabla();
-        $stmt = $this->pdo->prepare("SELECT dolar_mayorista FROM tambo_dolar_mes WHERE usuario_id = ? ORDER BY mes DESC LIMIT 1");
-        $stmt->execute([$this->usuario_id]);
-        $val = (float)($stmt->fetchColumn() ?: 0);
-        $this->dolarRef = $val > 0 ? $val : self::DOLAR_FALLBACK;
-        return $this->dolarRef;
+    public function getDolarInfo(): array {
+        if ($this->dolarInfo === null) {
+            dolar_asegurar_tabla($this->pdo);
+            $this->dolarInfo = dolar_referencia($this->pdo, $this->usuario_id);
+        }
+        return $this->dolarInfo;
     }
 
     public function getCiclos() {
@@ -76,8 +73,12 @@ class DashboardController {
      */
     public function getLotesDelCiclo($ciclo_sel) {
         if (!$ciclo_sel) return [];
+        /* La superficie viaja con el lote porque hace falta para repartir un gasto
+           entre varios (el chat lo prorratea por hectárea). Es aditivo: sale del
+           mismo registro que el id, así que el DISTINCT no cambia de resultado, y
+           quien sólo usaba id y nombre los sigue teniendo. */
         $stmt = $this->pdo->prepare("
-            SELECT DISTINCT l.id, l.nombre
+            SELECT DISTINCT l.id, l.nombre, l.superficie
             FROM lotes l
             LEFT JOIN cultivos c ON c.lote_id = l.id
             LEFT JOIN operaciones o ON o.lote_id = l.id
@@ -111,22 +112,68 @@ class DashboardController {
         return $stmt->fetchAll(PDO::FETCH_COLUMN);
     }
 
-    public function getGlobalStats($ciclo_sel, $lote_sel = null, $cultivo_sel = null) {
+    /**
+     * @param array|null $rango  ['desde' => 'Y-m-d', 'hasta' => 'Y-m-d']
+     *
+     * El rango de fechas se agregó para que el motor de consultas pueda pedir
+     * CUALQUIER métrica de un período ("¿cuánto vendí en agosto?"), y no sólo el
+     * gasto. Antes eso vivía como una consulta aparte dentro del motor, que es
+     * como se terminan teniendo dos cálculos distintos para lo mismo.
+     *
+     * Es aditivo: con $rango en null se comporta exactamente como antes, así que
+     * el panel, el Excel y el PDF no se enteran.
+     *
+     * Campaña y rango se combinan: si vienen las dos, se intersectan; si viene
+     * sólo el rango, se mira por fecha sin importar la campaña —que es lo
+     * correcto, porque una campaña cruza dos años calendario.
+     */
+    public function getGlobalStats($ciclo_sel, $lote_sel = null, $cultivo_sel = null, $rango = null, $moneda = null) {
+        // Sin moneda explícita se usa la del controlador, fijada con setMoneda().
+        $moneda = $moneda ?? $this->moneda;
+        /* $moneda es la moneda en que se DEVUELVE todo, no la que se guardó. Cada
+           fila trae la suya y se convierte con la cotización de su propio mes, así
+           que un alquiler de USD 8.500 vale 8.500 dólares mirado en dólares y los
+           pesos que costó el mes que se pagó mirado en pesos.
+
+           Antes no se convertía nada: los ingresos y los costos venían crudos en
+           pesos y los alquileres en dólares, y el margen los restaba entre sí. Un
+           alquiler de USD 8.500 le sacaba al margen ocho mil quinientos pesos. */
+        $moneda = ($moneda === 'USD') ? 'USD' : 'ARS';
+
         $stats = [
-            'ingresos' => 0, 'costos_directos' => 0, 'costos_alquiler' => 0, 
+            'ingresos' => 0, 'costos_directos' => 0, 'costos_alquiler' => 0,
             'hectareas' => 0, 'kg' => 0, 'margen_neto' => 0, 'rendimiento_ha' => 0,
-            'costo_por_tn' => 0, 'costo_por_ha' => 0
+            'costo_por_kg' => 0, 'costo_por_ha' => 0, 'punto_equilibrio_kg_ha' => 0,
+            // Cuántos movimientos hubo que convertir sin la cotización de su mes.
+            'alquiler_sin_cotizacion' => 0,
+            'sin_cotizacion' => 0,
+            'moneda' => $moneda,
         ];
 
-        if (!$ciclo_sel) return $stats;
+        // Sin campaña Y sin rango no hay nada que acotar: se devuelve en cero.
+        if (!$ciclo_sel && !$rango) return $stats;
 
         // Normalización de filtros opcionales (lote por id, cultivo por especie derivada)
         $lote_sel = ($lote_sel !== null && $lote_sel !== '') ? (int)$lote_sel : null;
         $cultivo_sel = ($cultivo_sel !== null && $cultivo_sel !== '') ? $cultivo_sel : null;
+        $desde = $rango['desde'] ?? null;
+        $hasta = $rango['hasta'] ?? null;
+
+        // El de respaldo, para los meses sin cotización propia.
+        $dolar_ref = $this->getDolarInfo()['valor'];
 
         // Ingresos
-        $sql = "SELECT SUM(pv.ingreso_total) as total, SUM(pv.kg_cosechados) as kgs FROM produccion_ventas pv LEFT JOIN cultivos c ON pv.cultivo_id = c.id WHERE (pv.campania_vendida = ? OR c.ciclo = ?) AND pv.usuario_id = ?";
-        $params = [$ciclo_sel, $ciclo_sel, $this->usuario_id];
+        $conv = dolar_sql_convertir('pv.ingreso_total', 'pv.moneda', $moneda, $dolar_ref, 'dmv');
+        $sinc = dolar_sql_sin_cotizacion('pv.moneda', $moneda, 'dmv');
+        $sql = "SELECT COALESCE(SUM($conv), 0) as total, COALESCE(SUM(pv.kg_cosechados), 0) as kgs,
+                       COALESCE(SUM($sinc), 0) as sin_cotizacion
+                  FROM produccion_ventas pv
+                  LEFT JOIN cultivos c ON pv.cultivo_id = c.id"
+             . dolar_sql_join('pv', 'fecha_venta', 'dmv')
+             . " WHERE pv.usuario_id = ?";
+        $params = [$this->usuario_id];
+        if ($ciclo_sel) { $sql .= " AND (pv.campania_vendida = ? OR c.ciclo = ?)"; $params[] = $ciclo_sel; $params[] = $ciclo_sel; }
+        if ($desde) { $sql .= " AND pv.fecha_venta BETWEEN ? AND ?"; $params[] = $desde; $params[] = $hasta; }
         if ($lote_sel !== null) { $sql .= " AND pv.lote_id = ?"; $params[] = $lote_sel; }
         if ($cultivo_sel !== null) { $sql .= " AND COALESCE(NULLIF(c.nombre, ''), NULLIF(pv.cultivo_vendido, ''), 'Sin Especificar') COLLATE utf8mb4_unicode_ci = ?"; $params[] = $cultivo_sel; }
         $stmt = $this->pdo->prepare($sql);
@@ -134,26 +181,49 @@ class DashboardController {
         $res = $stmt->fetch();
         $stats['ingresos'] = (float)$res['total'];
         $stats['kg'] = (float)$res['kgs'];
+        $stats['sin_cotizacion'] += (int)$res['sin_cotizacion'];
 
         // Costos Directos
-        $sql = "SELECT SUM(o.costo_total) as total FROM operaciones o LEFT JOIN cultivos c ON o.cultivo_id = c.id WHERE (o.campania_operacion = ? OR c.ciclo = ?) AND o.usuario_id = ?";
-        $params = [$ciclo_sel, $ciclo_sel, $this->usuario_id];
+        $conv = dolar_sql_convertir('o.costo_total', 'o.moneda', $moneda, $dolar_ref, 'dmo');
+        $sinc = dolar_sql_sin_cotizacion('o.moneda', $moneda, 'dmo');
+        $sql = "SELECT COALESCE(SUM($conv), 0) as total, COALESCE(SUM($sinc), 0) as sin_cotizacion
+                  FROM operaciones o
+                  LEFT JOIN cultivos c ON o.cultivo_id = c.id"
+             . dolar_sql_join('o', 'fecha', 'dmo')
+             . " WHERE o.usuario_id = ?";
+        $params = [$this->usuario_id];
+        if ($ciclo_sel) { $sql .= " AND (o.campania_operacion = ? OR c.ciclo = ?)"; $params[] = $ciclo_sel; $params[] = $ciclo_sel; }
+        if ($desde) { $sql .= " AND o.fecha BETWEEN ? AND ?"; $params[] = $desde; $params[] = $hasta; }
         if ($lote_sel !== null) { $sql .= " AND o.lote_id = ?"; $params[] = $lote_sel; }
         if ($cultivo_sel !== null) { $sql .= " AND COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), 'Sin Especificar') COLLATE utf8mb4_unicode_ci = ?"; $params[] = $cultivo_sel; }
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($params);
-        $stats['costos_directos'] = (float)$stmt->fetch()['total'];
+        $res = $stmt->fetch();
+        $stats['costos_directos'] = (float)$res['total'];
+        $stats['sin_cotizacion'] += (int)$res['sin_cotizacion'];
 
          // Hectareas
+         //
+         // La superficie no tiene fecha: un lote no se achica en agosto. Cuando se
+         // pide un período se toman los lotes que tuvieron movimiento en ese lapso,
+         // y su superficie entera. Así "costo por hectárea de agosto" significa lo
+         // que uno espera: lo gastado ese mes repartido en la superficie trabajada.
          $sql = "
              SELECT DISTINCT l.id, l.superficie
              FROM lotes l
              LEFT JOIN cultivos c ON c.lote_id = l.id
              LEFT JOIN operaciones o ON o.lote_id = l.id
              LEFT JOIN produccion_ventas pv ON pv.lote_id = l.id
-             WHERE (l.campania = ? OR c.ciclo = ? OR o.campania_operacion = ? OR pv.campania_vendida = ?)
-             AND l.usuario_id = ?";
-         $params = [$ciclo_sel, $ciclo_sel, $ciclo_sel, $ciclo_sel, $this->usuario_id];
+             WHERE l.usuario_id = ?";
+         $params = [$this->usuario_id];
+         if ($ciclo_sel) {
+             $sql .= " AND (l.campania = ? OR c.ciclo = ? OR o.campania_operacion = ? OR pv.campania_vendida = ?)";
+             array_push($params, $ciclo_sel, $ciclo_sel, $ciclo_sel, $ciclo_sel);
+         }
+         if ($desde) {
+             $sql .= " AND (o.fecha BETWEEN ? AND ? OR pv.fecha_venta BETWEEN ? AND ?)";
+             array_push($params, $desde, $hasta, $desde, $hasta);
+         }
          if ($lote_sel !== null) { $sql .= " AND l.id = ?"; $params[] = $lote_sel; }
          if ($cultivo_sel !== null) {
              $sql .= " AND COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), NULLIF(pv.cultivo_vendido, ''), NULLIF(l.cultivo_actual, ''), 'Sin Especificar') = ?";
@@ -166,27 +236,43 @@ class DashboardController {
              $stats['hectareas'] += (float)$l['superficie'];
          }
 
-        // Alquiler — incluye pagos en USD y en ARS (estos se convierten a USD con
-        // el dólar del mes del pago; si falta, con el último dólar disponible).
-        $dolar_ref = $this->getDolarReferencia();
+        /* Alquiler — se convierte a la misma moneda que todo lo demás, con el dólar
+           del mes del pago; si ese mes no tiene cotización, con el de referencia.
+           Antes esta consulta devolvía SIEMPRE dólares aunque los otros dos totales
+           vinieran en pesos, y el margen los restaba igual.
+
+           Se cuenta cuántos pagos hubo que convertir sin la cotización de su propio
+           mes. Ese número es lo que le permite a la pantalla decir "este margen es
+           aproximado y por esto", en vez de mostrar una conversión inventada con la
+           misma cara que una exacta. */
+        $conv = dolar_sql_convertir('a.monto_pagado', 'a.moneda', $moneda, $dolar_ref, 'dm');
+        $sinc = dolar_sql_sin_cotizacion('a.moneda', $moneda, 'dm');
         $sql = "
-             SELECT COALESCE(SUM(
-                 CASE WHEN a.moneda = 'USD' THEN a.monto_pagado
-                      ELSE a.monto_pagado / COALESCE(dm.dolar_mayorista, ?)
-                 END
-             ), 0) as total
+             SELECT COALESCE(SUM($conv), 0) as total,
+                    COALESCE(SUM($sinc), 0) as pagos_sin_cotizacion
              FROM alquileres a
              LEFT JOIN lotes    l  ON a.lote_id    = l.id
-             LEFT JOIN cultivos c  ON a.cultivo_id = c.id
-             LEFT JOIN tambo_dolar_mes dm ON dm.usuario_id = a.usuario_id AND dm.mes = DATE_FORMAT(a.fecha_pago, '%Y-%m')
-             WHERE a.usuario_id = ? AND (a.campania = ? OR l.campania = ? OR c.ciclo = ?)";
-         $params = [$dolar_ref, $this->usuario_id, $ciclo_sel, $ciclo_sel, $ciclo_sel];
+             LEFT JOIN cultivos c  ON a.cultivo_id = c.id"
+             . dolar_sql_join('a', 'fecha_pago', 'dm')
+             . " WHERE a.usuario_id = ?";
+         $params = [$this->usuario_id];
+         if ($ciclo_sel) {
+             $sql .= " AND (a.campania = ? OR l.campania = ? OR c.ciclo = ?)";
+             array_push($params, $ciclo_sel, $ciclo_sel, $ciclo_sel);
+         }
+         if ($desde) { $sql .= " AND a.fecha_pago BETWEEN ? AND ?"; array_push($params, $desde, $hasta); }
          if ($lote_sel !== null) { $sql .= " AND (a.lote_id = ? OR c.lote_id = ?)"; $params[] = $lote_sel; $params[] = $lote_sel; }
          if ($cultivo_sel !== null) { $sql .= " AND COALESCE(NULLIF(c.nombre, ''), 'Sin Especificar') = ?"; $params[] = $cultivo_sel; }
          $stmt = $this->pdo->prepare($sql);
          $stmt->execute($params);
-         $stats['costos_alquiler'] = (float)$stmt->fetch()['total'];
+         $alq = $stmt->fetch();
+         $stats['costos_alquiler']            = (float)$alq['total'];
+         $stats['alquiler_sin_cotizacion']    = (int)$alq['pagos_sin_cotizacion'];
+         $stats['sin_cotizacion']            += (int)$alq['pagos_sin_cotizacion'];
 
+        /* Ahora los tres términos están en la misma moneda, así que la resta
+           significa algo. Antes no: los dos primeros venían en pesos y el tercero
+           en dólares. */
         $stats['margen_neto']    = $stats['ingresos'] - $stats['costos_directos'] - $stats['costos_alquiler'];
         $stats['rendimiento_ha'] = $stats['hectareas'] > 0 ? $stats['kg'] / $stats['hectareas'] : 0;
         $costos_totales = $stats['costos_directos'] + $stats['costos_alquiler'];
@@ -199,7 +285,8 @@ class DashboardController {
         return $stats;
     }
 
-    public function getCultivosData($ciclo_sel, $lote_sel = null, $cultivo_sel = null) {
+    public function getCultivosData($ciclo_sel, $lote_sel = null, $cultivo_sel = null, $moneda = null) {
+        $moneda = $moneda ?? $this->moneda;
         $cultivos_data = [];
         if (!$ciclo_sel) return $cultivos_data;
 
@@ -207,7 +294,14 @@ class DashboardController {
         $lote_sel = ($lote_sel !== null && $lote_sel !== '') ? (int)$lote_sel : null;
         $cultivo_sel = ($cultivo_sel !== null && $cultivo_sel !== '') ? $cultivo_sel : null;
 
-        $dolar_ref = $this->getDolarReferencia();
+        /* Misma moneda que getGlobalStats(). Las tarjetas por lote tienen que
+           hablar la misma que los KPI de arriba: media pantalla en pesos y media en
+           dólares es el mismo error de antes, sólo que repartido. */
+        $moneda = ($moneda === 'USD') ? 'USD' : 'ARS';
+        $dolar_ref = $this->getDolarInfo()['valor'];
+        $fVenta = dolar_sql_factor('pv.moneda', $moneda, $dolar_ref, 'dmv');
+        $fOper  = dolar_sql_factor('o.moneda',  $moneda, $dolar_ref, 'dmo');
+        $fAlq   = dolar_sql_factor('a.moneda',  $moneda, $dolar_ref, 'dm');
 
         $sql = "
             SELECT DISTINCT
@@ -259,9 +353,10 @@ class DashboardController {
             // Del lado del parametro no hace falta: la conexion ya fija la colacion
             // en config/database.php, asi que el literal y el parametro coinciden solos.
             $stmtI = $this->pdo->prepare("
-                SELECT SUM(pv.ingreso_total) as total, SUM(pv.kg_cosechados) as kgs
-                FROM produccion_ventas pv 
-                LEFT JOIN cultivos c ON pv.cultivo_id = c.id 
+                SELECT SUM(pv.ingreso_total * $fVenta) as total, SUM(pv.kg_cosechados) as kgs
+                FROM produccion_ventas pv
+                LEFT JOIN cultivos c ON pv.cultivo_id = c.id "
+                . dolar_sql_join('pv', 'fecha_venta', 'dmv') . "
                 WHERE pv.lote_id = ? AND (pv.campania_vendida = ? OR c.ciclo = ?)
                 AND (COALESCE(NULLIF(c.nombre, ''), NULLIF(pv.cultivo_vendido, ''), 'Sin Especificar') COLLATE utf8mb4_unicode_ci = ?
                      OR (? = 'Sin Especificar' AND c.nombre IS NULL AND pv.cultivo_vendido IS NULL))
@@ -272,13 +367,16 @@ class DashboardController {
             $kgs_lote = (float)$resI['kgs'];
 
             // --- COSTOS (Operaciones) ---
+            /* El factor de moneda multiplica al final de cada término, no adentro
+               de los CASE: los CASE reparten el gasto entre cultivos y eso es
+               independiente de la moneda. Separadas, cada cosa se lee sola. */
             $stmtC = $this->pdo->prepare("
-                SELECT 
-                    SUM(CASE 
+                SELECT
+                    SUM((CASE
                         WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') COLLATE utf8mb4_unicode_ci = ?) THEN o.costo_total
                         WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') COLLATE utf8mb4_unicode_ci = '') THEN (o.costo_total / ?)
-                        ELSE 0 
-                    END) as total,
+                        ELSE 0
+                    END) * $fOper) as total,
                     SUM(
                         (CASE
                             WHEN o.tipo_componente = 'labor'        THEN o.costo_total
@@ -291,6 +389,7 @@ class DashboardController {
                             WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') COLLATE utf8mb4_unicode_ci = '') THEN (1.0 / ?)
                             ELSE 0
                         END)
+                        * $fOper
                     ) as labores,
                     SUM(
                         (CASE
@@ -304,9 +403,11 @@ class DashboardController {
                             WHEN (COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), '') COLLATE utf8mb4_unicode_ci = '') THEN (1.0 / ?)
                             ELSE 0
                         END)
+                        * $fOper
                     ) as insumos
-                FROM operaciones o 
-                LEFT JOIN cultivos c ON o.cultivo_id = c.id 
+                FROM operaciones o
+                LEFT JOIN cultivos c ON o.cultivo_id = c.id "
+                . dolar_sql_join('o', 'fecha', 'dmo') . "
                 WHERE o.lote_id = ? AND (o.campania_operacion = ? OR c.ciclo = ?)
             ");
             $stmtC->execute([$esp, $divisor, $esp, $divisor, $esp, $divisor, $lote_id, $ciclo_sel, $ciclo_sel]);
@@ -318,19 +419,19 @@ class DashboardController {
             // --- ALQUILERES --- (USD + ARS convertidos al dólar del mes del pago)
             $stmtA = $this->pdo->prepare("
                 SELECT
-                    SUM(CASE
-                        WHEN a.nivel_imputacion = 'lote' THEN ((CASE WHEN a.moneda = 'USD' THEN a.monto_pagado ELSE a.monto_pagado / COALESCE(dm.dolar_mayorista, ?) END) / ?)
-                        WHEN a.nivel_imputacion = 'cultivo' AND COALESCE(NULLIF(c.nombre, ''), '') = ? THEN (CASE WHEN a.moneda = 'USD' THEN a.monto_pagado ELSE a.monto_pagado / COALESCE(dm.dolar_mayorista, ?) END)
+                    SUM((CASE
+                        WHEN a.nivel_imputacion = 'lote' THEN (a.monto_pagado / ?)
+                        WHEN a.nivel_imputacion = 'cultivo' AND COALESCE(NULLIF(c.nombre, ''), '') = ? THEN a.monto_pagado
                         ELSE 0
-                    END) as total
+                    END) * $fAlq) as total
                 FROM alquileres a
-                LEFT JOIN cultivos c ON a.cultivo_id = c.id
-                LEFT JOIN tambo_dolar_mes dm ON dm.usuario_id = a.usuario_id AND dm.mes = DATE_FORMAT(a.fecha_pago, '%Y-%m')
+                LEFT JOIN cultivos c ON a.cultivo_id = c.id "
+                . dolar_sql_join('a', 'fecha_pago', 'dm') . "
                 WHERE a.usuario_id = ?
                 AND (a.lote_id = ? OR c.lote_id = ?)
                 AND (a.campania = ? OR c.ciclo = ?)
             ");
-            $stmtA->execute([$dolar_ref, $divisor, $esp, $dolar_ref, $this->usuario_id, $lote_id, $lote_id, $ciclo_sel, $ciclo_sel]);
+            $stmtA->execute([$divisor, $esp, $this->usuario_id, $lote_id, $lote_id, $ciclo_sel, $ciclo_sel]);
             $alq_lote = (float)$stmtA->fetch()['total'];
 
             $cultivos_data[$esp]['lotes'][] = [

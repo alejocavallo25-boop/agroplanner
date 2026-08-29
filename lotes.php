@@ -71,17 +71,17 @@ require_once 'includes/header.php';
     }
     .user-location-dot {
         width: 14px; height: 14px;
-        background: #3b82f6;
+        background: var(--accent);
         border: 2.5px solid #fff;
         border-radius: 50%;
         position: absolute;
         top: 2px; left: 2px;
-        box-shadow: 0 0 0 2px rgba(59,130,246,0.5);
+        box-shadow: 0 0 0 2px oklch(0.480 0.100 240 / 0.10);
         z-index: 2;
     }
     .user-location-pulse {
         width: 36px; height: 36px;
-        background: rgba(59,130,246,0.25);
+        background: var(--n-50);
         border-radius: 50%;
         position: absolute;
         top: -9px; left: -9px;
@@ -94,15 +94,15 @@ require_once 'includes/header.php';
     }
     /* Botón Mi Ubicación */
     .btn-mi-ubicacion {
-        background: white; border: 2px solid rgba(0,0,0,0.2);
+        background: white; border: 2px solid var(--border);
         border-radius: 4px; padding: 0; width: 34px; height: 34px;
         display: flex; align-items: center; justify-content: center;
-        cursor: pointer; color: #3b82f6; font-size: 1rem;
+        cursor: pointer; color: var(--accent); font-size: 1rem;
         box-shadow: 0 1px 5px rgba(0,0,0,0.4);
         transition: background 0.2s;
     }
     .btn-mi-ubicacion:hover { background: #f4f4f4; }
-    .btn-mi-ubicacion.locating { color: #f59e0b; animation: spin 1s linear infinite; }
+    .btn-mi-ubicacion.locating { color: var(--se-warning); animation: spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 
@@ -113,11 +113,11 @@ require_once 'includes/header.php';
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
         <h2 style="font-size: 1.2rem; font-weight: 500;">Listado de Lotes</h2>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <a href="cultivos.php" class="btn" style="background:rgba(255,255,255,0.05); color:var(--text-primary); border:1px solid rgba(255,255,255,0.2);">
+            <a href="cultivos.php" class="btn" style="background:var(--n-100); color:var(--text-primary); border:1px solid var(--border);">
                 <i class="fas fa-list"></i> Ver Campañas
             </a>
             <button class="btn" onclick="abrirModalCampania()"
-                style="background:rgba(129,140,248,0.15); border:1px solid rgba(129,140,248,0.35); color:#818cf8;">
+                style="background:var(--n-0); border:1px solid var(--border); color:var(--text-primary);">
                 <i class="fas fa-seedling"></i> Nueva Campaña
             </button>
             <button class="btn btn-primary" onclick="openNewLoteModal()">
@@ -151,7 +151,7 @@ require_once 'includes/header.php';
                         <div style="line-height: 1.2;">
                             <?php if(!empty($lote['campania']) || !empty($lote['cultivo_actual'])): ?>
                                 <strong style="font-size: 0.95em; color: var(--accent);"><?= htmlspecialchars($lote['campania'] ?? '-') ?></strong><br>
-                                <span style="font-size: 0.85em; color: rgba(255,255,255,0.8);"><i class="fas fa-leaf" style="width:14px; text-align:center; color:#50c878;"></i> <?= htmlspecialchars($lote['cultivo_actual'] ?? '-') ?></span>
+                                <span style="font-size: 0.85em; color: var(--text-muted);"><i class="fas fa-leaf" style="width:14px; text-align:center; color:var(--accent);"></i> <?= htmlspecialchars($lote['cultivo_actual'] ?? '-') ?></span>
                             <?php else: ?>
                                 <span style="color: var(--text-muted); font-size: 0.85em;">Sin datos</span>
                             <?php endif; ?>
@@ -165,12 +165,12 @@ require_once 'includes/header.php';
                             ?>
                             <span class="badge" style="background: rgba(230,150,20,0.2); color: #ebb62c; border: 1px solid rgba(230,150,20,0.3); font-size:0.8em; padding: 4px 6px;">Alq (<?= number_format($kg, 0, ',', '.') ?> KG/ha)</span>
                         <?php else: ?>
-                            <span class="badge" style="background: rgba(80,200,120,0.2); color: #50c878; border: 1px solid rgba(80,200,120,0.3); font-size:0.8em; padding: 4px 6px;">Propio</span>
+                            <span class="badge" style="background: rgba(80,200,120,0.2); color: var(--accent); border: 1px solid rgba(80,200,120,0.3); font-size:0.8em; padding: 4px 6px;">Propio</span>
                         <?php endif; ?>
                     </td>
                     <td data-label="Ubicación & Suelo">
                         <?php if(!empty($lote['latitud']) && !empty($lote['longitud'])): ?>
-                            <div style="font-size: 0.85em; max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 3px; cursor: pointer; color: #60a5fa; transition: color 0.2s;" onclick="focusOnMap(<?= $lote['id'] ?>, <?= $lote['latitud'] ?>, <?= $lote['longitud'] ?>)" title="Ver en mapa: <?= htmlspecialchars($lote['ubicacion']) ?>" onmouseover="this.style.color='#93c5fd'" onmouseout="this.style.color='#60a5fa'">
+                            <div style="font-size: 0.85em; max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 3px; cursor: pointer; color: var(--accent); transition: color 0.2s;" onclick="focusOnMap(<?= $lote['id'] ?>, <?= $lote['latitud'] ?>, <?= $lote['longitud'] ?>)" title="Ver en mapa: <?= htmlspecialchars($lote['ubicacion']) ?>" onmouseover="this.style.color='#93c5fd'" onmouseout="this.style.color='#60a5fa'">
                                 <i class="fas fa-map-marker-alt" style="color: var(--danger); width: 14px; text-align:center;"></i> <span style="text-decoration: underline;"><?= htmlspecialchars($lote['ubicacion'] ?: 'Sin ubicación') ?></span>
                             </div>
                         <?php else: ?>
@@ -192,13 +192,13 @@ require_once 'includes/header.php';
                         </div>
                         <?php if(!empty($lote['latitud']) && !empty($lote['longitud'])): ?>
                         <div style="margin-top: 8px;">
-                            <a href="clima_historico.php?id=<?= $lote['id'] ?>" class="btn" style="padding: 4px 8px; font-size: 0.75rem; background: rgba(59,130,246,0.1); color: #60a5fa; border: 1px solid rgba(59,130,246,0.2);"><i class="fas fa-cloud-rain"></i> Régimen Lluvia</a>
+                            <a href="clima_historico.php?id=<?= $lote['id'] ?>" class="btn" style="padding: 4px 8px; font-size: 0.75rem; background:var(--accent-soft); color:var(--accent); border: 1px solid var(--border);"><i class="fas fa-cloud-rain"></i> Régimen Lluvia</a>
                         </div>
                         <?php endif; ?>
                     </td>
                     <td data-label="Acciones">
                         <!-- Historial -->
-                        <button type="button" class="btn" style="color: #818cf8; background: transparent; padding: 4px;" title="Historial de campañas" onclick="verHistorial(<?= $lote['id'] ?>, '<?= htmlspecialchars($lote['nombre'], ENT_QUOTES) ?>')"><i class="fas fa-history"></i></button>
+                        <button type="button" class="btn" style="color: var(--accent); background: transparent; padding: 4px;" title="Historial de campañas" onclick="verHistorial(<?= $lote['id'] ?>, '<?= htmlspecialchars($lote['nombre'], ENT_QUOTES) ?>')"><i class="fas fa-history"></i></button>
                         <!-- Editar -->
                         <button type="button" class="btn" style="color: var(--accent); background: transparent; padding: 4px;" onclick='editLote(<?= json_encode($lote, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'><i class="fas fa-edit"></i></button>
                         <!-- Eliminar -->
@@ -216,7 +216,7 @@ require_once 'includes/header.php';
                 <?php endif; ?>
             </tbody>
             <tfoot>
-                <tr style="background: rgba(0,0,0,0.2);">
+                <tr style="background: var(--n-100);">
                     <td colspan="3" style="text-align: right; border-bottom: none; font-size:0.9em; padding-right:15px;"><strong>Superficie Total:</strong></td>
                     <td colspan="3" style="border-bottom: none; color:var(--accent);"><strong><?= number_format($totalSup ?? 0, 2, ',', '.') ?> ha</strong></td>
                 </tr>
@@ -235,54 +235,54 @@ require_once 'includes/header.php';
             <input type="hidden" name="id" id="loteIdInput" value="">
             
             <div style="display: flex; flex-direction: column; gap: 5px;">
-                <label>Nombre del Lote</label>
-                <input type="text" name="nombre" id="nombreInput" required style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: white;">
+                <label for="nombreInput">Nombre del Lote</label>
+                <input type="text" name="nombre" id="nombreInput" required style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--n-0); color: var(--text-primary);">
             </div>
             <div style="display: flex; flex-direction: column; gap: 5px;">
-                <label>Superficie (Hectáreas)</label>
-                <input type="number" step="0.01" name="superficie" id="superficieInput" required style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: white;">
+                <label for="superficieInput">Superficie (Hectáreas)</label>
+                <input type="number" step="0.01" name="superficie" id="superficieInput" required style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--n-0); color: var(--text-primary);">
             </div>
 
             <div style="display: flex; flex-direction: column; gap: 5px;">
-                <label>Régimen de Tenencia</label>
-                <select name="tenencia" id="tenenciaSelect" required onchange="toggleCosto(this)" style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: white;">
+                <label for="tenenciaSelect">Régimen de Tenencia</label>
+                <select name="tenencia" id="tenenciaSelect" required onchange="toggleCosto(this)" style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: var(--text-primary);">
                     <option value="propio">Propio</option>
                     <option value="alquilado">Alquilado</option>
                 </select>
             </div>
             
-            <div id="costoAlquilerContainer" style="display: none; flex-direction: column; gap: 10px; background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; border: 1px dashed var(--border);">
+            <div id="costoAlquilerContainer" style="display: none; flex-direction: column; gap: 10px; background: var(--n-25); padding: 12px; border-radius: 8px; border: 1px dashed var(--border);">
                 <label style="font-weight: 600; color: var(--accent);"><i class="fas fa-calculator"></i> Costo de Alquiler Anual</label>
                 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                     <div style="display: flex; flex-direction: column; gap: 5px;">
-                        <label style="font-size: 0.85rem; color: var(--text-muted);">KG / ha</label>
-                        <input type="number" step="1" id="costoKgInput" placeholder="Ej: 1800" oninput="syncUnitsLote('kg')" style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: white;">
+                        <label for="costoKgInput" style="font-size: 0.85rem; color: var(--text-muted);">KG / ha</label>
+                        <input type="number" step="1" id="costoKgInput" placeholder="Ej: 1800" oninput="syncUnitsLote('kg')" style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--n-0); color: var(--text-primary);">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 5px;">
-                        <label style="font-size: 0.85rem; color: var(--text-muted);">QQ / ha</label>
-                        <input type="number" step="0.1" id="costoQqInput" placeholder="Ej: 18" oninput="syncUnitsLote('qq')" style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: white;">
+                        <label for="costoQqInput" style="font-size: 0.85rem; color: var(--text-muted);">QQ / ha</label>
+                        <input type="number" step="0.1" id="costoQqInput" placeholder="Ej: 18" oninput="syncUnitsLote('qq')" style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--n-0); color: var(--text-primary);">
                     </div>
                 </div>
 
                 <div style="display: flex; flex-direction: column; gap: 5px;">
-                    <label style="font-size: 0.85rem; color: var(--text-muted);">TNS de Soja / Ha <small>(Valor guardado)</small></label>
+                    <label for="costoInput" style="font-size: 0.85rem; color: var(--text-muted);">TNS de Soja / Ha <small>(Valor guardado)</small></label>
                     <input type="number" step="0.001" name="costo_alquiler_tns_ha" id="costoInput" oninput="syncUnitsLote('tns')" style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.1); color: #aaa;">
                 </div>
             </div>
 
             <div style="display: flex; flex-direction: column; gap: 5px;">
-                <label>Ubicación</label>
-                <input type="text" name="ubicacion" id="ubicacionInput" placeholder="Ej: Ruta 9 Km 45" style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: white;">
+                <label for="ubicacionInput">Ubicación</label>
+                <input type="text" name="ubicacion" id="ubicacionInput" placeholder="Ej: Ruta 9 Km 45" style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--n-0); color: var(--text-primary);">
             </div>
 
             <div style="display: flex; flex-direction: column; gap: 5px;">
-                <label>Tipo de Suelo</label>
-                <input type="text" name="tipo_suelo" id="tipoSueloInput" placeholder="Ej: Franco arcilloso" style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: white;">
+                <label for="tipoSueloInput">Tipo de Suelo</label>
+                <input type="text" name="tipo_suelo" id="tipoSueloInput" placeholder="Ej: Franco arcilloso" style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--n-0); color: var(--text-primary);">
             </div>
 
             <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 5px;">
-                <label>Ubicación en Mapa (Opcional)</label>
+                <label for="latInput">Ubicación en Mapa (Opcional)</label>
                 <p class="map-helper">Haz clic en el mapa para marcar el centro del lote.</p>
                 <div id="modalMap"></div>
                 <input type="hidden" name="latitud" id="latInput">
@@ -290,7 +290,7 @@ require_once 'includes/header.php';
             </div>
 
             <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
-                <button type="button" class="btn" onclick="closeModal()" style="background: rgba(255,255,255,0.1); color: white;">Cancelar</button>
+                <button type="button" class="btn" onclick="closeModal()" style="background: rgba(255,255,255,0.1); color: var(--text-primary);">Cancelar</button>
                 <button type="submit" class="btn btn-primary">Guardar</button>
             </div>
         </form>
@@ -427,7 +427,7 @@ $lotes_json = json_encode(array_values(array_map(function($l) {
             const marker = L.marker([lat, lng]).addTo(mainMap);
             
             // Popup temporal
-            const basePopup = `<b>${lote.nombre}</b><br>Superficie: ${lote.superficie} ha<br><div style="margin-top:8px; font-size:0.85em; color:#fff; background:rgba(0,0,0,0.5); padding:4px 8px; border-radius:4px; display:inline-block;"><i class="fas fa-spinner fa-spin"></i> Cargando clima...</div>`;
+            const basePopup = `<b>${lote.nombre}</b><br>Superficie: ${lote.superficie} ha<br><div style="margin-top:8px; font-size:0.85em; color:var(--text-primary); background:var(--n-100); padding:4px 8px; border-radius:4px; display:inline-block;"><i class="fas fa-spinner fa-spin"></i> Cargando clima...</div>`;
             marker.bindPopup(basePopup);
             
             markers[lote.id] = marker;
@@ -443,7 +443,7 @@ $lotes_json = json_encode(array_values(array_map(function($l) {
                     const icon = getWeatherIcon(data.current.weather_code);
                     
                     const cellHtml = `<div style="line-height:1.2;"><b>${icon}</b><br><span style="font-size:0.85em;">${t}°C | 💧 ${h}%</span></div>`;
-                    const popupHtml = `<b>${lote.nombre}</b><br>Superficie: ${lote.superficie} ha<br><div style="margin-top:8px; font-size:0.9em; color:#fff; background:rgba(10,130,230,0.8); padding:4px 8px; border-radius:4px; display:inline-block;"><b>${icon}</b> | ${t}°C | 💧 ${h}%</div>`;
+                    const popupHtml = `<b>${lote.nombre}</b><br>Superficie: ${lote.superficie} ha<br><div style="margin-top:8px; font-size:0.9em; color:var(--text-primary); background:rgba(10,130,230,0.8); padding:4px 8px; border-radius:4px; display:inline-block;"><b>${icon}</b> | ${t}°C | 💧 ${h}%</div>`;
 
                     // Tabla
                     const cell = document.getElementById(`clima-lote-${lote.id}`);
@@ -503,8 +503,10 @@ $lotes_json = json_encode(array_values(array_map(function($l) {
                     // Círculo de precisión
                     userCircle = L.circle([lat, lng], {
                         radius: acc,
-                        color: '#3b82f6',
-                        fillColor: '#3b82f6',
+                        /* Leaflet lo escribe como atributo SVG, donde var() no
+                           resuelve: va el hex del verde de campo. */
+                        color: '#195c2e',
+                        fillColor: '#195c2e',
                         fillOpacity: 0.08,
                         weight: 1,
                         dashArray: '4 4'
@@ -524,7 +526,7 @@ $lotes_json = json_encode(array_values(array_map(function($l) {
                     mainMap.setView([lat, lng], 14);
 
                     // Restaurar botón
-                    if (btn) { btn.classList.remove('locating'); btn.innerHTML = '<i class="fas fa-location-arrow" style="color:#3b82f6;"></i>'; }
+                    if (btn) { btn.classList.remove('locating'); btn.innerHTML = '<i class="fas fa-location-arrow" style="color: var(--accent);"></i>'; }
                 },
                 function(err) {
                     if (btn) { btn.classList.remove('locating'); btn.innerHTML = '<i class="fas fa-location-arrow"></i>'; }
@@ -777,7 +779,7 @@ $lotes_json = json_encode(array_values(array_map(function($l) {
 <div id="campaniaModal" class="modal-wrapper" style="display:none;">
     <div class="glass-panel modal-panel" style="max-width: 440px;">
         <h2 id="campModalTitle" style="margin-bottom:18px; font-size:1.1rem;">
-            <i class="fas fa-seedling" style="color:#818cf8; margin-right:8px;"></i>
+            <i class="fas fa-seedling" style="color: var(--accent); margin-right:8px;"></i>
             Iniciar Nueva Campaña
         </h2>
         <form method="POST" style="display:flex; flex-direction:column; gap:14px;" onsubmit="const b=this.querySelector('button[type=submit]'); if(b) b.disabled=true;">
@@ -785,9 +787,9 @@ $lotes_json = json_encode(array_values(array_map(function($l) {
             <input type="hidden" name="action"  value="set_campania">
 
             <div style="display:flex; flex-direction:column; gap:5px;">
-                <label>Lote</label>
+                <label for="campLoteId">Lote</label>
                 <select name="lote_id" id="campLoteId" required
-                    style="padding:10px; border-radius:6px; border:1px solid var(--border); background:var(--bg-color); color:white;">
+                    style="padding:10px; border-radius:6px; border:1px solid var(--border); background:var(--bg-color); color:var(--text-primary);">
                     <option value="">-- Seleccionar Lote --</option>
                     <?php foreach ($lotes as $l): ?>
                         <option value="<?= $l['id'] ?>"<?= !empty($l['campania']) ? ' style="color:var(--text-muted);"' : '' ?>>
@@ -799,9 +801,9 @@ $lotes_json = json_encode(array_values(array_map(function($l) {
 
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
                 <div style="display:flex; flex-direction:column; gap:5px;">
-                    <label>Año de Campaña</label>
+                    <label for="campInput">Año de Campaña</label>
                     <select name="campania" id="campInput" required
-                        style="padding:10px; border-radius:6px; border:1px solid rgba(129,140,248,0.4); background:var(--input-bg); color:var(--text-primary);">
+                        style="padding:10px; border-radius:6px; border:1px solid var(--border); background:var(--input-bg); color:var(--text-primary);">
                         <option value="">-- Seleccionar --</option>
                         <option value="23/24">23/24</option>
                         <option value="24/25">24/25</option>
@@ -810,9 +812,9 @@ $lotes_json = json_encode(array_values(array_map(function($l) {
                     </select>
                 </div>
                 <div style="display:flex; flex-direction:column; gap:5px;">
-                    <label>Cultivo</label>
+                    <label for="campCultivo">Cultivo</label>
                     <select name="cultivo_actual" id="campCultivo" required
-                        style="padding:10px; border-radius:6px; border:1px solid rgba(129,140,248,0.4); background:var(--input-bg); color:var(--text-primary);">
+                        style="padding:10px; border-radius:6px; border:1px solid var(--border); background:var(--input-bg); color:var(--text-primary);">
                         <option value="">-- Seleccionar --</option>
                         <option value="Soja (1ra)">Soja (1ra)</option>
                         <option value="Soja (2da)">Soja (2da)</option>
@@ -833,8 +835,8 @@ $lotes_json = json_encode(array_values(array_map(function($l) {
             </p>
 
             <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:4px;">
-                <button type="button" class="btn" onclick="cerrarModalCampania()" style="background:rgba(255,255,255,0.1); color:white;">Cancelar</button>
-                <button type="submit" class="btn btn-primary" style="background:linear-gradient(135deg,#818cf8,#6366f1); border:none;">
+                <button type="button" class="btn" onclick="cerrarModalCampania()" style="background:rgba(255,255,255,0.1); color:var(--text-primary);">Cancelar</button>
+                <button type="submit" class="btn btn-primary" style="background:var(--accent); border:none;">
                     <i class="fas fa-check"></i> Iniciar Campaña
                 </button>
             </div>
@@ -878,10 +880,10 @@ function cerrarModalCampania() {
     <div class="glass-panel modal-panel" style="max-width: 620px; width:100%;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
             <h2 style="margin:0; font-size:1.1rem;">
-                <i class="fas fa-history" style="color:#818cf8; margin-right:8px;"></i>
-                Historial de Campañas: <span id="histLoteNombre" style="color:#818cf8;"></span>
+                <i class="fas fa-history" style="color: var(--accent); margin-right:8px;"></i>
+                Historial de Campañas: <span id="histLoteNombre" style="color: var(--accent);"></span>
             </h2>
-            <button onclick="cerrarHistorial()" class="btn" style="background:rgba(255,255,255,0.1); color:white; padding:4px 10px;"><i class="fas fa-times"></i></button>
+            <button onclick="cerrarHistorial()" class="btn" style="background:rgba(255,255,255,0.1); color:var(--text-primary); padding:4px 10px;"><i class="fas fa-times"></i></button>
         </div>
         <div id="historialContent">
             <div style="text-align:center; padding:30px; color:var(--text-muted);">
@@ -946,4 +948,5 @@ function cerrarHistorial() {
 }
 </script>
 
+<?php require_once 'includes/chat_motor.php'; ?>
 <?php require_once 'includes/footer.php'; ?>

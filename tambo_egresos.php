@@ -330,35 +330,38 @@ require_once 'includes/header.php';
 .grupo-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
 .grupo-tab {
     padding: 7px 16px; border-radius: 20px; font-size: 0.82rem; font-weight: 600;
-    cursor: pointer; border: 1px solid var(--border); background: rgba(255,255,255,0.04);
+    cursor: pointer; border: 1px solid var(--border); background: var(--n-25);
     color: var(--text-muted); transition: all 0.2s; white-space: nowrap;
 }
-.grupo-tab:hover { border-color: #38bdf8; color: var(--text-primary); }
-.grupo-tab.active { background: #38bdf8; color: #fff; border-color: #38bdf8; box-shadow: 0 0 10px rgba(56,189,248,0.3); }
+.grupo-tab:hover { border-color: var(--mod-tambo); color: var(--text-primary); }
+/* El chip seleccionado lleva relleno lleno, así que el texto va en --on-accent.
+   Con tinta encima daba 3,03:1: el elemento activo terminaba siendo el menos
+   legible de la barra, que es justo lo contrario de lo que tiene que pasar. */
+.grupo-tab.active { background: var(--mod-tambo); color: var(--on-accent); border-color: var(--mod-tambo); }
 
 /* Custom styles for Tambo to match the sky-blue theme */
 .gastos-kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px,1fr)); gap: 10px; margin-bottom: 20px; }
 .gasto-kpi {
-    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+    background: var(--n-25); border: 1px solid var(--border);
     border-radius: 12px; padding: 12px 14px;
     transition: transform 0.2s;
 }
 .gasto-kpi:hover { transform: translateY(-2px); }
-.gasto-kpi .gk-label { font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+.gasto-kpi .gk-label { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
 .gasto-kpi .gk-val   { font-size: 1.15rem; font-weight: 700; color: var(--text-primary); }
 .gasto-kpi.total-kpi { background: rgba(56,189,248,0.06); border-color: rgba(56,189,248,0.2); }
-.gasto-kpi.total-kpi .gk-val { color: #38bdf8; }
+.gasto-kpi.total-kpi .gk-val { color: var(--mod-tambo); }
 
-.kpi-label { font-size:.72rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.6px; font-weight:600; }
+.kpi-label { font-size: 0.8rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.6px; font-weight:600; }
 .kpi-value { font-size:1.5rem; font-weight:800; color:var(--text-primary); line-height:1.15; margin:4px 0 2px; }
 .kpi-sub   { font-size:.78rem; color:var(--text-muted); }
 
 .currency-toggle-container {
     display: inline-flex;
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--n-100);
     padding: 4px;
     border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border);
 }
 .btn-currency {
     border: none;
@@ -376,55 +379,55 @@ require_once 'includes/header.php';
 }
 .btn-currency:hover {
     color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--n-100);
 }
 .btn-currency.active {
-    background: #38bdf8;
-    color: white !important;
+    background: var(--mod-tambo);
+    color: var(--text-primary) !important;
     box-shadow: 0 2px 8px rgba(56, 189, 248, 0.4);
 }
 
 .moneda-toggle { display:flex; gap:6px; margin-top: 4px; }
 .moneda-btn {
-    flex:1; padding:9px; border-radius:8px; border:1px solid rgba(255,255,255,.1);
-    background:rgba(0,0,0,.2); color:var(--text-muted); cursor:pointer;
+    flex:1; padding:9px; border-radius:8px; border:1px solid var(--border);
+    background:var(--n-100); color:var(--text-muted); cursor:pointer;
     font-family:inherit; font-size:.9rem; font-weight:600; transition:all .2s; text-align:center;
 }
-.moneda-btn.active-ars { background:rgba(16,185,129,.15); color:#34d399; border-color:rgba(16,185,129,.4); }
-.moneda-btn.active-usd { background:rgba(245,158,11,.15); color:#fbbf24; border-color:rgba(245,158,11,.4); }
+.moneda-btn.active-ars { background:var(--accent-soft); color:var(--accent); border-color:var(--accent-soft); }
+.moneda-btn.active-usd { background:var(--warning-soft); color:var(--se-warning); border-color:var(--warning-soft); }
 
 .calc-preview {
-    background:rgba(14,165,233,.07); border:1px dashed rgba(14,165,233,.3);
+    background:var(--tambo-soft); border:1px dashed var(--tambo-soft);
     border-radius:8px; padding:11px 16px; display:none; align-items:center; justify-content:space-between; gap:12px; margin-top: 10px;
 }
 .calc-preview.show { display:flex; }
 .calc-formula { font-size:.82rem; color:var(--text-muted); }
-.calc-total   { font-size:1.15rem; font-weight:800; color:#38bdf8; }
+.calc-total   { font-size:1.15rem; font-weight:800; color:var(--mod-tambo); }
 
 .egr-badge { display:inline-block; padding:2px 8px; border-radius:20px; font-size:.7rem; font-weight:700; }
-.badge-ars { background:rgba(16,185,129,.1); color:#34d399; }
-.badge-usd { background:rgba(245,158,11,.1); color:#fbbf24; }
+.badge-ars { background:var(--accent-soft); color:var(--accent); }
+.badge-usd { background:var(--warning-soft); color:var(--se-warning); }
 
-.level-divider { border:none; border-top:1px dashed rgba(255,255,255,.07); margin:14px 0; }
+.level-divider { border:none; border-top:1px dashed var(--border); margin:14px 0; }
 
 /* ─── Tabla Fluida Premium ─── */
 .egr-table { width:100%; border-collapse:separate; border-spacing: 0; }
 .egr-table thead th {
-    font-size:.68rem; font-weight:800; text-transform:uppercase; letter-spacing:1px;
-    color: #38bdf8; padding:16px; border-bottom:2px solid rgba(56, 189, 248, 0.2);
+    font-size: 0.8rem; font-weight:800; text-transform:uppercase; letter-spacing:1px;
+    color: var(--mod-tambo); padding:16px; border-bottom:2px solid rgba(56, 189, 248, 0.2);
     background:rgba(56, 189, 248, 0.03); text-align: left;
 }
 .egr-table tbody td {
-    padding:20px 16px; border-bottom:1px solid rgba(255, 255, 255, 0.03);
+    padding:20px 16px; border-bottom:1px solid var(--border);
     font-size:.92rem; vertical-align:middle;
     transition: all 0.2s;
 }
-.egr-table tbody tr:hover td { background:rgba(255, 255, 255, 0.05); }
+.egr-table tbody tr:hover td { background:var(--n-100); }
 
 .egr-cat-badge {
     display:inline-flex; align-items:center; gap:6px;
     padding:5px 12px; border-radius:10px; font-size:.75rem; font-weight:700;
-    background:rgba(56, 189, 248, 0.08); color:#38bdf8;
+    background:rgba(56, 189, 248, 0.08); color:var(--mod-tambo);
     border: 1px solid rgba(56, 189, 248, 0.15);
 }
 .egr-detalle-main { font-weight:600; font-size:.88rem; color:var(--text-primary); line-height:1.3; }
@@ -434,18 +437,18 @@ require_once 'includes/header.php';
 .egr-num-main  { font-size:.95rem; color:var(--text-primary); font-weight: 600; }
 .egr-num-sub   { font-size:.8rem; color:var(--text-muted); }
 
-.egr-total-ars { font-weight:800; font-size:1.1rem; color:#f87171; }
-.egr-total-usd { font-weight:800; font-size:1.1rem; color:#fbbf24; }
+.egr-total-ars { font-weight:800; font-size:1.1rem; color:var(--danger); }
+.egr-total-usd { font-weight:800; font-size:1.1rem; color:var(--se-warning); }
 
 .egr-btn-action {
     display:inline-flex; align-items:center; justify-content:center;
     width:36px; height:36px; border-radius:12px; border:none;
     cursor:pointer; transition:all .2s; font-size:1rem;
 }
-.egr-btn-replica { background:rgba(56,189,248,.1); color:#38bdf8; border:1px solid rgba(56,189,248,.2); }
+.egr-btn-replica { background:rgba(56,189,248,.1); color:var(--mod-tambo); border:1px solid rgba(56,189,248,.2); }
 .egr-btn-replica:hover { background:rgba(56,189,248,.25); }
-.egr-btn-delete  { background:rgba(239,68,68,.08); color:#f87171; border:1px solid rgba(239,68,68,.15); }
-.egr-btn-delete:hover  { background:rgba(239,68,68,.2); }
+.egr-btn-delete  { background:var(--danger-soft); color:var(--danger); border:1px solid var(--danger-soft); }
+.egr-btn-delete:hover  { background:var(--danger-soft); }
 
 /* ─── Responsive: cards en mobile ─── */
 @media (max-width: 1000px) {
@@ -454,14 +457,14 @@ require_once 'includes/header.php';
     .egr-table thead { display:none; }
     .egr-table tbody tr {
         margin-bottom:12px;
-        background:rgba(255,255,255,.03);
-        border:1px solid rgba(255,255,255,.07);
+        background:var(--n-25);
+        border:1px solid var(--border);
         border-radius:12px; overflow:hidden;
         padding:6px 0;
     }
     .egr-table tbody td {
         display:flex; justify-content:space-between; align-items:center;
-        padding:10px 16px; border-bottom:1px solid rgba(255,255,255,.04);
+        padding:10px 16px; border-bottom:1px solid var(--border);
         font-size:.88rem;
     }
     .egr-table tbody td:last-child { border-bottom:none; }
@@ -496,18 +499,18 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
     <div style="display:flex; gap:15px;" id="egresosTotalesBox">
         <div style="display:flex; flex-direction:column;">
             <span class="kpi-label">Total Mes ARS</span>
-            <span style="font-size:1.2rem; font-weight:800; color:white;" id="kpiTotal" data-val="<?= $total_mes_ars ?>">$<?= number_format($total_mes_ars, 2, ',', '.') ?></span>
+            <span style="font-size:1.2rem; font-weight:800; color:var(--text-primary);" id="kpiTotal" data-val="<?= $total_mes_ars ?>">$<?= number_format($total_mes_ars, 2, ',', '.') ?></span>
         </div>
         <?php if($total_mes_usd > 0): ?>
         <div style="display:flex; flex-direction:column;">
             <span class="kpi-label">Total Mes USD</span>
-            <span style="font-size:1.2rem; font-weight:800; color:#fbbf24;">U$S <?= number_format($total_mes_usd, 2, ',', '.') ?></span>
+            <span style="font-size:1.2rem; font-weight:800; color:var(--se-warning);">USD <?= number_format($total_mes_usd, 2, ',', '.') ?></span>
         </div>
         <?php endif; ?>
     </div>
 
     <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-        <input type="month" value="<?= $mes_sel ?>" onchange="location.href='tambo_egresos.php?mes='+this.value" style="padding: 8px 14px; border-radius: 20px; border: 1px solid var(--accent); background: rgba(16,185,129,0.1); color: white; cursor: pointer; font-weight: 500;">
+        <input type="month" value="<?= $mes_sel ?>" onchange="location.href='tambo_egresos.php?mes='+this.value" style="padding: 8px 14px; border-radius: 20px; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--text-primary); cursor: pointer; font-weight: 500;">
         <div class="currency-toggle-container">
             <button type="button" class="btn-currency active" id="btnModeMoney" onclick="setKpiMode('money')" title="Ver en Dinero (ARS)">
                 <i class="fas fa-dollar-sign"></i>
@@ -535,7 +538,7 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
 <div class="glass-panel">
     <div class="panel-header">
         <h2 style="font-size: 1.2rem; font-weight: 500;">
-            <i class="fas fa-cow" style="color: #38bdf8; margin-right: 8px;"></i>
+            <i class="fas fa-cow" style="color: var(--mod-tambo); margin-right: 8px;"></i>
             Registro de Egresos del Tambo
         </h2>
         <div style="display:flex; gap:8px; flex-wrap: wrap;">
@@ -554,17 +557,17 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
                  'nueva_pestana' => true],
             ]);
             ?>
-            <button class="btn btn-primary" style="background: rgba(16,185,129,0.15); color: #34d399; border:1px solid rgba(16,185,129,0.3);" onclick="openReplicarModal()">
+            <button class="btn btn-primary" style="background: var(--accent-soft); color: var(--accent); border:1px solid var(--accent-soft);" onclick="openReplicarModal()">
                 <i class="fas fa-copy"></i> Replicar Mes
             </button>
-            <button class="btn btn-primary" style="background: #38bdf8; box-shadow: 0 4px 12px rgba(56,189,248,0.3); border:none;" onclick="openAddModal()">
+            <button class="btn btn-primary" style="background: var(--mod-tambo); box-shadow: 0 4px 12px rgba(56,189,248,0.3); border:none;" onclick="openAddModal()">
                 <i class="fas fa-plus"></i> Registrar Egreso
             </button>
         </div>
     </div>
 
     <!-- ===== TOOLBAR DE FILTROS ===== -->
-    <div style="background:rgba(255,255,255,0.02); border-top:1px solid rgba(255,255,255,0.05); border-bottom:1px solid rgba(255,255,255,0.05); padding:16px 20px; margin: 0 -20px 20px -20px;" class="filter-toolbar">
+    <div style="background:var(--n-25); border-top:1px solid var(--border); border-bottom:1px solid var(--border); padding:16px 20px; margin: 0 -20px 20px -20px;" class="filter-toolbar">
         <div class="grupo-tabs">
             <button class="grupo-tab <?= $f_cat === 'todos' ? 'active' : '' ?>" onclick="setFiltroCat('todos')"><i class="fas fa-layer-group"></i> Todos</button>
             <?php foreach (array_keys($ESTRUCTURA) as $cat): ?>
@@ -612,7 +615,7 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
                         <span class="egr-num-main"><?= number_format($e['cantidad'],2,',','.') ?> <span style="color:var(--text-muted);font-size:.78rem;"><?= htmlspecialchars($e['unidad']) ?></span></span>
                         <?php endif; ?>
                         <?php if ($e['precio_unitario']): ?>
-                        <span class="egr-num-sub"><?= $e['moneda']==='USD'?'U$S ':'$' ?><?= number_format($e['precio_unitario'],2,',','.') ?>/u.</span>
+                        <span class="egr-num-sub"><?= $e['moneda']==='USD'?'USD ':'$' ?><?= number_format($e['precio_unitario'],2,',','.') ?>/u.</span>
                         <?php endif; ?>
                         <?php if (!$e['cantidad'] && !$e['precio_unitario']): ?>
                         <span style="color:var(--text-muted);">—</span>
@@ -621,7 +624,7 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
                 </td>
                 <td class="col-total" data-label="Total">
                     <span class="<?= $e['moneda']==='USD' ? 'egr-total-usd' : 'egr-total-ars' ?>">
-                        <?= $e['moneda']==='USD' ? 'U$S' : '$' ?> <?= number_format($e['monto'],2,',','.') ?>
+                        <?= $e['moneda']==='USD' ? 'USD' : '$' ?> <?= number_format($e['monto'],2,',','.') ?>
                     </span>
                     <span class="egr-badge <?= $e['moneda']==='USD' ? 'badge-usd' : 'badge-ars' ?>" style="display:block;margin-top:3px;width:fit-content;"><?= $e['moneda'] ?></span>
                 </td>
@@ -629,7 +632,7 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
                     <div style="display:inline-flex; gap:5px; align-items:center; justify-content:center;">
                         <!-- Editar -->
                         <button type="button"
-                            class="egr-btn-action egr-btn-replica" style="background:rgba(245,158,11,.1); color:#fbbf24; border:1px solid rgba(245,158,11,.2);"
+                            class="egr-btn-action egr-btn-replica" style="background:var(--warning-soft); color:var(--se-warning); border:1px solid var(--warning-soft);"
                             title="Editar egreso"
                             onclick="editarEgreso(
                                 '<?= $e['id'] ?>',
@@ -669,13 +672,13 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
     <?php if ($total_pages > 1): ?>
     <div style="display:flex; justify-content: center; gap:10px; margin-top:20px; padding-bottom:10px;">
         <?php if ($page > 1): ?>
-            <a href="?page=<?= $page-1 ?>&categoria=<?= urlencode($f_cat) ?>&mes=<?= $mes_sel ?>&q=<?= urlencode($q) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
+            <a href="?page=<?= $page-1 ?>&categoria=<?= urlencode($f_cat) ?>&mes=<?= $mes_sel ?>&q=<?= urlencode($q) ?>" class="btn" style="background:var(--n-100); color:var(--text-primary); padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
         <?php endif; ?>
         
         <span style="color:var(--text-muted); align-self:center; font-size:0.9rem;">Página <?= $page ?> de <?= $total_pages ?></span>
 
         <?php if ($page < $total_pages): ?>
-            <a href="?page=<?= $page+1 ?>&categoria=<?= urlencode($f_cat) ?>&mes=<?= $mes_sel ?>&q=<?= urlencode($q) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
+            <a href="?page=<?= $page+1 ?>&categoria=<?= urlencode($f_cat) ?>&mes=<?= $mes_sel ?>&q=<?= urlencode($q) ?>" class="btn" style="background:var(--n-100); color:var(--text-primary); padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
         <?php endif; ?>
     </div>
     <?php endif; ?>
@@ -684,7 +687,7 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
 <!-- ===== MODAL: Registrar Egreso ===== -->
 <div id="addEgresoModal" class="modal-wrapper">
     <div class="glass-panel modal-panel" style="max-width: 500px;">
-        <h2 id="modalTitle" style="margin-bottom: 20px;"><i class="fas fa-plus-circle" id="modalTitleIcon" style="color:#38bdf8;"></i> <span id="modalTitleText">Registrar Egreso</span></h2>
+        <h2 id="modalTitle" style="margin-bottom: 20px;"><i class="fas fa-plus-circle" id="modalTitleIcon" style="color:var(--mod-tambo);"></i> <span id="modalTitleText">Registrar Egreso</span></h2>
         
         <form method="POST" id="formEgreso" style="display:flex; flex-direction:column; gap:14px;" onsubmit="const b=this.querySelector('button[type=submit]'); if(b) b.disabled=true;">
             <?php csrf_field(); ?>
@@ -698,7 +701,7 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
                     <input type="month" name="fecha" value="<?= date('Y-m') ?>" onclick="this.showPicker && this.showPicker();" required>
                 </div>
                 <div class="form-group">
-                    <label>Categoría</label>
+                    <label for="selCat">Categoría</label>
                     <select name="categoria" id="selCat" onchange="onCatChange()" required>
                         <option value="">— Seleccionar —</option>
                         <?php foreach ($ESTRUCTURA as $cat => $subs): ?>
@@ -711,7 +714,7 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
             <div class="form-grid-2">
                 <!-- Subcategoría -->
                 <div class="form-group" id="wrapSub" style="display:none;">
-                    <label id="labelSub">Subcategoría</label>
+                    <label for="selSub" id="labelSub">Subcategoría</label>
                     <select name="subcategoria" id="selSub" onchange="onSubChange()">
                         <option value="">— Seleccionar —</option>
                     </select>
@@ -720,8 +723,8 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
                 <!-- Concepto -->
                 <div class="form-group" id="wrapConc" style="display:none;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
-                        <label style="margin:0;">Concepto / Ítem</label>
-                        <button type="button" id="btnNuevoConc" onclick="abrirModalConcepto()" style="font-size:.7rem; color:#38bdf8; background:rgba(14,165,233,.1); border:1px solid rgba(14,165,233,.25); border-radius:6px; padding:2px 6px; cursor:pointer;"><i class="fas fa-plus"></i></button>
+                        <label for="selConc" style="margin:0;">Concepto / Ítem</label>
+                        <button type="button" id="btnNuevoConc" onclick="abrirModalConcepto()" style="font-size:.7rem; color:var(--mod-tambo); background:var(--tambo-soft); border:1px solid var(--tambo-soft); border-radius:6px; padding:2px 6px; cursor:pointer;"><i class="fas fa-plus"></i></button>
                     </div>
                     <select name="concepto" id="selConc" onchange="onConcChange()">
                         <option value="">— Seleccionar —</option>
@@ -732,11 +735,11 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
             <!-- Inputs libres (condicionales) -->
             <div id="wrapLibres" style="display: contents;">
                 <div class="form-group" id="wrapSubLibre" style="display:none;">
-                    <label>Especificar subcategoría</label>
+                    <label for="inputSubLibre">Especificar subcategoría</label>
                     <input type="text" name="subcat_libre" id="inputSubLibre">
                 </div>
                 <div class="form-group" id="wrapConcLibre" style="display:none;">
-                    <label>Especificá el concepto</label>
+                    <label for="inputConcLibre">Especificá el concepto</label>
                     <input type="text" name="concepto_libre" id="inputConcLibre">
                 </div>
             </div>
@@ -745,11 +748,11 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
 
             <div class="form-grid-3" style="display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 10px;">
                 <div class="form-group">
-                    <label>Cantidad</label>
+                    <label for="inputCantidad">Cantidad</label>
                     <input type="text" inputmode="decimal" class="format-number" name="cantidad" id="inputCantidad" placeholder="0" oninput="calcMonto()">
                 </div>
                 <div class="form-group">
-                    <label>Unidad</label>
+                    <label for="selUnidad">Unidad</label>
                     <select name="unidad" id="selUnidad" onchange="calcMonto()">
                         <option value="kg">kg</option>
                         <option value="lt">lt</option>
@@ -757,7 +760,7 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>P. Unitario</label>
+                    <label for="inputPrecioU">P. Unitario</label>
                     <input type="text" inputmode="decimal" class="format-number" name="precio_unitario" id="inputPrecioU" placeholder="0.00" oninput="calcMonto()">
                 </div>
             </div>
@@ -770,7 +773,7 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
 
             <div class="form-grid-2">
                 <div class="form-group">
-                    <label>Moneda</label>
+                    <label for="inputMoneda">Moneda</label>
                     <div class="moneda-toggle">
                         <button type="button" class="moneda-btn active-ars" id="btnArs" onclick="setMoneda('ARS')">🇦🇷 ARS</button>
                         <button type="button" class="moneda-btn"            id="btnUsd" onclick="setMoneda('USD')">🇺🇸 USD</button>
@@ -778,19 +781,19 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
                     <input type="hidden" name="moneda" id="inputMoneda" value="ARS">
                 </div>
                 <div class="form-group">
-                    <label>Monto total <span id="signoMoneda" style="color:#38bdf8;">(ARS)</span></label>
+                    <label for="inputMontoVisible">Monto total <span id="signoMoneda" style="color:var(--mod-tambo);">(ARS)</span></label>
                     <input type="text" inputmode="decimal" class="format-number" id="inputMontoVisible" placeholder="0.00" oninput="syncMonto(this.value)" required>
                 </div>
             </div>
 
             <div class="form-group">
-                <label>Notas <small style="color:var(--text-muted)">(opcional)</small></label>
+                <label for="egresos_data">Notas <small style="color:var(--text-muted)">(opcional)</small></label>
                 <textarea name="notas" rows="2" placeholder="Observaciones..." style="padding: 8px;"></textarea>
             </div>
 
             <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
-                <button type="button" class="btn" onclick="closeAddModal()" style="background: rgba(255,255,255,0.1); color: white;">Cancelar</button>
-                <button type="submit" id="btnGuardar" class="btn btn-primary" style="background: #38bdf8; border:none;" onclick="return validarForm()">
+                <button type="button" class="btn" onclick="closeAddModal()" style="background: rgba(255,255,255,0.1); color: var(--text-primary);">Cancelar</button>
+                <button type="submit" id="btnGuardar" class="btn btn-primary" style="background: var(--mod-tambo); border:none;" onclick="return validarForm()">
                     <i class="fas fa-save"></i> Guardar
                 </button>
             </div>
@@ -801,7 +804,7 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
 <!-- Modal Replicar Mes -->
 <div id="replicarMesModal" class="modal-wrapper" style="z-index: 9999;">
     <div class="glass-panel modal-panel" id="replicarModalContent" style="max-width: 400px; transition: max-width 0.3s ease;">
-        <h2 style="margin-bottom: 20px;"><i class="fas fa-copy" style="color:#34d399;"></i> Replicar Gastos de un Mes</h2>
+        <h2 style="margin-bottom: 20px;"><i class="fas fa-copy" style="color:var(--accent);"></i> Replicar Gastos de un Mes</h2>
         
         <form method="POST" id="formReplicarMes" onsubmit="const b=this.querySelector('button[type=submit]'); if(b) b.disabled=true;">
             <?php csrf_field(); ?>
@@ -811,7 +814,7 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
             <!-- PASO 1: Selección de meses -->
             <div id="paso1_replicar" style="display:flex; flex-direction:column; gap:14px;">
                 <div class="form-group">
-                    <label>Mes de Origen (a copiar)</label>
+                    <label for="mes_origen_rep">Mes de Origen (a copiar)</label>
                     <input type="month" name="mes_origen" id="mes_origen_rep" value="<?= date('Y-m', strtotime('-1 month', strtotime($mes_start))) ?>" required>
                 </div>
                 
@@ -820,13 +823,13 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
                     <input type="month" name="mes_destino" value="<?= $mes_sel ?>" required>
                 </div>
                 
-                <div style="background: rgba(245,158,11,0.1); border: 1px dashed rgba(245,158,11,0.3); padding: 12px; border-radius: 8px; margin-top: 10px;">
-                    <p style="font-size: 0.8rem; color: #fbbf24; margin: 0;"><i class="fas fa-info-circle"></i> En el siguiente paso podrás ver y editar los gastos antes de guardarlos en el mes destino.</p>
+                <div style="background: var(--warning-soft); border: 1px dashed var(--warning-soft); padding: 12px; border-radius: 8px; margin-top: 10px;">
+                    <p style="font-size: 0.8rem; color: var(--se-warning); margin: 0;"><i class="fas fa-info-circle"></i> En el siguiente paso podrás ver y editar los gastos antes de guardarlos en el mes destino.</p>
                 </div>
 
                 <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
-                    <button type="button" class="btn" onclick="closeReplicarModal()" style="background: rgba(255,255,255,0.1); color: white;">Cancelar</button>
-                    <button type="button" class="btn btn-primary" style="background: #10b981; border:none;" onclick="cargarEgresosAReplicar()">
+                    <button type="button" class="btn" onclick="closeReplicarModal()" style="background: rgba(255,255,255,0.1); color: var(--text-primary);">Cancelar</button>
+                    <button type="button" class="btn btn-primary" style="background: var(--accent); border:none;" onclick="cargarEgresosAReplicar()">
                         Cargar Gastos <i class="fas fa-arrow-right"></i>
                     </button>
                 </div>
@@ -855,20 +858,20 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
                 <div id="planillaPagination" style="display:flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 0.85rem; color: var(--text-muted);">
                     <div>Total de gastos a replicar: <strong id="planillaTotalItems">0</strong></div>
                     <div style="display:flex; gap: 10px; align-items: center;">
-                        <button type="button" class="btn" id="btnPrevPage" onclick="cambiarPaginaReplicar(-1)" style="padding:4px 10px; background:rgba(255,255,255,0.05);"><i class="fas fa-chevron-left"></i></button>
+                        <button type="button" class="btn" id="btnPrevPage" onclick="cambiarPaginaReplicar(-1)" style="padding:4px 10px; background:var(--n-100);"><i class="fas fa-chevron-left"></i></button>
                         <span id="planillaPageInfo">Página 1</span>
-                        <button type="button" class="btn" id="btnNextPage" onclick="cambiarPaginaReplicar(1)" style="padding:4px 10px; background:rgba(255,255,255,0.05);"><i class="fas fa-chevron-right"></i></button>
+                        <button type="button" class="btn" id="btnNextPage" onclick="cambiarPaginaReplicar(1)" style="padding:4px 10px; background:var(--n-100);"><i class="fas fa-chevron-right"></i></button>
                     </div>
                 </div>
 
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 15px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 15px;">
                     <div style="display: flex; gap: 10px;">
-                        <button type="button" class="btn" onclick="volverPaso1Replicar()" style="background: rgba(255,255,255,0.1); color: white;"><i class="fas fa-arrow-left"></i> Volver</button>
-                        <button type="button" class="btn" style="background: rgba(16,185,129,0.1); color:#34d399; border: 1px dashed rgba(16,185,129,0.3);" onclick="openAddFromReplicar()"><i class="fas fa-plus"></i> Agregar Gasto</button>
+                        <button type="button" class="btn" onclick="volverPaso1Replicar()" style="background: rgba(255,255,255,0.1); color: var(--text-primary);"><i class="fas fa-arrow-left"></i> Volver</button>
+                        <button type="button" class="btn" style="background: var(--accent-soft); color:var(--accent); border: 1px dashed var(--accent-soft);" onclick="openAddFromReplicar()"><i class="fas fa-plus"></i> Agregar Gasto</button>
                     </div>
                     <div style="display: flex; gap: 10px;">
-                        <button type="button" class="btn" onclick="closeReplicarModal()" style="background: rgba(239,68,68,0.1); color: #f87171; border: 1px solid rgba(239,68,68,0.2);">Cancelar</button>
-                        <button type="button" class="btn btn-primary" style="background: #10b981; border:none;" onclick="guardarReplicacion()">
+                        <button type="button" class="btn" onclick="closeReplicarModal()" style="background: var(--danger-soft); color: var(--danger); border: 1px solid var(--danger-soft);">Cancelar</button>
+                        <button type="button" class="btn btn-primary" style="background: var(--accent); border:none;" onclick="guardarReplicacion()">
                             <i class="fas fa-save"></i> Guardar Replicación
                         </button>
                     </div>
@@ -882,16 +885,16 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
 <!-- Modal Concepto Auxiliar -->
 <div class="modal-wrapper" id="modalConcepto">
     <div class="glass-panel modal-panel" style="max-width: 380px;">
-        <h3 style="margin:0 0 16px; font-size:1.05rem; color:#38bdf8;">Nuevo Concepto</h3>
+        <h3 style="margin:0 0 16px; font-size:1.05rem; color:var(--mod-tambo);">Nuevo Concepto</h3>
         <p id="modalDesc" style="font-size:.84rem; color:var(--text-muted); margin-bottom:16px;">—</p>
         <div class="form-group" style="margin-bottom:16px;">
-            <label>Nombre</label>
+            <label for="modalNombre">Nombre</label>
             <input type="text" id="modalNombre" placeholder="Ej: Maíz, Lavandina...">
         </div>
-        <div id="modalError" style="display:none; color:#f87171; font-size:.83rem; margin-bottom:12px;"></div>
+        <div id="modalError" style="display:none; color:var(--danger); font-size:.83rem; margin-bottom:12px;"></div>
         <div style="display:flex; gap:10px;">
             <button type="button" onclick="cerrarModalConcepto()" class="btn" style="flex:1;">Cancelar</button>
-            <button type="button" onclick="guardarConcepto()" class="btn btn-primary" style="flex:1; background:#0ea5e9; border:none;" id="btnModalGuardar">Guardar</button>
+            <button type="button" onclick="guardarConcepto()" class="btn btn-primary" style="flex:1; background:var(--mod-tambo); border:none;" id="btnModalGuardar">Guardar</button>
         </div>
     </div>
 </div>
@@ -1167,7 +1170,7 @@ function renderPlanillaPage(page) {
 
         let catHtml = '';
         if (item.is_new) {
-            catHtml = `<input type="text" placeholder="Categoría" class="rep-input" value="${item.categoria || ''}" onchange="updatePlanilla(${globalIndex}, 'categoria', this.value)" style="width:100%; padding:4px; font-size:0.8rem; margin-bottom:4px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 4px;">`;
+            catHtml = `<input type="text" placeholder="Categoría" class="rep-input" value="${item.categoria || ''}" onchange="updatePlanilla(${globalIndex}, 'categoria', this.value)" style="width:100%; padding:4px; font-size:0.8rem; margin-bottom:4px; background: var(--n-0); border: 1px solid var(--border); color: var(--text-primary); border-radius: 4px;">`;
         } else {
             catHtml = `
                 <strong>${item.categoria}</strong><br>
@@ -1177,7 +1180,7 @@ function renderPlanillaPage(page) {
 
         let conceptoHtml = '';
         if (item.is_new) {
-            conceptoHtml = `<input type="text" placeholder="Concepto" class="rep-input" value="${item.concepto || ''}" onchange="updatePlanilla(${globalIndex}, 'concepto', this.value)" style="width:100%; padding:6px 8px; font-size:0.85rem; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 4px;">`;
+            conceptoHtml = `<input type="text" placeholder="Concepto" class="rep-input" value="${item.concepto || ''}" onchange="updatePlanilla(${globalIndex}, 'concepto', this.value)" style="width:100%; padding:6px 8px; font-size:0.85rem; background: var(--n-0); border: 1px solid var(--border); color: var(--text-primary); border-radius: 4px;">`;
         } else {
             conceptoHtml = `<div style="font-size:0.85rem; font-weight: 500; color: var(--text-primary);">${item.concepto || '—'}</div>`;
         }
@@ -1198,13 +1201,13 @@ function renderPlanillaPage(page) {
             </td>
             <td data-label="Precio U.">
                 <div style="display:flex; align-items:center; justify-content:flex-end; gap:4px;">
-                    <span style="font-size:0.75rem; color:var(--text-muted);">${item.moneda==='USD'?'U$S':'$'}</span>
+                    <span style="font-size:0.75rem; color:var(--text-muted);">${item.moneda==='USD'?'USD':'$'}</span>
                     <input type="text" inputmode="decimal" class="rep-input format-number-planilla" value="${puStr}" oninput="formatPlanillaNumber(this); updatePlanillaAndCalc(${globalIndex}, 'precio_unitario', this.value)" style="width:80px; padding:4px 8px; font-size:0.85rem; text-align:right;">
                 </div>
             </td>
             <td data-label="Monto Total">
                 <div style="display:flex; align-items:center; justify-content:flex-end; gap:4px;">
-                    <span style="font-size:0.75rem; color:var(--text-muted);">${item.moneda==='USD'?'U$S':'$'}</span>
+                    <span style="font-size:0.75rem; color:var(--text-muted);">${item.moneda==='USD'?'USD':'$'}</span>
                     <input type="text" inputmode="decimal" class="rep-input format-number-planilla" id="monto_rep_${globalIndex}" value="${montoStr}" oninput="formatPlanillaNumber(this); updatePlanilla(${globalIndex}, 'monto', this.value)" style="width:90px; padding:4px 8px; font-size:0.85rem; font-weight:bold; text-align:right;">
                 </div>
             </td>
@@ -1492,7 +1495,7 @@ document.querySelectorAll('.format-number').forEach(input => {
 function calcMonto() {
     const c = unformatVal(document.getElementById('inputCantidad').value) || 0;
     const p = unformatVal(document.getElementById('inputPrecioU').value)  || 0;
-    const s = monedaActual === 'USD' ? 'U$S ' : '$';
+    const s = monedaActual === 'USD' ? 'USD ' : '$';
     if (c > 0 && p > 0) {
         const t = (c * p).toFixed(2);
         document.getElementById('calcFormula').textContent = `${formatVal(c)} × ${s}${formatVal(p)}`;

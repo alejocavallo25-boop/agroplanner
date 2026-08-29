@@ -121,22 +121,24 @@ require_once 'includes/header.php';
 /* CSS para Feed Lot */
 .fl-header { display: flex; flex-wrap: wrap; gap: 15px; justify-content: space-between; align-items: center; margin-bottom: 20px; }
 .fl-header h2 { margin: 0; font-size: 1.5rem; color: var(--text-primary); }
-.fl-select-lote { padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white; }
+.fl-select-lote { padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--n-100); color: var(--text-primary); }
 
-.fl-tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; }
-.fl-tab { padding: 10px 20px; border-radius: 8px; background: rgba(255,255,255,0.05); color: var(--text-muted); cursor: pointer; border: 1px solid transparent; }
-.fl-tab.active { background: rgba(239,68,68,0.15); color: #f87171; border-color: rgba(239,68,68,0.3); font-weight: bold; }
+.fl-tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+.fl-tab { padding: 10px 20px; border-radius: 8px; background: var(--n-0); color: var(--text-muted); cursor: pointer; border: 1px solid var(--border); min-height: 44px; }
+.fl-tab:hover { background: var(--n-100); color: var(--text-primary); }
+/* Seleccionado = identidad del módulo (violeta), no peligro. */
+.fl-tab.active { background: var(--gana-soft); color: var(--mod-gana); border-color: oklch(0.520 0.100 300 / 0.35); font-weight: 700; }
 
 .fl-tab-content { display: none; }
 .fl-tab-content.active { display: block; }
 
-.fl-card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+.fl-card { background: var(--n-25); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
 .fl-card-title { font-size: 1.1rem; font-weight: 600; color: var(--text-primary); margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
 
 .fl-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-.fl-table th { text-align: left; padding: 12px 15px; color: var(--text-muted); border-bottom: 1px solid rgba(255,255,255,0.1); }
-.fl-table td { padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.05); }
-.fl-table input { width: 100%; padding: 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.3); color: white; text-align: right; }
+.fl-table th { text-align: left; padding: 12px 15px; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+.fl-table td { padding: 12px 15px; border-bottom: 1px solid var(--border); }
+.fl-table input { width: 100%; padding: 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--n-100); color: var(--text-primary); text-align: right; }
 .fl-table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; width: 100%; }
 
 @media (max-width: 600px) {
@@ -146,18 +148,26 @@ require_once 'includes/header.php';
 
 .fl-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
 .fl-group label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 5px; }
-.fl-group input, .fl-group select { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.3); color: white; }
-.num-hint { display: block; font-size: 0.75rem; color: #f87171; margin-top: 3px; font-weight: 600; text-align: right; min-height: 14px; letter-spacing: 0.5px; }
+.fl-group input, .fl-group select { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--n-100); color: var(--text-primary); }
+/* Es el eco del valor que se acaba de tipear, no un error. Estaba en rojo, así
+   que un formulario con todos los campos válidos se leía como todo mal. */
+.num-hint { display: block; font-size: 0.8rem; color: var(--text-muted); margin-top: 3px; font-weight: 600; text-align: right; min-height: 14px; }
 
-.fl-btn { padding: 8px 15px; border-radius: 6px; cursor: pointer; border: none; font-weight: bold; display: inline-flex; align-items: center; gap: 5px; }
-.fl-btn-primary { background: #ef4444; color: white; }
-.fl-btn-danger { background: #f87171; color: white; padding: 4px 8px; font-size: 0.8rem; }
+.fl-btn { padding: 10px 16px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; }
+/* EL P0: la acción principal del módulo estaba en rojo, el mismo color con el
+   que en toda la app se borra y se marcan las pérdidas. Verde, como en los
+   otros dos módulos. */
+.fl-btn-primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.fl-btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+/* Este sí destruye, así que se queda en rojo: es el único del módulo. */
+.fl-btn-danger { background: var(--n-0); color: var(--danger); border-color: var(--danger); padding: 6px 10px; font-size: 0.85rem; min-height: 0; }
+.fl-btn-danger:hover { background: var(--danger-soft); }
 .fl-btn-sm { padding: 4px 10px; font-size: 0.85rem; }
 
-.fl-summary-box { background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 20px; text-align: center; }
-.fl-summary-val { font-size: 2rem; font-weight: bold; color: #10b981; }
+.fl-summary-box { background: var(--accent-soft); border: 1px solid var(--accent-soft); border-radius: 12px; padding: 20px; text-align: center; }
+.fl-summary-val { font-size: 2rem; font-weight: bold; color: var(--accent); }
 
-.fl-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; overflow-y: auto; padding: 40px 15px; }
+.fl-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--n-100); z-index: 9999; overflow-y: auto; padding: 40px 15px; }
 .fl-modal-content { background: #1e1e2d; padding: 30px; border-radius: 12px; width: 100%; max-width: 850px; margin: 0 auto; min-height: fit-content; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
 </style>
 
@@ -172,7 +182,7 @@ require_once 'includes/header.php';
         </select>
         <button class="fl-btn fl-btn-primary" onclick="openLoteModal()"><i class="fas fa-plus"></i> Nuevo Lote</button>
         <?php if($lote): ?>
-            <button class="fl-btn" style="background:rgba(255,255,255,0.1); color:white;" onclick="openLoteModal(true)"><i class="fas fa-cog"></i> Configurar</button>
+            <button class="fl-btn" style="background:rgba(255,255,255,0.1); color:var(--text-primary);" onclick="openLoteModal(true)"><i class="fas fa-cog"></i> Configurar</button>
         <?php endif; ?>
     </div>
 </div>
@@ -233,7 +243,7 @@ require_once 'includes/header.php';
             <div class="fl-table-responsive">
                 <table class="fl-table" id="tabla_costos" style="min-width: 100%;">
                     <thead>
-                        <tr style="background: rgba(0,0,0,0.2);">
+                        <tr style="background: var(--n-100);">
                             <th style="border-radius: 8px 0 0 8px;">Categoría</th>
                             <th>Concepto</th>
                             <th style="text-align: center;">Cant.</th>
@@ -252,19 +262,19 @@ require_once 'includes/header.php';
                         foreach($costos as $c): 
                             $total_cf_mensual += $c['monto_mensual'];
                         ?>
-                        <tr style="transition: all 0.2s; border-bottom: 1px solid rgba(255,255,255,0.03);" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='transparent'">
+                        <tr style="transition: all 0.2s; border-bottom: 1px solid var(--border);" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='transparent'">
                             <td>
-                                <span style="background: rgba(239,68,68,0.15); color: #f87171; padding: 5px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; text-transform: capitalize; border: 1px solid rgba(239,68,68,0.3); display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;">
+                                <span style="background: var(--danger-soft); color: var(--danger); padding: 5px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; text-transform: capitalize; border: 1px solid var(--danger-soft); display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;">
                                     <i class="fas fa-tag"></i> <?= str_replace('_',' ',$c['categoria']) ?>
                                 </span>
                             </td>
-                            <td style="font-weight: 500; color: #fff;"><?= htmlspecialchars($c['concepto']) ?></td>
+                            <td style="font-weight: 500; color: var(--text-primary);"><?= htmlspecialchars($c['concepto']) ?></td>
                             <td style="text-align: center; color: var(--text-muted); font-size: 0.95rem;"><?= isset($c['cantidad']) ? (float)$c['cantidad'] : '-' ?></td>
                             <td style="text-align: right; color: var(--text-muted); font-size: 0.95rem; white-space: nowrap;"><?= isset($c['precio_unitario']) ? '$'.number_format($c['precio_unitario'], 2) : '-' ?></td>
-                            <td style="text-align: right; color: #10b981; font-weight: bold; font-size: 1.05rem; white-space: nowrap;">$<?= number_format($c['monto_mensual'], 2) ?></td>
-                            <td style="text-align: right; color: #38bdf8; font-weight: 600; white-space: nowrap;">$<?= number_format($c['monto_mensual']/30, 2) ?></td>
+                            <td style="text-align: right; color: var(--accent); font-weight: bold; font-size: 1.05rem; white-space: nowrap;">$<?= number_format($c['monto_mensual'], 2) ?></td>
+                            <td style="text-align: right; color: var(--mod-gana); font-weight: 600; white-space: nowrap;">$<?= number_format($c['monto_mensual']/30, 2) ?></td>
                             <td style="text-align: center;">
-                                <button class="fl-btn" style="padding: 6px 10px; border-radius: 8px; background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#ef4444'; this.style.color='white';" onmouseout="this.style.background='rgba(239, 68, 68, 0.1)'; this.style.color='#ef4444';" onclick="delCosto(<?= $c['id'] ?>)" title="Eliminar costo">
+                                <button class="fl-btn" style="padding: 6px 10px; border-radius: 8px; background: var(--danger-soft); color: var(--danger); border: 1px solid var(--danger-soft); cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#ef4444'; this.style.color='white';" onmouseout="this.style.background='rgba(239, 68, 68, 0.1)'; this.style.color='#ef4444';" onclick="delCosto(<?= $c['id'] ?>)" title="Eliminar costo">
                                     <i class="fas fa-trash-alt"></i>
                                 </button>
                             </td>
@@ -314,11 +324,11 @@ require_once 'includes/header.php';
         </div>
 
         <!-- TABS DE DIETAS -->
-        <div class="fl-card" style="margin-bottom: 20px; padding: 10px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; background: rgba(0,0,0,0.2);">
-            <button class="fl-btn toggle-dieta" style="flex: 1; justify-content: center; background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4);" onclick="toggleDieta('invernada', this)">
+        <div class="fl-card" style="margin-bottom: 20px; padding: 10px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; background: var(--n-100);">
+            <button class="fl-btn toggle-dieta" style="flex: 1; justify-content: center; background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-soft);" onclick="toggleDieta('invernada', this)">
                 <i class="fas fa-leaf" style="margin-right: 8px;"></i> Dieta INVERNADA
             </button>
-            <button class="fl-btn toggle-dieta" style="flex: 1; justify-content: center; background: transparent; color: var(--text-muted); border: 1px solid rgba(255,255,255,0.1);" onclick="toggleDieta('engorde', this)">
+            <button class="fl-btn toggle-dieta" style="flex: 1; justify-content: center; background: transparent; color: var(--text-muted); border: 1px solid var(--border);" onclick="toggleDieta('engorde', this)">
                 <i class="fas fa-fire" style="margin-right: 8px;"></i> Dieta ENGORDE
             </button>
         </div>
@@ -326,13 +336,13 @@ require_once 'includes/header.php';
         <div id="container-invernada" style="display: block;">
             <!-- INVERNADA -->
             <div class="fl-card">
-                <div class="fl-card-title" style="color:#10b981;">
+                <div class="fl-card-title" style="color:var(--accent);">
                     <span><i class="fas fa-leaf" style="margin-right: 8px;"></i>Dieta INVERNADA</span>
                 </div>
                 <div class="fl-table-responsive">
                     <table class="fl-table" style="min-width: 100%;">
                         <thead>
-                            <tr style="background: rgba(0,0,0,0.2);">
+                            <tr style="background: var(--n-100);">
                                 <th style="border-radius: 8px 0 0 8px; width: 35%;">Alimento</th>
                                 <th style="text-align: right; width: 20%;">Kg/Día</th>
                                 <th style="text-align: right; width: 15%;">$/Kg</th>
@@ -350,13 +360,13 @@ require_once 'includes/header.php';
                                 $c = $a['kg_x_dia'] * $a['precio_kg'];
                                 $costo_alim_inv_dia += $c;
                             ?>
-                            <tr style="transition: all 0.2s; border-bottom: 1px solid rgba(255,255,255,0.03);" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='transparent'">
-                                <td style="font-weight: 500; color: #fff; white-space: nowrap;"><?= htmlspecialchars($a['nombre']) ?></td>
+                            <tr style="transition: all 0.2s; border-bottom: 1px solid var(--border);" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='transparent'">
+                                <td style="font-weight: 500; color: var(--text-primary); white-space: nowrap;"><?= htmlspecialchars($a['nombre']) ?></td>
                                 <td style="text-align: right; color: var(--text-muted); font-size: 0.95rem;"><?= $a['kg_x_dia'] ?></td>
                                 <td style="text-align: right; color: var(--text-muted); font-size: 0.95rem; white-space: nowrap;">$<?= number_format($a['precio_kg'],2) ?></td>
-                                <td style="text-align: right; color: #10b981; font-weight: bold; font-size: 1.05rem; white-space: nowrap;">$<?= number_format($c,2) ?></td>
+                                <td style="text-align: right; color: var(--accent); font-weight: bold; font-size: 1.05rem; white-space: nowrap;">$<?= number_format($c,2) ?></td>
                                 <td style="text-align: center;">
-                                    <button class="fl-btn" style="padding: 4px 8px; border-radius: 6px; background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#ef4444'; this.style.color='white';" onmouseout="this.style.background='rgba(239, 68, 68, 0.1)'; this.style.color='#ef4444';" onclick="delAlim(<?= $a['id'] ?>)" title="Eliminar">
+                                    <button class="fl-btn" style="padding: 4px 8px; border-radius: 6px; background: var(--danger-soft); color: var(--danger); border: 1px solid var(--danger-soft); cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#ef4444'; this.style.color='white';" onmouseout="this.style.background='rgba(239, 68, 68, 0.1)'; this.style.color='#ef4444';" onclick="delAlim(<?= $a['id'] ?>)" title="Eliminar">
                                         <i class="fas fa-trash-alt"></i>
                                     </button>
                                 </td>
@@ -366,7 +376,7 @@ require_once 'includes/header.php';
                     </table>
                 </div>
                 <div style="text-align:right; margin-top:15px; font-weight:bold;">
-                    Costo Alimento x Animal x Día: <span style="color:#10b981;">$<?= number_format($costo_alim_inv_dia, 2) ?></span>
+                    Costo Alimento x Animal x Día: <span style="color:var(--accent);">$<?= number_format($costo_alim_inv_dia, 2) ?></span>
                 </div>
             </div>
         </div>
@@ -374,13 +384,13 @@ require_once 'includes/header.php';
         <div id="container-engorde" style="display: none;">
             <!-- ENGORDE -->
             <div class="fl-card">
-                <div class="fl-card-title" style="color:#f59e0b;">
+                <div class="fl-card-title" style="color:var(--se-warning);">
                     <span><i class="fas fa-fire" style="margin-right: 8px;"></i>Dieta ENGORDE</span>
                 </div>
                 <div class="fl-table-responsive">
                     <table class="fl-table" style="min-width: 100%;">
                         <thead>
-                            <tr style="background: rgba(0,0,0,0.2);">
+                            <tr style="background: var(--n-100);">
                                 <th style="border-radius: 8px 0 0 8px; width: 35%;">Alimento</th>
                                 <th style="text-align: right; width: 20%;">Kg/Día</th>
                                 <th style="text-align: right; width: 15%;">$/Kg</th>
@@ -398,13 +408,13 @@ require_once 'includes/header.php';
                                 $c = $a['kg_x_dia'] * $a['precio_kg'];
                                 $costo_alim_eng_dia += $c;
                             ?>
-                            <tr style="transition: all 0.2s; border-bottom: 1px solid rgba(255,255,255,0.03);" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='transparent'">
-                                <td style="font-weight: 500; color: #fff; white-space: nowrap;"><?= htmlspecialchars($a['nombre']) ?></td>
+                            <tr style="transition: all 0.2s; border-bottom: 1px solid var(--border);" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='transparent'">
+                                <td style="font-weight: 500; color: var(--text-primary); white-space: nowrap;"><?= htmlspecialchars($a['nombre']) ?></td>
                                 <td style="text-align: right; color: var(--text-muted); font-size: 0.95rem;"><?= $a['kg_x_dia'] ?></td>
                                 <td style="text-align: right; color: var(--text-muted); font-size: 0.95rem; white-space: nowrap;">$<?= number_format($a['precio_kg'],2) ?></td>
-                                <td style="text-align: right; color: #f59e0b; font-weight: bold; font-size: 1.05rem; white-space: nowrap;">$<?= number_format($c,2) ?></td>
+                                <td style="text-align: right; color: var(--se-warning); font-weight: bold; font-size: 1.05rem; white-space: nowrap;">$<?= number_format($c,2) ?></td>
                                 <td style="text-align: center;">
-                                    <button class="fl-btn" style="padding: 4px 8px; border-radius: 6px; background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#ef4444'; this.style.color='white';" onmouseout="this.style.background='rgba(239, 68, 68, 0.1)'; this.style.color='#ef4444';" onclick="delAlim(<?= $a['id'] ?>)" title="Eliminar">
+                                    <button class="fl-btn" style="padding: 4px 8px; border-radius: 6px; background: var(--danger-soft); color: var(--danger); border: 1px solid var(--danger-soft); cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#ef4444'; this.style.color='white';" onmouseout="this.style.background='rgba(239, 68, 68, 0.1)'; this.style.color='#ef4444';" onclick="delAlim(<?= $a['id'] ?>)" title="Eliminar">
                                         <i class="fas fa-trash-alt"></i>
                                     </button>
                                 </td>
@@ -414,7 +424,7 @@ require_once 'includes/header.php';
                     </table>
                 </div>
                 <div style="text-align:right; margin-top:15px; font-weight:bold;">
-                    Costo Alimento x Animal x Día: <span style="color:#f59e0b;">$<?= number_format($costo_alim_eng_dia, 2) ?></span>
+                    Costo Alimento x Animal x Día: <span style="color:var(--se-warning);">$<?= number_format($costo_alim_eng_dia, 2) ?></span>
                 </div>
             </div>
         </div>
@@ -432,13 +442,13 @@ require_once 'includes/header.php';
             });
             
             if(tipo === 'invernada') {
-                btn.style.background = 'rgba(16, 185, 129, 0.2)';
-                btn.style.color = '#10b981';
-                btn.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+                btn.style.background = 'var(--accent-soft)';
+                btn.style.color = 'var(--accent)';
+                btn.style.borderColor = 'var(--accent-soft)';
             } else {
-                btn.style.background = 'rgba(245, 158, 11, 0.2)';
-                btn.style.color = '#f59e0b';
-                btn.style.borderColor = 'rgba(245, 158, 11, 0.4)';
+                btn.style.background = 'var(--warning-soft)';
+                btn.style.color = 'var(--se-warning)';
+                btn.style.borderColor = 'var(--warning-soft)';
             }
         }
         </script>
@@ -490,63 +500,64 @@ require_once 'includes/header.php';
         ?>
         <div class="fl-grid">
             <!-- INVERNADA -->
-            <div class="fl-card" style="border-left: 4px solid #10b981;">
-                <div class="fl-card-title" style="color: #10b981;"><i class="fas fa-leaf"></i> Invernada (Por Animal)</div>
+            <?php /* Sin filete lateral (ban absoluto): la etapa ya la nombra el título. */ ?>
+            <div class="fl-card">
+                <div class="fl-card-title" style="color: var(--accent);"><i class="fas fa-leaf"></i> Invernada (Por Animal)</div>
                 <div style="display:flex; justify-content:space-between; margin-bottom: 15px;">
                     <div><small style="color:var(--text-muted)">Kg Entra</small><br><b><?= $lote['kg_entrada_inv'] ?> kg</b></div>
                     <div style="text-align:right;"><small style="color:var(--text-muted)">Kg Sale</small><br><b><?= $lote['kg_salida_inv'] ?> kg</b></div>
                 </div>
                 
-                <table style="width:100%; font-size:0.9rem; margin-bottom:15px; border-top:1px solid rgba(255,255,255,0.1); padding-top:10px;">
+                <table style="width:100%; font-size:0.9rem; margin-bottom:15px; border-top:1px solid var(--border); padding-top:10px;">
                     <tr><td style="color:var(--text-muted); padding:4px 0;">Costo Compra ($<?= number_format($precio_compra_inv, 2) ?>/kg)</td><td style="text-align:right; padding:4px 0;">$<?= number_format($costo_compra_inv_animal, 2) ?></td></tr>
                     <tr><td style="color:var(--text-muted); padding:4px 0;">Costo Productivo</td><td style="text-align:right; padding:4px 0;">$<?= number_format($cp_inv_animal, 2) ?></td></tr>
                     <tr><td style="color:var(--text-muted); padding:4px 0;">Costo Fijo</td><td style="text-align:right; padding:4px 0;">$<?= number_format($costo_fijo_inv_animal, 2) ?></td></tr>
-                    <tr><td style="color:var(--text-muted); padding:4px 0;">Ingreso Venta ($<?= number_format($lote['precio_venta_inv'], 2) ?>/kg)</td><td style="text-align:right; color:#10b981; padding:4px 0;">$<?= number_format($ingreso_venta_inv_animal, 2) ?></td></tr>
+                    <tr><td style="color:var(--text-muted); padding:4px 0;">Ingreso Venta ($<?= number_format($lote['precio_venta_inv'], 2) ?>/kg)</td><td style="text-align:right; color:var(--accent); padding:4px 0;">$<?= number_format($ingreso_venta_inv_animal, 2) ?></td></tr>
                 </table>
                 
-                <div style="background:rgba(0,0,0,0.2); padding:15px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;">
+                <div style="background:var(--n-100); padding:15px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;">
                     <div>
                         <small style="color:var(--text-muted)">Mg (%)</small><br>
-                        <b style="color:<?= $margen_inv_pct>=0?'#10b981':'#ef4444'?>;"><?= number_format($margen_inv_pct, 2) ?>%</b>
+                        <b style="color:<?= $margen_inv_pct>=0?'var(--accent)':'var(--danger)'?>;"><?= number_format($margen_inv_pct, 2) ?>%</b>
                     </div>
                     <div style="text-align:center;">
                         <small style="color:var(--text-muted)">Mg (USD)</small><br>
-                        <b style="color:<?= $margen_inv_usd>=0?'#10b981':'#ef4444'?>;">$<?= number_format($margen_inv_usd, 2) ?></b>
+                        <b style="color:<?= $margen_inv_usd>=0?'var(--accent)':'var(--danger)'?>;">$<?= number_format($margen_inv_usd, 2) ?></b>
                     </div>
                     <div style="text-align:right;">
                         <small style="color:var(--text-muted)">Margen ($)</small><br>
-                        <b style="color:<?= $margen_inv_animal>=0?'#10b981':'#ef4444'?>; font-size:1.2rem;">$<?= number_format($margen_inv_animal, 2) ?></b>
+                        <b style="color:<?= $margen_inv_animal>=0?'var(--accent)':'var(--danger)'?>; font-size:1.2rem;">$<?= number_format($margen_inv_animal, 2) ?></b>
                     </div>
                 </div>
             </div>
 
             <!-- ENGORDE -->
-            <div class="fl-card" style="border-left: 4px solid #f59e0b;">
-                <div class="fl-card-title" style="color: #f59e0b;"><i class="fas fa-fire"></i> Engorde (Por Animal)</div>
+            <div class="fl-card">
+                <div class="fl-card-title" style="color: var(--se-warning);"><i class="fas fa-fire"></i> Engorde (Por Animal)</div>
                 <div style="display:flex; justify-content:space-between; margin-bottom: 15px;">
                     <div><small style="color:var(--text-muted)">Kg Entra</small><br><b><?= $lote['kg_entrada_eng'] ?> kg</b></div>
                     <div style="text-align:right;"><small style="color:var(--text-muted)">Kg Sale</small><br><b><?= $lote['kg_salida_eng'] ?> kg</b></div>
                 </div>
                 
-                <table style="width:100%; font-size:0.9rem; margin-bottom:15px; border-top:1px solid rgba(255,255,255,0.1); padding-top:10px;">
+                <table style="width:100%; font-size:0.9rem; margin-bottom:15px; border-top:1px solid var(--border); padding-top:10px;">
                     <tr><td style="color:var(--text-muted); padding:4px 0;">Costo Compra ($<?= number_format($lote['precio_venta_inv'], 2) ?>/kg)</td><td style="text-align:right; padding:4px 0;">$<?= number_format($costo_compra_eng_animal, 2) ?></td></tr>
                     <tr><td style="color:var(--text-muted); padding:4px 0;">Costo Productivo</td><td style="text-align:right; padding:4px 0;">$<?= number_format($cp_eng_animal, 2) ?></td></tr>
                     <tr><td style="color:var(--text-muted); padding:4px 0;">Costo Fijo</td><td style="text-align:right; padding:4px 0;">$<?= number_format($costo_fijo_eng_animal, 2) ?></td></tr>
-                    <tr><td style="color:var(--text-muted); padding:4px 0;">Ingreso Venta ($<?= number_format($lote['precio_venta_eng'], 2) ?>/kg)</td><td style="text-align:right; color:#10b981; padding:4px 0;">$<?= number_format($ingreso_venta_eng_animal, 2) ?></td></tr>
+                    <tr><td style="color:var(--text-muted); padding:4px 0;">Ingreso Venta ($<?= number_format($lote['precio_venta_eng'], 2) ?>/kg)</td><td style="text-align:right; color:var(--accent); padding:4px 0;">$<?= number_format($ingreso_venta_eng_animal, 2) ?></td></tr>
                 </table>
                 
-                <div style="background:rgba(0,0,0,0.2); padding:15px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;">
+                <div style="background:var(--n-100); padding:15px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;">
                     <div>
                         <small style="color:var(--text-muted)">Mg (%)</small><br>
-                        <b style="color:<?= $margen_eng_pct>=0?'#10b981':'#ef4444'?>;"><?= number_format($margen_eng_pct, 2) ?>%</b>
+                        <b style="color:<?= $margen_eng_pct>=0?'var(--accent)':'var(--danger)'?>;"><?= number_format($margen_eng_pct, 2) ?>%</b>
                     </div>
                     <div style="text-align:center;">
                         <small style="color:var(--text-muted)">Mg (USD)</small><br>
-                        <b style="color:<?= $margen_eng_usd>=0?'#10b981':'#ef4444'?>;">$<?= number_format($margen_eng_usd, 2) ?></b>
+                        <b style="color:<?= $margen_eng_usd>=0?'var(--accent)':'var(--danger)'?>;">$<?= number_format($margen_eng_usd, 2) ?></b>
                     </div>
                     <div style="text-align:right;">
                         <small style="color:var(--text-muted)">Margen ($)</small><br>
-                        <b style="color:<?= $margen_eng_animal>=0?'#10b981':'#ef4444'?>; font-size:1.2rem;">$<?= number_format($margen_eng_animal, 2) ?></b>
+                        <b style="color:<?= $margen_eng_animal>=0?'var(--accent)':'var(--danger)'?>; font-size:1.2rem;">$<?= number_format($margen_eng_animal, 2) ?></b>
                     </div>
                 </div>
             </div>
@@ -565,7 +576,7 @@ require_once 'includes/header.php';
                     <tr><td>Total días de Engorde</td><td style="text-align:right;"><?= $dias_eng ?></td></tr>
                     <tr><td>Total días del Sistema</td><td style="text-align:right; font-weight:bold;"><?= $dias_inv + $dias_eng ?></td></tr>
                     <tr><td>Desperdicio de alimentos tomado</td><td style="text-align:right;"><?= $lote['desperdicio_pct'] ?>%</td></tr>
-                    <tr><td>USD Tomado</td><td style="text-align:right; color:#10b981;">$<?= number_format($lote['usd_referencia'],2) ?></td></tr>
+                    <tr><td>USD Tomado</td><td style="text-align:right; color:var(--accent);">$<?= number_format($lote['usd_referencia'],2) ?></td></tr>
                 </table>
             </div>
         </div>
@@ -577,7 +588,7 @@ require_once 'includes/header.php';
 <!-- Modal Lote -->
 <div class="fl-modal" id="modalLote">
     <div class="fl-modal-content">
-        <h3 id="modalLoteTitle" style="margin-top:0; color:var(--text-primary); border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:15px; margin-bottom:20px;">Configurar Lote Simulador</h3>
+        <h3 id="modalLoteTitle" style="margin-top:0; color:var(--text-primary); border-bottom:1px solid var(--border); padding-bottom:15px; margin-bottom:20px;">Configurar Lote Simulador</h3>
         <form onsubmit="saveLote(event)">
             <input type="hidden" id="l_id" value="">
             
@@ -588,7 +599,7 @@ require_once 'includes/header.php';
                 <div class="fl-group"><label>Cant. Animales</label><input type="number" id="l_cant" required></div>
                 <div class="fl-group"><label>USD de Referencia</label><input type="number" step="0.01" id="l_usd"></div>
                 
-                <div class="fl-group" style="grid-column: 1 / -1; margin-top:10px; border-top:1px solid rgba(255,255,255,0.1); padding-top:10px;"><strong style="color:var(--text-primary);">Configuración INVERNADA</strong></div>
+                <div class="fl-group" style="grid-column: 1 / -1; margin-top:10px; border-top:1px solid var(--border); padding-top:10px;"><strong style="color:var(--text-primary);">Configuración INVERNADA</strong></div>
                 <div class="fl-group"><label>% del Lote</label><input type="number" step="0.01" id="l_pct_inv" value="70"></div>
                 <div class="fl-group"><label>Kg Entrada</label><input type="number" step="0.01" id="l_kg_ent_inv" value="130"></div>
                 <div class="fl-group"><label>Kg Salida</label><input type="number" step="0.01" id="l_kg_sal_inv" value="240"></div>
@@ -596,14 +607,14 @@ require_once 'includes/header.php';
                 <div class="fl-group"><label>Precio Compra ($/kg)</label><input type="number" step="0.01" id="l_pr_compra"></div>
                 <div class="fl-group"><label>Precio Venta ($/kg)</label><input type="number" step="0.01" id="l_pr_venta_inv"></div>
                 
-                <div class="fl-group" style="grid-column: 1 / -1; margin-top:10px; border-top:1px solid rgba(255,255,255,0.1); padding-top:10px;"><strong style="color:var(--text-primary);">Configuración ENGORDE</strong></div>
+                <div class="fl-group" style="grid-column: 1 / -1; margin-top:10px; border-top:1px solid var(--border); padding-top:10px;"><strong style="color:var(--text-primary);">Configuración ENGORDE</strong></div>
                 <div class="fl-group"><label>% del Lote</label><input type="number" step="0.01" id="l_pct_eng" value="30"></div>
                 <div class="fl-group"><label>Kg Entrada</label><input type="number" step="0.01" id="l_kg_ent_eng" value="240"></div>
                 <div class="fl-group"><label>Kg Salida</label><input type="number" step="0.01" id="l_kg_sal_eng" value="360"></div>
                 <div class="fl-group"><label>Días Engorde</label><input type="number" id="l_dias_eng" value="92"></div>
                 <div class="fl-group"><label>Precio Venta Final ($/kg)</label><input type="number" step="0.01" id="l_pr_venta_eng"></div>
 
-                <div class="fl-group" style="grid-column: 1 / -1; margin-top:10px; border-top:1px solid rgba(255,255,255,0.1); padding-top:10px;"><strong style="color:var(--text-primary);">Factores Extra</strong></div>
+                <div class="fl-group" style="grid-column: 1 / -1; margin-top:10px; border-top:1px solid var(--border); padding-top:10px;"><strong style="color:var(--text-primary);">Factores Extra</strong></div>
                 <div class="fl-group"><label>Conversión Inv.</label><input type="number" step="0.01" id="l_conv_inv" value="1.0"></div>
                 <div class="fl-group"><label>Conversión Eng.</label><input type="number" step="0.01" id="l_conv_eng" value="1.3"></div>
                 <div class="fl-group"><label>% Desperdicio</label><input type="number" step="0.01" id="l_desp" value="2"></div>

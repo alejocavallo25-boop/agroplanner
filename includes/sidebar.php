@@ -111,6 +111,50 @@ window.toggleSection = function (header) {
     header.parentElement.classList.toggle('active');
 };
 
+/* ─── Abrir la barra con un toque, en los equipos sin hover ───────────────────
+ *
+ * En pantalla ancha la barra es un rail de iconos que se abre al pasar el mouse.
+ * Pero una laptop con pantalla táctil informa hover:none aunque tenga mouse, y
+ * ahí no hay nada que la abra: quedaría un rail de iconos sin texto y sin forma
+ * de saber qué es cada uno.
+ *
+ * Así que en esos equipos el primer toque la abre y el segundo —o tocar afuera,
+ * o elegir un enlace— la cierra. Donde sí hay hover no se engancha nada: el CSS
+ * ya alcanza y un toque de más sería un estado pegado que después hay que cerrar
+ * a mano, que es justo lo que se está arreglando.
+ */
+(function () {
+    const barra = document.querySelector('.sidebar');
+    if (!barra) return;
+
+    const conHover = window.matchMedia('(hover: hover)').matches;
+    const anchaYSinHover = () => window.innerWidth >= 769 && !conHover;
+    if (!anchaYSinHover()) return;
+
+    const cerrar = () => barra.classList.remove('sidebar--abierta');
+
+    barra.addEventListener('click', function (e) {
+        // Un enlace navega: no hay que abrir ni cerrar, la página se va.
+        if (e.target.closest('a')) return;
+        // El encabezado de sección tiene lo suyo; sólo se abre si estaba cerrada.
+        if (barra.classList.contains('sidebar--abierta')) {
+            if (!e.target.closest('.nav-section-header')) cerrar();
+        } else {
+            barra.classList.add('sidebar--abierta');
+        }
+    });
+
+    // Tocar fuera la cierra, como cualquier menú.
+    document.addEventListener('click', function (e) {
+        if (!e.target.closest('.sidebar')) cerrar();
+    });
+
+    // Al girar el equipo puede aparecer el cajón de abajo de 769: se limpia.
+    window.addEventListener('resize', function () {
+        if (window.innerWidth < 769) cerrar();
+    });
+})();
+
 (function() {
     // Lógica para el botón "Instalar/Anclar App" (PWA)
     let deferredPrompt;

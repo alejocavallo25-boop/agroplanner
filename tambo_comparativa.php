@@ -222,7 +222,7 @@ function render_var_badge($val1, $val2, $invert_colors = false, $display_format 
     $valStr = $sign.number_format($var, 1).'%';
 
     if ($display_format === 'text') {
-        $color = $class === 'positive' ? '#34d399' : ($class === 'negative' ? '#f87171' : '#9ca3af');
+        $color = $class === 'positive' ? 'var(--accent)' : ($class === 'negative' ? 'var(--danger)' : 'var(--text-muted)');
         return '<span style="color: '.$color.'; font-weight: 700; display:flex; align-items:center; justify-content:flex-end; gap: 4px;"><i class="fas '.$icon.'"></i> '.$valStr.'</span>';
     }
 
@@ -248,7 +248,7 @@ require_once 'includes/header.php';
 <style>
 /* PREMIUM VISUAL STYLES */
 .comp-top-bar {
-    background: linear-gradient(135deg, rgba(56,189,248,0.1), rgba(14,165,233,0.15));
+    background: var(--tambo-soft);
     border: 1px solid rgba(56,189,248,0.3);
     border-radius: 20px;
     padding: 24px 32px;
@@ -258,8 +258,7 @@ require_once 'includes/header.php';
     align-items: center;
     flex-wrap: wrap;
     gap: 20px;
-    backdrop-filter: blur(10px);
-    box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+    box-shadow: none;
 }
 
 .comp-filters {
@@ -267,16 +266,18 @@ require_once 'includes/header.php';
     align-items: center;
     gap: 16px;
     flex-wrap: wrap;
-    background: rgba(0,0,0,0.25);
+    background: var(--n-100);
     padding: 12px 20px;
     border-radius: 16px;
-    border: 1px solid rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
 }
 
+/* Era un degradado slate-800 → slate-900: la superficie del tema oscuro. Sobre
+   fondo claro dejaba bloques casi negros con el texto encima ilegible. */
 .kpi-top-card {
-    background: linear-gradient(145deg, rgba(30,41,59,0.7), rgba(15,23,42,0.8));
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 24px;
+    background: var(--n-0);
+    border: 1px solid var(--border);
+    border-radius: 10px;
     padding: 28px;
     transition: transform 0.3s ease, box-shadow 0.3s ease;
     display: flex;
@@ -287,7 +288,7 @@ require_once 'includes/header.php';
 .kpi-top-card:hover {
     transform: translateY(-5px);
     box-shadow: 0 15px 40px rgba(0,0,0,0.3);
-    border-color: rgba(255,255,255,0.15);
+    border-color: var(--border);
 }
 .kpi-icon-wrap {
     width: 52px;
@@ -301,12 +302,12 @@ require_once 'includes/header.php';
 .kpi-val {
     font-size: 2.2rem;
     font-weight: 800;
-    color: white;
+    color: var(--text-primary);
     line-height: 1.1;
 }
 .kpi-label {
     font-size: 0.9rem;
-    color: #9ca3af;
+    color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 1px;
     font-weight: 600;
@@ -322,22 +323,23 @@ require_once 'includes/header.php';
     gap: 6px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.2);
 }
-.var-badge.positive { background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); color: #34d399; }
-.var-badge.negative { background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); color: #f87171; }
-.var-badge.neutral { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #9ca3af; }
+.var-badge.positive { background: var(--accent-soft); border: 1px solid var(--accent-soft); color: var(--accent); }
+.var-badge.negative { background: var(--danger-soft); border: 1px solid var(--danger-soft); color: var(--danger); }
+.var-badge.neutral { background: var(--n-100); border: 1px solid var(--border); color: var(--text-muted); }
 
+/* Era slate-900 al 70%: sobre fondo claro pintaba bloques casi negros con el
+   texto encima ilegible. Es la superficie principal de la pantalla. */
 .section-card {
-    background: rgba(15, 23, 42, 0.7);
-    border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 24px;
+    background: var(--n-0);
+    border: 1px solid var(--border);
+    border-radius: 10px;
     overflow: hidden;
     margin-bottom: 24px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
 }
 .section-header {
     padding: 20px 28px;
-    background: rgba(0,0,0,0.25);
-    border-bottom: 1px solid rgba(255,255,255,0.05);
+    background: var(--n-100);
+    border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
     gap: 14px;
@@ -345,7 +347,7 @@ require_once 'includes/header.php';
 .section-title {
     font-size: 1.25rem;
     font-weight: 600;
-    color: white;
+    color: var(--text-primary);
     margin: 0;
 }
 
@@ -355,45 +357,45 @@ require_once 'includes/header.php';
 }
 .table-modern th, .table-modern td {
     padding: 16px 28px;
-    border-bottom: 1px solid rgba(255,255,255,0.03);
+    border-bottom: 1px solid var(--border);
 }
 .table-modern th {
     text-align: right;
     font-size: 0.8rem;
-    color: #6b7280;
+    color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 1.5px;
     font-weight: 700;
-    background: rgba(255,255,255,0.01);
+    background: var(--n-25);
 }
 .table-modern th:first-child { text-align: left; }
 .table-modern td {
     text-align: right;
     font-size: 1.05rem;
     font-weight: 600;
-    color: #e5e7eb;
+    color: var(--text-primary);
 }
 .table-modern td:first-child {
     text-align: left;
     font-size: 0.95rem;
     font-weight: 500;
-    color: #9ca3af;
+    color: var(--text-muted);
 }
 .table-modern tr:last-child td { border-bottom: none; }
-.table-modern tr:hover td { background: rgba(255,255,255,0.02); }
+.table-modern tr:hover td { background: var(--n-25); }
 
 .row-total td {
-    background: rgba(255,255,255,0.02);
+    background: var(--n-25);
     font-weight: 700 !important;
-    color: white !important;
+    color: var(--text-primary) !important;
     font-size: 1.1rem !important;
 }
 
 .row-subcat td {
     padding: 8px 28px !important;
-    background: rgba(0,0,0,0.15);
+    background: var(--n-25);
     font-size: 0.9rem !important;
-    color: #9ca3af !important;
+    color: var(--text-muted) !important;
 }
 .row-subcat td:first-child {
     padding-left: 50px !important;
@@ -420,23 +422,23 @@ require_once 'includes/header.php';
 }
 .pct-text {
     font-size: 0.75rem;
-    color: #6b7280;
+    color: var(--text-muted);
     font-weight: 600;
     min-width: 35px;
 }
 
 .currency-toggle-container {
     display: inline-flex;
-    background: rgba(0, 0, 0, 0.3);
+    background: var(--n-100);
     padding: 6px;
     border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border);
     box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
 }
 .btn-currency {
     border: none;
     background: transparent;
-    color: #9ca3af;
+    color: var(--text-muted);
     padding: 8px 18px;
     border-radius: 8px;
     font-size: 0.85rem;
@@ -449,7 +451,7 @@ require_once 'includes/header.php';
 }
 .btn-currency.active {
     background: var(--accent);
-    color: white !important;
+    color: var(--on-accent) !important;
     box-shadow: 0 4px 12px rgba(56, 189, 248, 0.4);
 }
 </style>
@@ -457,35 +459,37 @@ require_once 'includes/header.php';
 <!-- TOP BAR -->
 <div class="comp-top-bar">
     <div>
-        <div style="font-size: 0.85rem; color: #38bdf8; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; margin-bottom: 6px; display:flex; align-items:center; gap:8px;">
+        <?php /* Un tono más oscuro que --mod-tambo: sobre la barra celeste tintada el
+                 azul del módulo daba 4,33:1, apenas por debajo del piso de 4,5. */ ?>
+        <div style="font-size: 0.85rem; color: oklch(0.44 0.105 240); text-transform: uppercase; letter-spacing: 1px; font-weight: 700; margin-bottom: 6px; display:flex; align-items:center; gap:8px;">
             <i class="fas fa-cow"></i> Inteligencia de Negocio
         </div>
-        <h2 style="margin: 0; font-size: 1.6rem; font-weight: 800; color: white;">Comparativa Mensual</h2>
+        <h2 style="margin: 0; font-size: 1.6rem; font-weight: 800; color: var(--text-primary);">Comparativa Mensual</h2>
     </div>
     
     <div style="display:flex; align-items:center; gap: 24px; flex-wrap: wrap;">
         <form id="compareForm" method="GET" style="display:flex; align-items:center; gap: 16px; flex-wrap: wrap;">
-            <div style="display:flex; align-items:center; background:rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.05); border-radius:12px; padding: 8px 16px; gap: 16px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);">
+            <div style="display:flex; align-items:center; background:var(--n-100); border: 1px solid var(--border); border-radius:12px; padding: 8px 16px; gap: 16px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);">
                 <div style="display:flex; flex-direction:column; gap:4px;">
-                    <span style="font-size:0.65rem; color:#9ca3af; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Mes Base</span>
-                    <input type="month" name="mes1" value="<?= $mes1_sel ?>" onchange="this.form.submit()" style="background:transparent; border:none; color:white; font-size:0.95rem; font-weight:600; outline:none; color-scheme:dark; cursor:pointer;">
+                    <span style="font-size: 0.8rem; color:var(--text-muted); font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Mes Base</span>
+                    <input type="month" name="mes1" value="<?= $mes1_sel ?>" onchange="this.form.submit()" style="background:transparent; border:none; color:var(--text-primary); font-size:0.95rem; font-weight:600; outline:none; color-scheme:dark; cursor:pointer;">
                 </div>
                 
-                <div style="background:var(--accent); color:white; font-size:0.75rem; font-weight:bold; padding:4px 10px; border-radius:20px; box-shadow: 0 2px 8px rgba(56,189,248,0.3);">VS</div>
+                <div style="background:var(--accent); color:var(--on-accent); font-size:0.75rem; font-weight:bold; padding:4px 10px; border-radius:20px; box-shadow: 0 2px 8px rgba(56,189,248,0.3);">VS</div>
                 
                 <div style="display:flex; flex-direction:column; gap:4px;">
-                    <span style="font-size:0.65rem; color:#9ca3af; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Mes Analizado</span>
-                    <input type="month" name="mes2" value="<?= $mes2_sel ?>" onchange="this.form.submit()" style="background:transparent; border:none; color:white; font-size:0.95rem; font-weight:600; outline:none; color-scheme:dark; cursor:pointer;">
+                    <span style="font-size: 0.8rem; color:var(--text-muted); font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Mes Analizado</span>
+                    <input type="month" name="mes2" value="<?= $mes2_sel ?>" onchange="this.form.submit()" style="background:transparent; border:none; color:var(--text-primary); font-size:0.95rem; font-weight:600; outline:none; color-scheme:dark; cursor:pointer;">
                 </div>
             </div>
 
-            <div style="display:flex; align-items:center; background:rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.05); border-radius:12px; padding: 8px 16px; gap: 12px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);">
+            <div style="display:flex; align-items:center; background:var(--n-100); border: 1px solid var(--border); border-radius:12px; padding: 8px 16px; gap: 12px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);">
                 <div style="background:rgba(56,189,248,0.1); width: 32px; height: 32px; border-radius: 8px; display:flex; align-items:center; justify-content:center;">
                     <i class="fas fa-filter" style="color:var(--accent); font-size:0.9rem;"></i>
                 </div>
                 <div style="display:flex; flex-direction:column; gap:4px;">
-                    <span style="font-size:0.65rem; color:#9ca3af; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Filtrar por Categoría</span>
-                    <select name="cat" onchange="this.form.submit()" style="background:transparent; border:none; color:white; font-size:0.95rem; font-weight:600; outline:none; cursor:pointer;">
+                    <span style="font-size: 0.8rem; color:var(--text-muted); font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Filtrar por Categoría</span>
+                    <select name="cat" onchange="this.form.submit()" style="background:transparent; border:none; color:var(--text-primary); font-size:0.95rem; font-weight:600; outline:none; cursor:pointer;">
                         <option value="" style="color:#1f2937;">Todas las Categorías</option>
                         <?php foreach($categorias_db as $c): ?>
                             <option value="<?= htmlspecialchars($c) ?>" <?= $cat_sel === $c ? 'selected' : '' ?> style="color:#1f2937;"><?= htmlspecialchars($c) ?></option>
@@ -507,7 +511,7 @@ require_once 'includes/header.php';
     <!-- Margen Bruto -->
     <div class="kpi-top-card">
         <div style="display:flex; justify-content: space-between; align-items: flex-start;">
-            <div class="kpi-icon-wrap" style="background: rgba(16,185,129,0.15); color: #34d399; border: 1px solid rgba(16,185,129,0.3);">
+            <div class="kpi-icon-wrap" style="background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-soft);">
                 <i class="fas fa-chart-line"></i>
             </div>
             <?= render_var_badge($m1['margen_bruto_ars'], $m2['margen_bruto_ars']) ?>
@@ -516,12 +520,12 @@ require_once 'includes/header.php';
             <div class="kpi-label">Margen Bruto (<?= format_period($d2_start, $d2_end) ?>)</div>
             <div class="kpi-val">
                 <span class="val-ars">$<?= number_format($m2['margen_bruto_ars'], 0, ',', '.') ?></span>
-                <span class="val-usd" style="display:none;">U$S <?= number_format($m2['margen_bruto_usd'], 0, ',', '.') ?></span>
+                <span class="val-usd" style="display:none;">USD <?= number_format($m2['margen_bruto_usd'], 0, ',', '.') ?></span>
             </div>
-            <div style="font-size:0.85rem; color:#6b7280; margin-top:6px; font-weight:500;">
+            <div style="font-size:0.85rem; color:var(--text-muted); margin-top:6px; font-weight:500;">
                 Base (<?= format_period($d1_start, $d1_end, true) ?>): 
                 <span class="val-ars">$<?= number_format($m1['margen_bruto_ars'],0,',','.') ?></span>
-                <span class="val-usd" style="display:none;">U$S <?= number_format($m1['margen_bruto_usd'],0,',','.') ?></span>
+                <span class="val-usd" style="display:none;">USD <?= number_format($m1['margen_bruto_usd'],0,',','.') ?></span>
             </div>
         </div>
     </div>
@@ -529,7 +533,7 @@ require_once 'includes/header.php';
     <!-- Total Ingresos -->
     <div class="kpi-top-card">
         <div style="display:flex; justify-content: space-between; align-items: flex-start;">
-            <div class="kpi-icon-wrap" style="background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3);">
+            <div class="kpi-icon-wrap" style="background: rgba(56,189,248,0.15); color: var(--mod-tambo); border: 1px solid rgba(56,189,248,0.3);">
                 <i class="fas fa-arrow-turn-down" style="transform: rotate(180deg) scaleX(-1);"></i>
             </div>
             <?= render_var_badge($m1['total_ingresos_ars'], $m2['total_ingresos_ars']) ?>
@@ -538,12 +542,12 @@ require_once 'includes/header.php';
             <div class="kpi-label">Ingresos Totales (<?= format_period($d2_start, $d2_end) ?>)</div>
             <div class="kpi-val">
                 <span class="val-ars">$<?= number_format($m2['total_ingresos_ars'], 0, ',', '.') ?></span>
-                <span class="val-usd" style="display:none;">U$S <?= number_format($m2['total_ingresos_usd'], 0, ',', '.') ?></span>
+                <span class="val-usd" style="display:none;">USD <?= number_format($m2['total_ingresos_usd'], 0, ',', '.') ?></span>
             </div>
-            <div style="font-size:0.85rem; color:#6b7280; margin-top:6px; font-weight:500;">
+            <div style="font-size:0.85rem; color:var(--text-muted); margin-top:6px; font-weight:500;">
                 Base (<?= format_period($d1_start, $d1_end, true) ?>): 
                 <span class="val-ars">$<?= number_format($m1['total_ingresos_ars'],0,',','.') ?></span>
-                <span class="val-usd" style="display:none;">U$S <?= number_format($m1['total_ingresos_usd'],0,',','.') ?></span>
+                <span class="val-usd" style="display:none;">USD <?= number_format($m1['total_ingresos_usd'],0,',','.') ?></span>
             </div>
         </div>
     </div>
@@ -551,7 +555,7 @@ require_once 'includes/header.php';
     <!-- Total Costos -->
     <div class="kpi-top-card">
         <div style="display:flex; justify-content: space-between; align-items: flex-start;">
-            <div class="kpi-icon-wrap" style="background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3);">
+            <div class="kpi-icon-wrap" style="background: var(--danger-soft); color: var(--danger); border: 1px solid var(--danger-soft);">
                 <i class="fas fa-arrow-turn-down"></i>
             </div>
             <?= render_var_badge($m1['costos_ars_total'], $m2['costos_ars_total'], true) ?>
@@ -560,12 +564,12 @@ require_once 'includes/header.php';
             <div class="kpi-label">Costos Operativos (<?= format_period($d2_start, $d2_end) ?>)</div>
             <div class="kpi-val">
                 <span class="val-ars">$<?= number_format($m2['costos_ars_total'], 0, ',', '.') ?></span>
-                <span class="val-usd" style="display:none;">U$S <?= number_format($m2['costos_usd'], 0, ',', '.') ?></span>
+                <span class="val-usd" style="display:none;">USD <?= number_format($m2['costos_usd'], 0, ',', '.') ?></span>
             </div>
-            <div style="font-size:0.85rem; color:#6b7280; margin-top:6px; font-weight:500;">
+            <div style="font-size:0.85rem; color:var(--text-muted); margin-top:6px; font-weight:500;">
                 Base (<?= format_period($d1_start, $d1_end, true) ?>): 
                 <span class="val-ars">$<?= number_format($m1['costos_ars_total'],0,',','.') ?></span>
-                <span class="val-usd" style="display:none;">U$S <?= number_format($m1['costos_usd'],0,',','.') ?></span>
+                <span class="val-usd" style="display:none;">USD <?= number_format($m1['costos_usd'],0,',','.') ?></span>
             </div>
         </div>
     </div>
@@ -576,7 +580,7 @@ require_once 'includes/header.php';
     
     <div class="section-card">
         <div class="section-header">
-            <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(56,189,248,0.1); color:#38bdf8; display:flex; align-items:center; justify-content:center; font-size:1.1rem;"><i class="fas fa-droplet"></i></div>
+            <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(56,189,248,0.1); color:var(--mod-tambo); display:flex; align-items:center; justify-content:center; font-size:1.1rem;"><i class="fas fa-droplet"></i></div>
             <h3 class="section-title">Producción Física</h3>
         </div>
         <div style="overflow-x:auto;">
@@ -585,19 +589,19 @@ require_once 'includes/header.php';
                     <tr>
                         <th>Indicador</th>
                         <th><?= format_period($d1_start, $d1_end, true) ?></th>
-                        <th style="color:white;"><?= format_period($d2_start, $d2_end, true) ?></th>
+                        <th style="color:var(--text-primary);"><?= format_period($d2_start, $d2_end, true) ?></th>
                         <th>Var.</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
-                        <td><i class="fas fa-jug-detergent" style="color:#6b7280;"></i> Litros Producidos</td>
+                        <td><i class="fas fa-jug-detergent" style="color:var(--text-muted);"></i> Litros Producidos</td>
                         <td><?= number_format($m1['litros'], 0, ',', '.') ?> L</td>
                         <td><?= number_format($m2['litros'], 0, ',', '.') ?> L</td>
                         <td><?= render_var_badge($m1['litros'], $m2['litros'], false, 'text') ?></td>
                     </tr>
                     <tr>
-                        <td><i class="fas fa-tag" style="color:#6b7280;"></i> Precio Leche (ARS)</td>
+                        <td><i class="fas fa-tag" style="color:var(--text-muted);"></i> Precio Leche (ARS)</td>
                         <td>$<?= number_format($m1['precio_leche_ars'], 2, ',', '.') ?></td>
                         <td>$<?= number_format($m2['precio_leche_ars'], 2, ',', '.') ?></td>
                         <td><?= render_var_badge($m1['precio_leche_ars'], $m2['precio_leche_ars'], false, 'text') ?></td>
@@ -618,20 +622,20 @@ require_once 'includes/header.php';
                     <tr>
                         <th>Indicador</th>
                         <th><?= format_period($d1_start, $d1_end, true) ?></th>
-                        <th style="color:white;"><?= format_period($d2_start, $d2_end, true) ?></th>
+                        <th style="color:var(--text-primary);"><?= format_period($d2_start, $d2_end, true) ?></th>
                         <th>Var.</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
-                        <td><i class="fas fa-glass-water" style="color:#6b7280;"></i> Costo Final / Lt</td>
+                        <td><i class="fas fa-glass-water" style="color:var(--text-muted);"></i> Costo Final / Lt</td>
                         <td>
                             <span class="val-ars">$<?= number_format($m1['costo_final_ars'], 2, ',', '.') ?></span>
-                            <span class="val-usd" style="display:none;">U$S <?= number_format($m1['costo_final_usd'], 3, ',', '.') ?></span>
+                            <span class="val-usd" style="display:none;">USD <?= number_format($m1['costo_final_usd'], 3, ',', '.') ?></span>
                         </td>
                         <td>
                             <span class="val-ars">$<?= number_format($m2['costo_final_ars'], 2, ',', '.') ?></span>
-                            <span class="val-usd" style="display:none;">U$S <?= number_format($m2['costo_final_usd'], 3, ',', '.') ?></span>
+                            <span class="val-usd" style="display:none;">USD <?= number_format($m2['costo_final_usd'], 3, ',', '.') ?></span>
                         </td>
                         <td>
                             <span class="val-ars"><?= render_var_badge($m1['costo_final_ars'], $m2['costo_final_ars'], true, 'text') ?></span>
@@ -639,13 +643,13 @@ require_once 'includes/header.php';
                         </td>
                     </tr>
                     <tr>
-                        <td><i class="fas fa-scale-balanced" style="color:#6b7280;"></i> Rinde Indiferencia</td>
+                        <td><i class="fas fa-scale-balanced" style="color:var(--text-muted);"></i> Rinde Indiferencia</td>
                         <td><?= number_format($m1['rinde_indiferencia'], 0, ',', '.') ?> L</td>
                         <td><?= number_format($m2['rinde_indiferencia'], 0, ',', '.') ?> L</td>
                         <td><?= render_var_badge($m1['rinde_indiferencia'], $m2['rinde_indiferencia'], true, 'text') ?></td>
                     </tr>
                     <tr>
-                        <td><i class="fas fa-percent" style="color:#6b7280;"></i> Rentabilidad General</td>
+                        <td><i class="fas fa-percent" style="color:var(--text-muted);"></i> Rentabilidad General</td>
                         <td><?= number_format($m1['rentabilidad'], 1) ?>%</td>
                         <td><?= number_format($m2['rentabilidad'], 1) ?>%</td>
                         <td><?= render_var_badge($m1['rentabilidad'], $m2['rentabilidad'], false, 'text') ?></td>
@@ -659,7 +663,7 @@ require_once 'includes/header.php';
 <!-- SECTION: INGRESOS -->
 <div class="section-card">
     <div class="section-header" style="background: rgba(251,191,36,0.05); border-bottom-color: rgba(251,191,36,0.15);">
-        <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(251,191,36,0.15); color:#fbbf24; display:flex; align-items:center; justify-content:center; font-size:1.1rem;"><i class="fas fa-coins"></i></div>
+        <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(251,191,36,0.15); color:var(--se-warning); display:flex; align-items:center; justify-content:center; font-size:1.1rem;"><i class="fas fa-coins"></i></div>
         <h3 class="section-title">Detalle de Ingresos</h3>
     </div>
     <div style="overflow-x:auto;">
@@ -668,7 +672,7 @@ require_once 'includes/header.php';
                 <tr>
                     <th>Concepto</th>
                     <th><?= format_period($d1_start, $d1_end, true) ?></th>
-                    <th style="color:white;"><?= format_period($d2_start, $d2_end, true) ?></th>
+                    <th style="color:var(--text-primary);"><?= format_period($d2_start, $d2_end, true) ?></th>
                     <th>Variación</th>
                 </tr>
             </thead>
@@ -677,12 +681,12 @@ require_once 'includes/header.php';
                     <td>Ingreso por Leche</td>
                     <td>
                         <span class="val-ars">$<?= number_format($m1['ingreso_leche_ars'], 0, ',', '.') ?></span>
-                        <span class="val-usd" style="display:none;">U$S <?= number_format($m1['ingreso_leche_usd'], 0, ',', '.') ?></span>
+                        <span class="val-usd" style="display:none;">USD <?= number_format($m1['ingreso_leche_usd'], 0, ',', '.') ?></span>
                         <?= render_pct_bar($m1['ingreso_leche_ars'], $m1['total_ingresos_ars'], '#fbbf24') ?>
                     </td>
                     <td>
                         <span class="val-ars">$<?= number_format($m2['ingreso_leche_ars'], 0, ',', '.') ?></span>
-                        <span class="val-usd" style="display:none;">U$S <?= number_format($m2['ingreso_leche_usd'], 0, ',', '.') ?></span>
+                        <span class="val-usd" style="display:none;">USD <?= number_format($m2['ingreso_leche_usd'], 0, ',', '.') ?></span>
                         <?= render_pct_bar($m2['ingreso_leche_ars'], $m2['total_ingresos_ars'], '#fbbf24') ?>
                     </td>
                     <td>
@@ -694,12 +698,12 @@ require_once 'includes/header.php';
                     <td>Venta de Carne (Real)</td>
                     <td>
                         <span class="val-ars">$<?= number_format($m1['ingreso_carne_real_ars'], 0, ',', '.') ?></span>
-                        <span class="val-usd" style="display:none;">U$S <?= number_format($m1['ingreso_carne_real_usd'], 0, ',', '.') ?></span>
+                        <span class="val-usd" style="display:none;">USD <?= number_format($m1['ingreso_carne_real_usd'], 0, ',', '.') ?></span>
                         <?= render_pct_bar($m1['ingreso_carne_real_ars'], $m1['total_ingresos_ars'], '#f59e0b') ?>
                     </td>
                     <td>
                         <span class="val-ars">$<?= number_format($m2['ingreso_carne_real_ars'], 0, ',', '.') ?></span>
-                        <span class="val-usd" style="display:none;">U$S <?= number_format($m2['ingreso_carne_real_usd'], 0, ',', '.') ?></span>
+                        <span class="val-usd" style="display:none;">USD <?= number_format($m2['ingreso_carne_real_usd'], 0, ',', '.') ?></span>
                         <?= render_pct_bar($m2['ingreso_carne_real_ars'], $m2['total_ingresos_ars'], '#f59e0b') ?>
                     </td>
                     <td>
@@ -711,12 +715,12 @@ require_once 'includes/header.php';
                     <td>Diferencia de Inventario</td>
                     <td>
                         <span class="val-ars">$<?= number_format($m1['ingreso_dif_inv_ars'], 0, ',', '.') ?></span>
-                        <span class="val-usd" style="display:none;">U$S <?= number_format($m1['ingreso_dif_inv_usd'], 0, ',', '.') ?></span>
+                        <span class="val-usd" style="display:none;">USD <?= number_format($m1['ingreso_dif_inv_usd'], 0, ',', '.') ?></span>
                         <?= render_pct_bar($m1['ingreso_dif_inv_ars'], $m1['total_ingresos_ars'], '#d97706') ?>
                     </td>
                     <td>
                         <span class="val-ars">$<?= number_format($m2['ingreso_dif_inv_ars'], 0, ',', '.') ?></span>
-                        <span class="val-usd" style="display:none;">U$S <?= number_format($m2['ingreso_dif_inv_usd'], 0, ',', '.') ?></span>
+                        <span class="val-usd" style="display:none;">USD <?= number_format($m2['ingreso_dif_inv_usd'], 0, ',', '.') ?></span>
                         <?= render_pct_bar($m2['ingreso_dif_inv_ars'], $m2['total_ingresos_ars'], '#d97706') ?>
                     </td>
                     <td>
@@ -725,14 +729,14 @@ require_once 'includes/header.php';
                     </td>
                 </tr>
                 <tr class="row-total">
-                    <td><i class="fas fa-sack-dollar" style="color:#fbbf24; margin-right:8px;"></i> Total Ingresos</td>
+                    <td><i class="fas fa-sack-dollar" style="color:var(--se-warning); margin-right:8px;"></i> Total Ingresos</td>
                     <td>
                         <span class="val-ars">$<?= number_format($m1['total_ingresos_ars'], 0, ',', '.') ?></span>
-                        <span class="val-usd" style="display:none;">U$S <?= number_format($m1['total_ingresos_usd'], 0, ',', '.') ?></span>
+                        <span class="val-usd" style="display:none;">USD <?= number_format($m1['total_ingresos_usd'], 0, ',', '.') ?></span>
                     </td>
                     <td>
                         <span class="val-ars">$<?= number_format($m2['total_ingresos_ars'], 0, ',', '.') ?></span>
-                        <span class="val-usd" style="display:none;">U$S <?= number_format($m2['total_ingresos_usd'], 0, ',', '.') ?></span>
+                        <span class="val-usd" style="display:none;">USD <?= number_format($m2['total_ingresos_usd'], 0, ',', '.') ?></span>
                     </td>
                     <td>
                         <span class="val-ars"><?= render_var_badge($m1['total_ingresos_ars'], $m2['total_ingresos_ars']) ?></span>
@@ -746,8 +750,8 @@ require_once 'includes/header.php';
 
 <!-- SECTION: EGRESOS -->
 <div class="section-card">
-    <div class="section-header" style="background: rgba(239,68,68,0.05); border-bottom-color: rgba(239,68,68,0.15);">
-        <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(239,68,68,0.15); color:#f87171; display:flex; align-items:center; justify-content:center; font-size:1.1rem;"><i class="fas fa-file-invoice-dollar"></i></div>
+    <div class="section-header" style="background: var(--danger-soft); border-bottom-color: var(--danger-soft);">
+        <div style="width: 36px; height: 36px; border-radius: 10px; background: var(--danger-soft); color:var(--danger); display:flex; align-items:center; justify-content:center; font-size:1.1rem;"><i class="fas fa-file-invoice-dollar"></i></div>
         <h3 class="section-title">Estructura de Costos Detallada</h3>
     </div>
     <div style="overflow-x:auto;">
@@ -756,7 +760,7 @@ require_once 'includes/header.php';
                 <tr>
                     <th>Categoría / Subcategoría</th>
                     <th><?= format_period($d1_start, $d1_end, true) ?></th>
-                    <th style="color:white;"><?= format_period($d2_start, $d2_end, true) ?></th>
+                    <th style="color:var(--text-primary);"><?= format_period($d2_start, $d2_end, true) ?></th>
                     <th>Variación</th>
                 </tr>
             </thead>
@@ -775,15 +779,15 @@ require_once 'includes/header.php';
                 ?>
                 <!-- Main Category Row -->
                 <tr>
-                    <td style="font-weight: 700; color: white;"><i class="fas fa-tag" style="color:#f87171; font-size:0.8rem; margin-right: 6px;"></i> <?= htmlspecialchars($cat) ?></td>
+                    <td style="font-weight: 700; color: var(--text-primary);"><i class="fas fa-tag" style="color:var(--danger); font-size:0.8rem; margin-right: 6px;"></i> <?= htmlspecialchars($cat) ?></td>
                     <td>
                         <span class="val-ars" style="font-weight: 700;">$<?= number_format($cat1_ars, 0, ',', '.') ?></span>
-                        <span class="val-usd" style="display:none; font-weight: 700;">U$S <?= number_format($cat1_usd, 0, ',', '.') ?></span>
+                        <span class="val-usd" style="display:none; font-weight: 700;">USD <?= number_format($cat1_usd, 0, ',', '.') ?></span>
                         <?= render_pct_bar($cat1_ars, $m1['costos_ars_total'], '#f87171') ?>
                     </td>
                     <td>
                         <span class="val-ars" style="font-weight: 700;">$<?= number_format($cat2_ars, 0, ',', '.') ?></span>
-                        <span class="val-usd" style="display:none; font-weight: 700;">U$S <?= number_format($cat2_usd, 0, ',', '.') ?></span>
+                        <span class="val-usd" style="display:none; font-weight: 700;">USD <?= number_format($cat2_usd, 0, ',', '.') ?></span>
                         <?= render_pct_bar($cat2_ars, $m2['costos_ars_total'], '#f87171') ?>
                     </td>
                     <td>
@@ -803,11 +807,11 @@ require_once 'includes/header.php';
                     <td>↳ <?= htmlspecialchars($sub) ?></td>
                     <td>
                         <span class="val-ars">$<?= number_format($sub1_ars, 0, ',', '.') ?></span>
-                        <span class="val-usd" style="display:none;">U$S <?= number_format($sub1_usd, 0, ',', '.') ?></span>
+                        <span class="val-usd" style="display:none;">USD <?= number_format($sub1_usd, 0, ',', '.') ?></span>
                     </td>
                     <td>
                         <span class="val-ars">$<?= number_format($sub2_ars, 0, ',', '.') ?></span>
-                        <span class="val-usd" style="display:none;">U$S <?= number_format($sub2_usd, 0, ',', '.') ?></span>
+                        <span class="val-usd" style="display:none;">USD <?= number_format($sub2_usd, 0, ',', '.') ?></span>
                     </td>
                     <td>
                         <span class="val-ars"><?= render_var_badge($sub1_ars, $sub2_ars, true, 'text') ?></span>
@@ -818,14 +822,14 @@ require_once 'includes/header.php';
                 <?php endforeach; ?>
                 
                 <tr class="row-total">
-                    <td><i class="fas fa-wallet" style="color:#f87171; margin-right:8px;"></i> Total Costos</td>
+                    <td><i class="fas fa-wallet" style="color:var(--danger); margin-right:8px;"></i> Total Costos</td>
                     <td>
                         <span class="val-ars">$<?= number_format($m1['costos_ars_total'], 0, ',', '.') ?></span>
-                        <span class="val-usd" style="display:none;">U$S <?= number_format($m1['costos_usd'], 0, ',', '.') ?></span>
+                        <span class="val-usd" style="display:none;">USD <?= number_format($m1['costos_usd'], 0, ',', '.') ?></span>
                     </td>
                     <td>
                         <span class="val-ars">$<?= number_format($m2['costos_ars_total'], 0, ',', '.') ?></span>
-                        <span class="val-usd" style="display:none;">U$S <?= number_format($m2['costos_usd'], 0, ',', '.') ?></span>
+                        <span class="val-usd" style="display:none;">USD <?= number_format($m2['costos_usd'], 0, ',', '.') ?></span>
                     </td>
                     <td>
                         <span class="val-ars"><?= render_var_badge($m1['costos_ars_total'], $m2['costos_ars_total'], true) ?></span>

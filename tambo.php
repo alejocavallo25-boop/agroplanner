@@ -7,16 +7,10 @@ $page_title = 'Panel General';
 
 validate_csrf();
 
-// Crear tabla histórica si no existe (MySQL)
-$pdo->exec("CREATE TABLE IF NOT EXISTS `tambo_dolar_mes` (
-    `id` INT NOT NULL AUTO_INCREMENT,
-    `usuario_id` INT NOT NULL,
-    `mes` VARCHAR(7) NOT NULL,
-    `dolar_mayorista` DECIMAL(12,4) NOT NULL,
-    `fuente` ENUM('api','manual') NOT NULL DEFAULT 'api',
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_usuario_mes` (`usuario_id`,`mes`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+// El tipo de cambio se lee y se escribe por el helper compartido: lo usa también
+// el panel de Agricultura para convertir los alquileres pagados en pesos.
+require_once 'includes/dolar.php';
+dolar_asegurar_tabla($pdo);
 
 // Filtro mensual
 $mes_sel       = $_GET['mes'] ?? date('Y-m');
@@ -26,54 +20,39 @@ $es_mes_actual = ($mes_sel === date('Y-m'));
 
 // POST: guardar tipo de cambio manual
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_dolar') {
-    $tc = (float) str_replace(',', '.', $_POST['dolar_manual'] ?? 0);
-    if ($tc > 0) {
-        $pdo->prepare("INSERT INTO tambo_dolar_mes (usuario_id,mes,dolar_mayorista,fuente)
-            VALUES (?,?,?,'manual')
-            ON DUPLICATE KEY UPDATE dolar_mayorista=VALUES(dolar_mayorista),fuente='manual'")
-            ->execute([$usuario_id, $mes_sel, $tc]);
+    $tc = dolar_parsear((string)($_POST['dolar_manual'] ?? ''));
+    if ($tc !== null) {
+        dolar_guardar($pdo, $usuario_id, $mes_sel, $tc, 'manual');
+        set_flash('success', 'Tipo de cambio guardado para ' . $mes_sel . '.');
+    } else {
+        set_flash('error', 'El tipo de cambio tiene que ser un número mayor a cero. Ej: 1.498,50');
     }
-    set_flash('success', 'Tipo de cambio guardado correctamente para ' . date('F Y', strtotime($mes_sel . '-01')) . '.');
     header("Location: tambo.php?mes={$mes_sel}"); exit;
 }
 
-// Obtener tipo de cambio
-$dolar_cache    = 1000;
-$dolar_fuente   = 'api';
+// ─── Obtener tipo de cambio del mes ─────────────────────────────────────────
+//
+// Ya no se consulta la API acá. Antes esta pantalla pegaba a dolarapi en CADA
+// carga —con timeout incluido, antes de renderizar— y guardaba el valor de paso.
+// Eso tenía dos problemas: pagaba una llamada HTTP por visita para un dato que
+// cambia una vez por día, y sobre todo dejaba la carga del tipo de cambio atada
+// a que alguien abriera justo esta pantalla. El productor que sólo usa
+// Agricultura nunca entra acá, y su panel calculaba el margen con un valor
+// inventado. Ahora lo carga cron/get_dolar.php para todos los usuarios.
 $dolar_sin_dato = false;
-$dolar_guardado = null;
+$tc_mes         = dolar_del_mes($pdo, $usuario_id, $mes_sel);
 
-$stmt = $pdo->prepare("SELECT dolar_mayorista, fuente FROM tambo_dolar_mes WHERE usuario_id=? AND mes=?");
-$stmt->execute([$usuario_id, $mes_sel]);
-$tc_db = $stmt->fetch();
-if ($tc_db) {
-    $dolar_guardado = (float)$tc_db['dolar_mayorista'];
-    $dolar_fuente   = $tc_db['fuente'];
-}
-
-// API en vivo
-$dolar_live = null;
-$ctx = stream_context_create(['http'=>['timeout'=>2],'https'=>['timeout'=>2]]);
-$api_resp = @json_decode(@file_get_contents('https://dolarapi.com/v1/dolares/mayorista', false, $ctx), true);
-if ($api_resp && isset($api_resp['venta'])) $dolar_live = (float)$api_resp['venta'];
-
-if ($es_mes_actual) {
-    $dolar_cache = $dolar_live ?? $dolar_guardado ?? 1000;
-    if ($dolar_live) {
-        $pdo->prepare("INSERT INTO tambo_dolar_mes (usuario_id,mes,dolar_mayorista,fuente)
-            VALUES (?,?,?,'api')
-            ON DUPLICATE KEY UPDATE dolar_mayorista=VALUES(dolar_mayorista),fuente='api'")
-            ->execute([$usuario_id, $mes_sel, $dolar_live]);
-        $dolar_guardado = $dolar_live;
-    }
+if ($tc_mes) {
+    $dolar_guardado = $tc_mes['valor'];
+    $dolar_cache    = $tc_mes['valor'];
+    $dolar_fuente   = $tc_mes['fuente'];
 } else {
-    if ($dolar_guardado) {
-        $dolar_cache = $dolar_guardado;
-    } else {
-        $dolar_sin_dato = true;
-        $dolar_cache    = $dolar_live ?? 1000;
-        $dolar_fuente   = 'estimado';
-    }
+    // Sin cotización propia del mes se usa la última disponible, y se avisa.
+    $ref            = dolar_referencia($pdo, $usuario_id);
+    $dolar_guardado = null;
+    $dolar_cache    = $ref['valor'];
+    $dolar_fuente   = 'estimado';
+    $dolar_sin_dato = true;
 }
 
 require_once 'includes/header.php';
@@ -231,53 +210,33 @@ $data_costos = array_values($ranking_costos);
     gap: 20px;
     margin-bottom: 24px;
 }
+/* Mismo componente que las tarjetas de Agricultura: superficie blanca, filete de
+   1px, radio 10. Antes eran otra cosa —fondo gris, radio 20, barra de color
+   arriba— y quien usaba los dos módulos tenía que reaprender la tarjeta. */
 .kpi-card {
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 20px;
+    background: var(--n-0);
+    border: 1px solid var(--border);
+    border-radius: 10px;
     padding: 24px 20px;
     display: flex;
     flex-direction: column;
     gap: 12px;
-    transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+    transition: border-color 0.2s ease;
     position: relative;
     overflow: hidden;
     min-width: 0;
-    z-index: 1;
-}
-.kpi-card::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 3px;
-    z-index: 2;
-}
-.kpi-card.green::before  { background: linear-gradient(90deg, #10b981, #34d399); }
-.kpi-card.blue::before   { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
-.kpi-card.amber::before  { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
-.kpi-card.rose::before   { background: linear-gradient(90deg, #f43f5e, #fb7185); }
-
-.kpi-card:hover { 
-    transform: translateY(-8px); 
-    border-color: rgba(255,255,255,0.2);
-    box-shadow: 0 15px 35px -10px rgba(0,0,0,0.5);
 }
 
-.kpi-card .icon-bg {
-    position: absolute;
-    bottom: -15px;
-    right: -10px;
-    font-size: 5.5rem;
-    opacity: 0.04;
-    color: white;
-    transition: all 0.4s;
-    z-index: -1;
+/* Se va la barra de color de arriba: el color ya lo lleva el ícono, y en
+   "Costos Totales" era roja — un costo registrado no es una anomalía. */
+
+.kpi-card:hover {
+    border-color: var(--accent);
 }
 
-.kpi-card:hover .icon-bg {
-    transform: scale(1.15) rotate(-10deg);
-    opacity: 0.08;
-}
+/* Misma decisión que en Agricultura: la marca de agua gigante detrás del número
+   se va. Lo decorativo no compite con el dato financiero. */
+.kpi-card .icon-bg { display: none; }
 
 .kpi-icon {
     width: 48px; height: 48px;
@@ -287,18 +246,18 @@ $data_costos = array_values($ranking_costos);
     margin-bottom: 4px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.1);
 }
-.kpi-icon.green { background: rgba(16,185,129,0.15); color: #10b981; }
-.kpi-icon.blue  { background: rgba(59,130,246,0.15); color: #60a5fa; }
-.kpi-icon.amber { background: rgba(245,158,11,0.15); color: #fbbf24; }
-.kpi-icon.rose  { background: rgba(244,63,94,0.15);  color: #fb7185; }
+.kpi-icon.green { background: var(--accent-soft); color: var(--accent); }
+.kpi-icon.blue  { background: var(--tambo-soft); color: var(--mod-tambo); }
+.kpi-icon.amber { background: var(--warning-soft); color: var(--se-warning); }
+.kpi-icon.rose  { background: var(--danger-soft); color: var(--danger); }
 
-.kpi-label { 
-    font-size: 0.75rem; 
-    color: var(--text-muted); 
-    text-transform: uppercase; 
-    letter-spacing: 0.08em; 
-    font-weight: 700; 
-    white-space: nowrap; 
+/* Rótulo en caja baja, igual que en Agricultura: la versalita apretada cuesta
+   más de leer y acá hay usuarios que pasan los 60. El peso hace la jerarquía. */
+.kpi-label {
+    font-size: 0.88rem;
+    color: var(--text-muted);
+    font-weight: 600;
+    white-space: nowrap;
 }
 .kpi-value {
     font-size: clamp(1.4rem, 2.5vw, 2rem);
@@ -310,14 +269,14 @@ $data_costos = array_values($ranking_costos);
 .kpi-sub { font-size: 0.8rem; color: var(--text-muted); font-weight: 500; }
 .kpi-badge { 
     display: inline-flex; align-items: center; gap: 4px;
-    font-size: 0.72rem; font-weight: 700; padding: 4px 10px; border-radius: 20px;
+    font-size: 0.8rem; font-weight: 700; padding: 4px 10px; border-radius: 20px;
 }
-.badge-up   { background: rgba(16,185,129,0.12); color: #34d399; border: 1px solid rgba(16,185,129,0.2); }
-.badge-down { background: rgba(239,68,68,0.12);  color: #f87171; border: 1px solid rgba(239,68,68,0.2); }
+.badge-up   { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-soft); }
+.badge-down { background: var(--danger-soft);  color: var(--danger); border: 1px solid var(--danger-soft); }
 
 .chart-card {
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.08);
+    background: var(--n-25);
+    border: 1px solid var(--border);
     border-radius: 16px;
     padding: 24px;
 }
@@ -339,8 +298,8 @@ $data_costos = array_values($ranking_costos);
     margin-top: 16px;
 }
 .rodeo-item {
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.07);
+    background: var(--n-25);
+    border: 1px solid var(--border);
     border-radius: 10px;
     padding: 14px 16px;
     display: flex;
@@ -355,7 +314,7 @@ $data_costos = array_values($ranking_costos);
     justify-content: space-between;
     align-items: center;
     padding: 12px 0;
-    border-bottom: 1px solid rgba(255,255,255,0.05);
+    border-bottom: 1px solid var(--border);
 }
 .calidad-row:last-child { border-bottom: none; }
 .calidad-label { font-size: 0.9rem; color: var(--text-muted); }
@@ -367,7 +326,7 @@ $data_costos = array_values($ranking_costos);
     gap: 12px;
     margin-bottom: 18px;
     padding-bottom: 12px;
-    border-bottom: 1px solid rgba(255,255,255,0.06);
+    border-bottom: 1px solid var(--border);
 }
 .section-header h2 {
     font-size: 1rem;
@@ -390,21 +349,21 @@ $data_costos = array_values($ranking_costos);
 
 
 <?php if ($dolar_sin_dato): ?>
-<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:12px;padding:14px 20px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+<div style="background:var(--warning-soft);border:1px solid var(--warning-soft);border-radius:12px;padding:14px 20px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
     <div style="display:flex;align-items:center;gap:10px;">
-        <i class="fas fa-triangle-exclamation" style="color:#fbbf24;font-size:1.1rem;"></i>
+        <i class="fas fa-triangle-exclamation" style="color:var(--se-warning);font-size:1.1rem;"></i>
         <div>
-            <div style="font-weight:700;color:#fbbf24;font-size:0.9rem;">Sin tipo de cambio histórico para <?= date('F Y', strtotime($mes_start)) ?></div>
+            <div style="font-weight:700;color:var(--se-warning);font-size:0.9rem;">Sin tipo de cambio histórico para <?= date('F Y', strtotime($mes_start)) ?></div>
             <div style="font-size:0.8rem;color:var(--text-muted);margin-top:2px;">Los cálculos en USD usan el dólar de hoy ($<?= number_format($dolar_cache,2) ?>). Ingresá el TC real de ese mes para cerrar correctamente.</div>
         </div>
     </div>
-    <button onclick="document.getElementById('formTCPanel').style.display=document.getElementById('formTCPanel').style.display==='none'?'flex':'none'" style="background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.35);color:#fbbf24;border-radius:8px;padding:7px 14px;font-size:0.83rem;font-weight:600;cursor:pointer;white-space:nowrap;">
+    <button onclick="document.getElementById('formTCPanel').style.display=document.getElementById('formTCPanel').style.display==='none'?'flex':'none'" style="background:var(--warning-soft);border:1px solid var(--warning-soft);color:var(--se-warning);border-radius:8px;padding:7px 14px;font-size:0.83rem;font-weight:600;cursor:pointer;white-space:nowrap;">
         <i class="fas fa-lock"></i> Fijar TC del mes
     </button>
 </div>
 <?php endif; ?>
 
-<div style="background: linear-gradient(135deg, rgba(16,185,129,0.08), rgba(6,95,70,0.12)); border: 1px solid rgba(16,185,129,0.2); border-radius: 16px; padding: 20px 24px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+<div style="background: linear-gradient(135deg, var(--accent-soft), rgba(6,95,70,0.12)); border: 1px solid var(--accent-soft); border-radius: 16px; padding: 20px 24px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
     <div>
         <div style="font-size: 0.8rem; color: var(--accent); text-transform: uppercase; letter-spacing: 1px; font-weight: 600; margin-bottom: 4px;">
             <i class="fas fa-cow"></i> &nbsp;Módulo Tambo
@@ -412,26 +371,26 @@ $data_costos = array_values($ranking_costos);
         <h2 style="margin: 0; font-size: 1.35rem;">Panel General</h2>
     </div>
     <div style="display: flex; align-items: center; gap: 8px; flex-wrap:wrap;">
-        <div style="display:flex; background:rgba(255,255,255,0.1); border-radius:8px; overflow:hidden; border: 1px solid rgba(255,255,255,0.2);">
-            <button onclick="toggleAnalisis('ars')" id="btn-ars" style="background:var(--accent); color:white; border:none; padding:6px 14px; font-weight:600; font-size:0.85rem; cursor:pointer;">ARS</button>
+        <div style="display:flex; background:rgba(255,255,255,0.1); border-radius:8px; overflow:hidden; border: 1px solid var(--border);">
+            <button onclick="toggleAnalisis('ars')" id="btn-ars" style="background:var(--accent); color:var(--on-accent); border:none; padding:6px 14px; font-weight:600; font-size:0.85rem; cursor:pointer;">ARS</button>
             <button onclick="toggleAnalisis('usd')" id="btn-usd" style="background:transparent; color:var(--text-muted); border:none; padding:6px 14px; font-weight:600; font-size:0.85rem; cursor:pointer;">USD</button>
         </div>
-        <input type="month" value="<?= $mes_sel ?>" onchange="location.href='tambo.php?mes='+this.value" style="padding: 8px 14px; border-radius: 20px; border: 1px solid var(--accent); background: rgba(16,185,129,0.1); color: white; cursor: pointer; font-weight: 500;">
+        <input type="month" value="<?= $mes_sel ?>" onchange="location.href='tambo.php?mes='+this.value" style="padding: 8px 14px; border-radius: 20px; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--text-primary); cursor: pointer; font-weight: 500;">
         <!-- Indicador TC -->
         <div onclick="document.getElementById('formTCPanel').style.display=document.getElementById('formTCPanel').style.display==='none'?'flex':'none'"
-             style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:20px;padding:6px 12px;cursor:pointer;transition:all .2s;"
+             style="display:flex;align-items:center;gap:6px;background:var(--n-100);border:1px solid var(--border);border-radius:20px;padding:6px 12px;cursor:pointer;transition:all .2s;"
              title="Tipo de cambio — click para editar">
-            <i class="fas fa-dollar-sign" style="font-size:0.75rem;color:<?= $dolar_sin_dato ? '#fbbf24' : ($dolar_fuente==='manual' ? '#a78bfa' : '#34d399') ?>;"></i>
+            <i class="fas fa-dollar-sign" style="font-size:0.75rem;color:<?= $dolar_sin_dato ? 'var(--se-warning)' : ($dolar_fuente==='manual' ? 'var(--mod-tambo)' : 'var(--accent)') ?>;"></i>
             <span style="font-size:0.8rem;font-weight:700;color:var(--text-primary);">$<?= number_format($dolar_cache,0) ?></span>
-            <span style="font-size:0.68rem;color:var(--text-muted);"><?= $dolar_sin_dato ? 'estimado' : ($dolar_fuente==='manual' ? 'manual' : 'api') ?></span>
-            <i class="fas fa-pen" style="font-size:0.65rem;color:var(--text-muted);"></i>
+            <span style="font-size: 0.8rem;color:var(--text-muted);"><?= $dolar_sin_dato ? 'estimado' : ($dolar_fuente==='manual' ? 'manual' : 'api') ?></span>
+            <i class="fas fa-pen" style="font-size: 0.8rem;color:var(--text-muted);"></i>
         </div>
     </div>
 </div>
 
 <!-- Widget edición TC -->
-<div id="formTCPanel" style="display:none; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:12px; padding:16px 20px; margin-bottom:16px; align-items:center; flex-wrap:wrap; gap:12px;">
-    <i class="fas fa-lock-open" style="color:#a78bfa;font-size:1rem;"></i>
+<div id="formTCPanel" style="display:none; background:var(--n-25); border:1px solid var(--border); border-radius:12px; padding:16px 20px; margin-bottom:16px; align-items:center; flex-wrap:wrap; gap:12px;">
+    <i class="fas fa-lock-open" style="color:var(--mod-tambo);font-size:1rem;"></i>
     <div style="flex:1;min-width:220px;">
         <div style="font-size:0.83rem;font-weight:700;color:var(--text-primary);margin-bottom:2px;">Tipo de cambio para <?= date('F Y', strtotime($mes_start)) ?></div>
         <div style="font-size:0.75rem;color:var(--text-muted);">Fijá el dólar mayorista de ese mes para que los cálculos en USD sean históricos y no se recalculen.</div>
@@ -442,11 +401,11 @@ $data_costos = array_values($ranking_costos);
         <input type="number" name="dolar_manual" step="0.01" min="1"
                value="<?= $dolar_guardado ? number_format($dolar_guardado,2,'.','') : '' ?>"
                placeholder="Ej: <?= number_format($dolar_cache,2) ?>"
-               style="padding:8px 12px;border-radius:8px;border:1px solid rgba(167,139,250,0.4);background:rgba(167,139,250,0.08);color:white;width:150px;font-size:0.9rem;">
-        <button type="submit" style="background:#a78bfa;color:white;border:none;border-radius:8px;padding:8px 16px;font-weight:700;font-size:0.85rem;cursor:pointer;">
+               style="padding:8px 12px;border-radius:8px;border:1px solid rgba(167,139,250,0.4);background:rgba(167,139,250,0.08);color:var(--text-primary);width:150px;font-size:0.9rem;">
+        <button type="submit" style="background:var(--mod-tambo);color:var(--text-primary);border:none;border-radius:8px;padding:8px 16px;font-weight:700;font-size:0.85rem;cursor:pointer;">
             <i class="fas fa-save"></i> Guardar TC
         </button>
-        <button type="button" onclick="document.getElementById('formTCPanel').style.display='none'" style="background:rgba(255,255,255,0.08);color:var(--text-muted);border:none;border-radius:8px;padding:8px 12px;font-size:0.85rem;cursor:pointer;">Cancelar</button>
+        <button type="button" onclick="document.getElementById('formTCPanel').style.display='none'" style="background:var(--n-100);color:var(--text-muted);border:none;border-radius:8px;padding:8px 12px;font-size:0.85rem;cursor:pointer;">Cancelar</button>
     </form>
 </div>
 
@@ -461,18 +420,18 @@ $data_costos = array_values($ranking_costos);
         <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 5px;">
             <div style="display:flex; justify-content:space-between; align-items:center;">
                 <span style="font-size:0.85rem; color:var(--text-muted);">Leche:</span>
-                <strong style="color: white; font-size:1.1rem;">$<?= number_format($precio_leche_ars, 2) ?></strong>
+                <strong style="color: var(--text-primary); font-size:1.1rem;">$<?= number_format($precio_leche_ars, 2) ?></strong>
             </div>
             <div style="display:flex; justify-content:space-between; align-items:center;">
                 <span style="font-size:0.85rem; color:var(--text-muted);">Dólar BNA:</span>
-                <strong style="color: white; font-size:1.1rem;">$<?= number_format($dolar_cache, 0) ?></strong>
+                <strong style="color: var(--text-primary); font-size:1.1rem;">$<?= number_format($dolar_cache, 0) ?></strong>
             </div>
             <?php
-                $tc_color = $dolar_sin_dato ? '#fbbf24' : ($dolar_fuente==='manual' ? '#a78bfa' : '#34d399');
+                $tc_color = $dolar_sin_dato ? 'var(--se-warning)' : ($dolar_fuente==='manual' ? 'var(--mod-tambo)' : 'var(--accent)');
                 $tc_label = $dolar_sin_dato ? 'Estimado' : ($dolar_fuente==='manual' ? 'Manual' : 'En vivo');
                 $tc_icon  = $dolar_sin_dato ? 'fa-triangle-exclamation' : ($dolar_fuente==='manual' ? 'fa-user-pen' : 'fa-bolt');
             ?>
-            <div style="display:flex; align-items:center; gap:6px; font-size:0.7rem; font-weight:700; color:<?= $tc_color ?>; margin-top:4px;">
+            <div style="display:flex; align-items:center; gap:6px; font-size:0.8rem; font-weight:700; color:<?= $tc_color ?>; margin-top:4px;">
                 <i class="fas <?= $tc_icon ?>"></i> <?= $tc_label ?>
             </div>
         </div>
@@ -485,13 +444,13 @@ $data_costos = array_values($ranking_costos);
         <span class="kpi-label">Margen Bruto Mes</span>
         <span class="kpi-value">
             <span class="val-ars">$ <?= number_format($margen_bruto_ars, 0, ',', '.') ?></span>
-            <span class="val-usd" style="display:none;">U$S <?= number_format($margen_bruto_usd, 0) ?></span>
+            <span class="val-usd" style="display:none;">USD <?= number_format($margen_bruto_usd, 0) ?></span>
         </span>
         <div style="display:flex; justify-content:space-between; align-items:center; margin-top:auto;">
             <span class="kpi-sub">Rent.: <strong style="color:var(--accent);"><?= number_format($pct_margen, 1) ?>%</strong></span>
             <span class="kpi-badge <?= $usd_litro >= 0 ? 'badge-up' : 'badge-down' ?>">
                 <span class="val-ars">$ <?= number_format($ars_litro, 2, ',', '.') ?>/L</span>
-                <span class="val-usd" style="display:none;">U$S <?= number_format($usd_litro, 3) ?>/L</span>
+                <span class="val-usd" style="display:none;">USD <?= number_format($usd_litro, 3) ?>/L</span>
             </span>
         </div>
     </div>
@@ -503,15 +462,15 @@ $data_costos = array_values($ranking_costos);
         <span class="kpi-label">Ingresos Totales</span>
         <span class="kpi-value">
             <span class="val-ars">$ <?= number_format($total_ingresos_ars, 0, ',', '.') ?></span>
-            <span class="val-usd" style="display:none;">U$S <?= number_format($total_ingresos_usd, 0) ?></span>
+            <span class="val-usd" style="display:none;">USD <?= number_format($total_ingresos_usd, 0) ?></span>
         </span>
         <div style="display:flex; flex-direction:column; gap:8px; margin-top:auto;">
             <div style="display:flex; gap:10px; font-size: 0.75rem; font-weight: 600;">
-                <span style="color:#fbbf24;">L: <?= number_format($pct_leche, 0) ?>%</span>
-                <span style="color:#34d399;">C: <?= number_format($pct_carne, 0) ?>%</span>
+                <span style="color:var(--se-warning);">L: <?= number_format($pct_leche, 0) ?>%</span>
+                <span style="color:var(--accent);">C: <?= number_format($pct_carne, 0) ?>%</span>
             </div>
             <div style="display:flex; gap:6px;">
-                <span class="kpi-badge badge-up" style="background:rgba(56,189,248,0.1); color:#38bdf8; border-color:rgba(56,189,248,0.2);">
+                <span class="kpi-badge badge-up" style="background:rgba(56,189,248,0.1); color:var(--mod-tambo); border-color:rgba(56,189,248,0.2);">
                     <i class="fas fa-droplet"></i> <?= number_format($litros_mes, 0) ?> L
                 </span>
             </div>
@@ -525,7 +484,7 @@ $data_costos = array_values($ranking_costos);
         <span class="kpi-label">Costos Totales</span>
         <span class="kpi-value">
             <span class="val-ars">$ <?= number_format($costos_ars_total, 0, ',', '.') ?></span>
-            <span class="val-usd" style="display:none;">U$S <?= number_format($costos_usd, 0) ?></span>
+            <span class="val-usd" style="display:none;">USD <?= number_format($costos_usd, 0) ?></span>
         </span>
         <div style="display:flex; justify-content:space-between; align-items:center; margin-top:auto;">
             <span class="kpi-sub">Egresos registrados</span>
@@ -561,14 +520,14 @@ $data_costos = array_values($ranking_costos);
         ?>
             <div style="display: flex; flex-direction: column; gap: 10px;">
                 <!-- Ingreso Leche -->
-                <div style="background: rgba(16,185,129,0.03); border: 1px solid rgba(16,185,129,0.1); padding: 14px 18px; border-radius: 12px; display: flex; align-items: center; justify-content: space-between;">
+                <div style="background: var(--accent-soft); border: 1px solid var(--accent-soft); padding: 14px 18px; border-radius: 12px; display: flex; align-items: center; justify-content: space-between;">
                     <div style="display: flex; align-items: center; gap: 12px;">
-                        <i class="fas fa-droplet" style="color:#10b981; font-size: 1.1rem;"></i>
+                        <i class="fas fa-droplet" style="color:var(--accent); font-size: 1.1rem;"></i>
                         <span style="font-weight: 600; color: var(--text-primary); font-size: 0.95rem;">Ingreso por Leche</span>
                     </div>
-                    <span style="font-weight: 800; color: #10b981; font-size: 1.15rem;">
+                    <span style="font-weight: 800; color: var(--accent); font-size: 1.15rem;">
                         <span class="val-ars">$ <?= number_format($ingreso_leche_ars / $litros_mes, 2, ',', '.') ?></span>
-                        <span class="val-usd" style="display:none;">U$S <?= number_format($ingreso_leche_usd_per_lt, 3, ',', '.') ?></span>
+                        <span class="val-usd" style="display:none;">USD <?= number_format($ingreso_leche_usd_per_lt, 3, ',', '.') ?></span>
                         <small style="font-weight:600; font-size:0.75rem; opacity: 0.7;">/L</small>
                     </span>
                 </div>
@@ -581,38 +540,38 @@ $data_costos = array_values($ranking_costos);
                     </div>
                     <span style="font-weight: 800; color: #fb7185; font-size: 1.15rem;">
                         <span class="val-ars">$ <?= number_format($costo_bruto_ars, 2, ',', '.') ?></span>
-                        <span class="val-usd" style="display:none;">U$S <?= number_format($costo_bruto_usd, 3, ',', '.') ?></span>
+                        <span class="val-usd" style="display:none;">USD <?= number_format($costo_bruto_usd, 3, ',', '.') ?></span>
                         <small style="font-weight:600; font-size:0.75rem; opacity: 0.7;">/L</small>
                     </span>
                 </div>
 
                 <!-- Recuperos Row -->
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                    <div style="background: rgba(245,158,11,0.03); border: 1px solid rgba(245,158,11,0.1); padding: 12px 14px; border-radius: 12px; display: flex; flex-direction: column; gap: 4px;">
-                        <span style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Rec. Carne</span>
-                        <span style="font-weight: 700; color: #fbbf24; font-size: 1.05rem;">
+                    <div style="background: var(--warning-soft); border: 1px solid var(--warning-soft); padding: 12px 14px; border-radius: 12px; display: flex; flex-direction: column; gap: 4px;">
+                        <span style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Rec. Carne</span>
+                        <span style="font-weight: 700; color: var(--se-warning); font-size: 1.05rem;">
                             <span class="val-ars">$ <?= number_format($recupero_carne_ars, 2, ',', '.') ?></span>
-                            <span class="val-usd" style="display:none;">U$S <?= number_format($recupero_carne_usd, 3, ',', '.') ?></span>
+                            <span class="val-usd" style="display:none;">USD <?= number_format($recupero_carne_usd, 3, ',', '.') ?></span>
                         </span>
                     </div>
-                    <div style="background: rgba(59,130,246,0.03); border: 1px solid rgba(59,130,246,0.1); padding: 12px 14px; border-radius: 12px; display: flex; flex-direction: column; gap: 4px;">
-                        <span style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Rec. Otra L.</span>
-                        <span style="font-weight: 700; color: #60a5fa; font-size: 1.05rem;">
+                    <div style="background: var(--tambo-soft); border: 1px solid var(--tambo-soft); padding: 12px 14px; border-radius: 12px; display: flex; flex-direction: column; gap: 4px;">
+                        <span style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Rec. Otra L.</span>
+                        <span style="font-weight: 700; color: var(--mod-tambo); font-size: 1.05rem;">
                             <span class="val-ars">$ <?= number_format($recupero_otra_ars, 2, ',', '.') ?></span>
-                            <span class="val-usd" style="display:none;">U$S <?= number_format($recupero_otra_usd, 3, ',', '.') ?></span>
+                            <span class="val-usd" style="display:none;">USD <?= number_format($recupero_otra_usd, 3, ',', '.') ?></span>
                         </span>
                     </div>
                 </div>
 
                 <!-- Costo Final Highlight -->
-                <div style="background: linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)); border: 1px solid rgba(255,255,255,0.15); padding: 16px 18px; border-radius: 14px; display: flex; align-items: center; justify-content: space-between; margin-top: 5px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+                <div style="background: var(--n-25); border: 1px solid var(--border); padding: 16px 18px; border-radius: 14px; display: flex; align-items: center; justify-content: space-between; margin-top: 5px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
                     <div style="display: flex; align-items: center; gap: 12px;">
-                        <div style="width:36px; height:36px; border-radius:10px; background:rgba(255,255,255,0.1); color:white; display:flex; align-items:center; justify-content:center;"><i class="fas fa-check-double"></i></div>
-                        <span style="font-weight: 700; color: #fff; font-size: 1.05rem;">Costo Final / Lt</span>
+                        <div style="width:36px; height:36px; border-radius:10px; background:rgba(255,255,255,0.1); color:var(--text-primary); display:flex; align-items:center; justify-content:center;"><i class="fas fa-check-double"></i></div>
+                        <span style="font-weight: 700; color: var(--text-primary); font-size: 1.05rem;">Costo Final / Lt</span>
                     </div>
-                    <span style="font-weight: 800; color: #fff; font-size: 1.35rem; letter-spacing: -0.02em;">
+                    <span style="font-weight: 800; color: var(--text-primary); font-size: 1.35rem; letter-spacing: -0.02em;">
                         <span class="val-ars">$ <?= number_format($costo_final_ars, 2, ',', '.') ?></span>
-                        <span class="val-usd" style="display:none;">U$S <?= number_format($costo_final_usd, 3, ',', '.') ?></span>
+                        <span class="val-usd" style="display:none;">USD <?= number_format($costo_final_usd, 3, ',', '.') ?></span>
                     </span>
                 </div>
 
@@ -620,17 +579,20 @@ $data_costos = array_values($ranking_costos);
                 <?php 
                     $rinde_indiferencia = $precio_leche_ars > 0 ? ($costo_final_ars * $litros_mes) / $precio_leche_ars : 0;
                 ?>
-                <div style="margin-top: 15px; background: rgba(245,158,11,0.08); border: 1px dashed rgba(245,158,11,0.3); padding: 14px 18px; border-radius: 12px; display: flex; align-items: center; justify-content: space-between; border-left: 4px solid #fbbf24;">
+                <?php /* Sin filete lateral: el borde grueso al costado es de los tells más
+                         reconocibles de interfaz generada, y no decía nada que no dijera ya
+                         el fondo tintado. Queda un filete completo de 1px, visible. */ ?>
+                <div style="margin-top: 15px; background: var(--warning-soft); border: 1px solid oklch(0.470 0.120 70 / 0.40); padding: 14px 18px; border-radius: 10px; display: flex; align-items: center; justify-content: space-between;">
                     <div style="display: flex; flex-direction: column;">
-                        <span style="font-size: 0.72rem; color: #fbbf24; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Rinde de Indiferencia</span>
-                        <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 500;">Producción para salir a raya</span>
+                        <span style="font-size: 0.85rem; color: var(--se-warning); font-weight: 700;">Rinde de Indiferencia</span>
+                        <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 500;">Producción para salir a raya</span>
                     </div>
                     <div style="text-align: right;">
-                        <span style="font-weight: 800; color: #fbbf24; font-size: 1.3rem;"><?= number_format($rinde_indiferencia, 0, ',', '.') ?> <small style="font-size:0.6em; opacity:0.8;">L</small></span>
-                        <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 2px;">
+                        <span style="font-weight: 800; color: var(--se-warning); font-size: 1.3rem;"><?= number_format($rinde_indiferencia, 0, ',', '.') ?> <small style="font-size:0.6em; opacity:0.8;">L</small></span>
+                        <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">
                             <?php if ($litros_mes > 0): ?>
                                 <?php $diff = $litros_mes - $rinde_indiferencia; ?>
-                                <span style="color: <?= $diff >= 0 ? '#34d399' : '#fb7185' ?>; font-weight: 600;">
+                                <span style="color: <?= $diff >= 0 ? 'var(--accent)' : '#fb7185' ?>; font-weight: 600;">
                                     <i class="fas <?= $diff >= 0 ? 'fa-caret-up' : 'fa-caret-down' ?>"></i>
                                     <?= number_format(abs($diff), 0, ',', '.') ?> L vs actual
                                 </span>
@@ -676,16 +638,16 @@ $data_costos = array_values($ranking_costos);
                 <?php foreach($ranking_costos as $cat => $monto): 
                     $pct = $costos_usd > 0 ? ($monto / $costos_usd) * 100 : 0;
                 ?>
-                <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); padding: 14px 18px; border-radius: 12px; display: flex; align-items: center; justify-content: space-between; transition: background 0.3s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='rgba(255,255,255,0.02)'">
+                <div style="background: var(--n-25); border: 1px solid var(--border); padding: 14px 18px; border-radius: 12px; display: flex; align-items: center; justify-content: space-between; transition: background 0.3s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='rgba(255,255,255,0.02)'">
                     <div style="display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0;">
-                        <span style="font-weight: 600; color: white; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><?= htmlspecialchars($cat) ?></span>
-                        <div style="width: 100%; max-width: 200px; height: 5px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
-                            <div style="height: 100%; width: <?= $pct ?>%; background: linear-gradient(90deg, var(--accent), #34d399); border-radius: 3px; box-shadow: 0 0 8px rgba(16,185,129,0.3);"></div>
+                        <span style="font-weight: 600; color: var(--text-primary); font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><?= htmlspecialchars($cat) ?></span>
+                        <div style="width: 100%; max-width: 200px; height: 5px; background: var(--n-100); border-radius: 3px; overflow: hidden;">
+                            <div style="height: 100%; width: <?= $pct ?>%; background: linear-gradient(90deg, var(--accent), var(--accent)); border-radius: 3px; box-shadow: 0 0 8px var(--accent-soft);"></div>
                         </div>
                     </div>
                     <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; margin-left: 15px;">
-                        <span style="font-weight: 800; color: white; font-size: 1.1rem;">U$S <?= number_format($monto, 0, ',', '.') ?></span>
-                        <span style="font-size: 0.72rem; color: var(--text-muted); font-weight: 700;"><?= number_format($pct, 1) ?>%</span>
+                        <span style="font-weight: 800; color: var(--text-primary); font-size: 1.1rem;">USD <?= number_format($monto, 0, ',', '.') ?></span>
+                        <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 700;"><?= number_format($pct, 1) ?>%</span>
                     </div>
                 </div>
                 <?php endforeach; ?>
@@ -706,7 +668,7 @@ $data_costos = array_values($ranking_costos);
         </div>
     </div>
     <div class="chart-card">
-        <h3 class="chart-title"><i class="fas fa-chart-pie"></i> Distribución de Costos (U$S)</h3>
+        <h3 class="chart-title"><i class="fas fa-chart-pie"></i> Distribución de Costos (USD)</h3>
         <div style="position: relative; height: 300px; width: 100%; display: flex; justify-content: center;">
             <?php if (empty($data_costos)): ?>
                 <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); color:var(--text-muted); font-size:0.9rem;">Sin egresos este mes</div>
@@ -719,8 +681,18 @@ $data_costos = array_values($ranking_costos);
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    Chart.defaults.color = '#9ca3af';
-    Chart.defaults.font.family = 'Inter, sans-serif';
+    /* Chart.js dibuja sobre canvas y NO resuelve variables CSS: una var() acá se
+       pinta negra. Por eso los colores de los gráficos van en hex literal.
+       Paleta categórica validada para daltonismo: la claridad alterna alto/bajo
+       porque el tono solo no alcanza — verde y ladrillo a la misma claridad son
+       el mismo color para un ojo deuterano. Las dos advertencias que quedan
+       (separación 6,9 y contraste de ocre/teal/oliva) se levantan con la leyenda,
+       que siempre está presente. */
+    const AP_SERIES = ['#00722e','#cf9a35','#6635a3','#10a6ad','#c53829','#9ca83e','#0961bb','#be5bac'];
+    const AP_TINTA = '#1b211c', AP_MUTED = '#535a55', AP_SUP = '#ffffff';
+
+    Chart.defaults.color = AP_MUTED;
+    Chart.defaults.font.family = "'Public Sans', system-ui, sans-serif";
 
     // Gráfico de Producción
     const labelsProd = <?= json_encode($labels_prod) ?>;
@@ -734,9 +706,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 datasets: [{
                     label: 'Litros de Leche',
                     data: dataProd,
-                    backgroundColor: 'rgba(56, 189, 248, 0.8)',
-                    borderColor: '#38bdf8',
-                    borderWidth: 1,
+                    backgroundColor: '#0961bb',
+                    borderWidth: 0,
                     borderRadius: 4
                 }]
             },
@@ -767,8 +738,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 labels: labelsCostos,
                 datasets: [{
                     data: dataCostos,
-                    backgroundColor: ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'],
-                    borderWidth: 0,
+                    backgroundColor: AP_SERIES,
+                    borderColor: AP_SUP,   /* 2px de superficie entre gajos */
+                    borderWidth: 2,
                     hoverOffset: 4
                 }]
             },
@@ -778,14 +750,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 plugins: {
                     legend: {
                         position: window.innerWidth < 600 ? 'bottom' : 'right',
-                        labels: { color: '#e5e7eb', padding: 15, font: { size: 11 } }
+                        labels: { color: AP_MUTED, padding: 15, font: { size: 12 }, boxWidth: 12, boxHeight: 12 }
                     },
                     tooltip: {
                         callbacks: {
                             label: function(ctx) {
                                 let label = ctx.label || '';
                                 if (label) { label += ': '; }
-                                label += 'U$S ' + ctx.parsed.toLocaleString('es-AR');
+                                label += 'USD ' + ctx.parsed.toLocaleString('es-AR');
                                 return label;
                             }
                         }

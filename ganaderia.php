@@ -50,34 +50,40 @@ unset($l);
 .fl-header h2 { margin: 0; font-size: 1.5rem; color: var(--text-primary); }
 
 .fl-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; margin-bottom: 20px; }
-.fl-card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; transition: transform 0.2s; }
-.fl-card:hover { transform: translateY(-3px); border-color: rgba(255,255,255,0.15); }
-.fl-card-title { font-size: 1.1rem; font-weight: 600; color: var(--text-primary); margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 10px; }
+.fl-card { background: var(--n-25); border: 1px solid var(--border); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; transition: transform 0.2s; }
+.fl-card:hover { transform: translateY(-3px); border-color: var(--border); }
+.fl-card-title { font-size: 1.1rem; font-weight: 600; color: var(--text-primary); margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
 
-.fl-summary-box { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 12px; padding: 20px; text-align: center; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; }
-.fl-summary-box.green { background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); }
-.fl-summary-box.orange { background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.3); }
-.fl-summary-box.blue { background: rgba(14, 165, 233, 0.1); border-color: rgba(14, 165, 233, 0.3); }
+/* La tarjeta por defecto era roja. En el resto de la app el rojo borra cosas y
+   marca pérdidas, así que entrar a Ganadería y ver todo en rojo se leía como
+   "acá hay un problema". Pasa al violeta del módulo. */
+.fl-summary-box { background: var(--gana-soft); border: 1px solid oklch(0.520 0.100 300 / 0.30); border-radius: 10px; padding: 20px; text-align: center; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+.fl-summary-box.green { background: var(--accent-soft); border-color: var(--accent-soft); }
+.fl-summary-box.orange { background: var(--warning-soft); border-color: var(--warning-soft); }
+.fl-summary-box.blue { background: var(--gana-soft); border-color: var(--gana-soft); }
 
 .fl-summary-val { font-size: 2.2rem; font-weight: bold; margin-bottom: 5px; line-height: 1; }
 .fl-summary-label { font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
 
-.fl-btn-action { display: inline-block; width: 100%; padding: 10px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; text-align: center; font-weight: bold; text-decoration: none; margin-top: auto; transition: all 0.2s; }
-.fl-btn-action:hover { background: #ef4444; color: white; }
+/* Acción, no destrucción: verde como en Agricultura y Tambo. El color de la
+   acción primaria es transversal a los tres módulos; lo que cambia por módulo
+   es la identidad, no el botón que ejecuta. */
+.fl-btn-action { display: inline-block; width: 100%; padding: 11px; background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent); border-radius: 8px; text-align: center; font-weight: 600; text-decoration: none; margin-top: auto; transition: background 0.2s; min-height: 44px; }
+.fl-btn-action:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 
 .lote-stat { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.9rem; }
 .lote-stat span:first-child { color: var(--text-muted); }
 .lote-stat span:last-child { font-weight: bold; color: var(--text-primary); }
 
-.currency-toggle-container { display: inline-flex; background: rgba(0, 0, 0, 0.2); padding: 4px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.05); }
+.currency-toggle-container { display: inline-flex; background: var(--n-100); padding: 4px; border-radius: 10px; border: 1px solid var(--border); }
 .btn-currency { border: none; background: transparent; color: var(--text-muted); padding: 6px 14px; border-radius: 7px; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.2s ease; }
-.btn-currency:hover { color: var(--text-primary); background: rgba(255, 255, 255, 0.05); }
-.btn-currency.active { background: var(--accent); color: white !important; box-shadow: 0 2px 8px rgba(139, 92, 246, 0.4); }
+.btn-currency:hover { color: var(--text-primary); background: var(--n-100); }
+.btn-currency.active { background: var(--accent); color: var(--on-accent) !important; box-shadow: 0 2px 8px rgba(139, 92, 246, 0.4); }
 </style>
 
 <div class="fl-header">
     <div>
-        <div style="font-size: 0.8rem; color: #f87171; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; margin-bottom: 4px;">
+        <div style="font-size: 0.85rem; color: var(--mod-gana); font-weight: 700; margin-bottom: 4px;">
             <i class="fas fa-horse"></i> &nbsp;Centro de Comando
         </div>
         <h2><i class="fas fa-chart-pie"></i> Resumen Global del Simulador</h2>
@@ -88,7 +94,7 @@ unset($l);
             <button type="button" class="btn-currency active" id="btnCurrencyARS" onclick="setGanaderiaCurrency('ARS')">ARS</button>
             <button type="button" class="btn-currency" id="btnCurrencyUSD" onclick="setGanaderiaCurrency('USD')">USD</button>
         </div>
-        <div style="color: var(--text-muted); font-size: 0.9rem; background: rgba(0,0,0,0.2); padding: 8px 15px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.05);">
+        <div style="color: var(--text-muted); font-size: 0.9rem; background: var(--n-100); padding: 8px 15px; border-radius: 20px; border: 1px solid var(--border);">
             Hoy: <?= date('d / m / Y') ?>
         </div>
     </div>
@@ -97,22 +103,23 @@ unset($l);
 <!-- ── KPIs Globales ─────────────────────────────────────────────────────── -->
 <div class="fl-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
     <div class="fl-summary-box blue">
-        <div class="fl-summary-val" style="color: #0ea5e9;"><?= $total_lotes ?></div>
+        <div class="fl-summary-val" style="color: var(--mod-gana);"><?= $total_lotes ?></div>
         <div class="fl-summary-label">Lotes Activos</div>
     </div>
     
     <div class="fl-summary-box orange">
-        <div class="fl-summary-val" style="color: #f59e0b;"><?= number_format($total_cabezas) ?></div>
+        <div class="fl-summary-val" style="color: var(--se-warning);"><?= number_format($total_cabezas) ?></div>
         <div class="fl-summary-label">Cabezas Simuladas</div>
     </div>
 
     <div class="fl-summary-box">
-        <div class="fl-summary-val gan-money" data-ars="<?= $inversion_global ?>" style="color: #f87171; font-size: 1.6rem;">$<?= number_format($inversion_global, 0, ',', '.') ?></div>
+        <?php /* Una inversión proyectada no es una pérdida: va en tinta, no en rojo. */ ?>
+        <div class="fl-summary-val gan-money" data-ars="<?= $inversion_global ?>" style="color: var(--text-primary); font-size: 1.6rem;">$<?= number_format($inversion_global, 0, ',', '.') ?></div>
         <div class="fl-summary-label">Inversión Compra Proyectada</div>
     </div>
     
     <div class="fl-summary-box green">
-        <div class="fl-summary-val gan-money" data-ars="<?= $ingreso_global ?>" style="color: #10b981; font-size: 1.6rem;">$<?= number_format($ingreso_global, 0, ',', '.') ?></div>
+        <div class="fl-summary-val gan-money" data-ars="<?= $ingreso_global ?>" style="color: var(--accent); font-size: 1.6rem;">$<?= number_format($ingreso_global, 0, ',', '.') ?></div>
         <div class="fl-summary-label">Ingreso Bruto Proyectado</div>
     </div>
 </div>
@@ -178,20 +185,21 @@ document.addEventListener('DOMContentLoaded', function() {
         data: {
             labels: <?= json_encode($chart_labels) ?>,
             datasets: [
+                /* Hex literal, no var(): Chart.js pinta sobre canvas y no resuelve
+                   variables CSS — una var() acá sale negra. Mismos dos colores que
+                   usa el panel de Agricultura para ingresos y costos. */
                 {
                     label: 'Inversión Inicial',
                     data: chartDataInversion,
-                    backgroundColor: 'rgba(239, 68, 68, 0.7)', // Rojo
-                    borderColor: '#f87171',
-                    borderWidth: 1,
+                    backgroundColor: '#3284d0',
+                    borderWidth: 0,
                     borderRadius: 4
                 },
                 {
                     label: 'Ingreso Final Bruto',
                     data: chartDataIngreso,
-                    backgroundColor: 'rgba(16, 185, 129, 0.7)', // Verde
-                    borderColor: '#10b981',
-                    borderWidth: 1,
+                    backgroundColor: '#348f4f',
+                    borderWidth: 0,
                     borderRadius: 4
                 }
             ]
@@ -201,7 +209,7 @@ document.addEventListener('DOMContentLoaded', function() {
             maintainAspectRatio: false,
             plugins: {
                 legend: {
-                    labels: { color: '#a1a1aa', font: { size: 13 } }
+                    labels: { color: '#535a55', font: { size: 13 }, boxWidth: 12, boxHeight: 12 }
                 },
                 tooltip: {
                     callbacks: {
@@ -220,7 +228,7 @@ document.addEventListener('DOMContentLoaded', function() {
             scales: {
                 y: {
                     ticks: {
-                        color: '#71717a',
+                        color: '#535a55',
                         callback: function(value, index, values) {
                             return (currentGanaderiaCurrency === 'USD' ? 'USD ' : '$') + value.toLocaleString();
                         }
@@ -239,7 +247,7 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 <?php endif; ?>
 
-<div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; margin-bottom: 20px; margin-top: 20px;">
+<div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 20px; margin-top: 20px;">
     <h3 style="color: var(--text-primary); margin: 0;">Lotes Actuales en Simulación</h3>
     <a href="ganaderia_feedlot.php?nuevo=1" class="fl-btn-action" style="width: auto; padding: 6px 15px; margin: 0;"><i class="fas fa-plus"></i> Crear Lote</a>
 </div>
@@ -255,10 +263,10 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
     <?php else: ?>
         <?php foreach($lotes as $l): ?>
-            <div class="fl-card" style="border-top: 4px solid #10b981;">
+            <div class="fl-card" style="border-top: 4px solid var(--accent);">
                 <div class="fl-card-title">
                     <span><?= htmlspecialchars($l['nombre']) ?></span>
-                    <span style="font-size: 0.8rem; background: rgba(16, 185, 129, 0.1); color: #10b981; padding: 3px 8px; border-radius: 12px;"><?= $l['cant_animales'] ?> cabezas</span>
+                    <span style="font-size: 0.8rem; background: var(--accent-soft); color: var(--accent); padding: 3px 8px; border-radius: 12px;"><?= $l['cant_animales'] ?> cabezas</span>
                 </div>
                 
                 <div style="margin-bottom: 20px;">
@@ -272,7 +280,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                     <div class="lote-stat">
                         <span><i class="fas fa-hand-holding-usd"></i> Ingreso Final:</span>
-                        <span class="gan-money" data-ars="<?= $l['ingreso_calc'] ?>" style="color: #10b981;">$<?= number_format($l['ingreso_calc'], 0, ',', '.') ?></span>
+                        <span class="gan-money" data-ars="<?= $l['ingreso_calc'] ?>" style="color: var(--accent);">$<?= number_format($l['ingreso_calc'], 0, ',', '.') ?></span>
                     </div>
                     <div class="lote-stat">
                         <span><i class="fas fa-clock"></i> Ciclo Invernada:</span>

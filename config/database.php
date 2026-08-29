@@ -5,6 +5,10 @@
 // detalle en php-errors.log en vez de una pantalla gris sin rastro en ningun lado.
 require_once __DIR__ . '/errors.php';
 
+// Misma zona horaria que config/auth.php, repetida acá para el cron y cualquier
+// proceso que llegue a la base sin pasar por la sesión. El porqué está allá.
+date_default_timezone_set('America/Argentina/Cordoba');
+
 // Cargar variables de entorno (simulación simple)
 $envPath = __DIR__ . '/../.env';
 $env = [];

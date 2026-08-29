@@ -1,13 +1,13 @@
     <footer style="margin-top: auto; width: 100%; padding-top: 40px; padding-bottom: 20px; display: flex; justify-content: center; align-items: center; text-align: center;">
-        <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.08); padding: 10px 24px; border-radius: 30px; display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--text-muted); backdrop-filter: blur(12px); box-shadow: 0 4px 16px rgba(0,0,0,0.15); transition: transform 0.2s; flex-wrap: wrap; justify-content: center;">
+        <div style="background: transparent; padding: 10px 24px; display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--text-muted); flex-wrap: wrap; justify-content: center;">
             <i class="fas fa-code" style="color: var(--accent); font-size: 0.9em;"></i>
             <span>Plataforma desarrollada por</span>
-            <a href="https://cafra.site/" target="_blank" style="color: var(--text-primary); text-decoration: none; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; background: rgba(59, 130, 246, 0.15); border-radius: 12px; border: 1px solid rgba(59, 130, 246, 0.3); transition: all 0.2s;">
-                CaFra <i class="fas fa-external-link-alt" style="color: #3b82f6; font-size: 1.0em; filter: drop-shadow(0 0 4px rgba(59, 130, 246, 0.4));"></i>
+            <a href="https://cafra.site/" target="_blank" style="color: var(--text-primary); text-decoration: none; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--border); transition: all 0.2s;">
+                CaFra <i class="fas fa-external-link-alt" style="color: var(--text-muted); font-size: 0.9em;"></i>
             </a>
-            <span style="margin: 0 4px; color: rgba(255,255,255,0.15);">|</span>
+            <span style="margin: 0 4px; color: var(--rule-strong);">|</span>
             <a href="terminos.php" style="color: var(--text-muted); text-decoration: none; transition: color 0.2s;" onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-muted)'">Términos</a>
-            <span style="margin: 0 2px; color: rgba(255,255,255,0.15);">-</span>
+            <span style="margin: 0 2px; color: var(--rule-strong);">-</span>
             <a href="privacidad.php" style="color: var(--text-muted); text-decoration: none; transition: color 0.2s;" onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-muted)'">Privacidad</a>
         </div>
     </footer>
@@ -17,8 +17,13 @@
 <style>
 .ap-search-box{position:relative;display:flex;align-items:center;min-width:240px;flex:1 1 240px;max-width:420px;}
 .ap-search-box .fa-search{position:absolute;left:12px;color:var(--text-muted);font-size:0.85rem;pointer-events:none;}
-.ap-search-box input{width:100%;padding:9px 34px 9px 34px;border-radius:8px;border:1px solid var(--border,rgba(255,255,255,0.1));background:rgba(0,0,0,0.2);color:var(--text-primary,#fff);font-size:0.9rem;outline:none;transition:border-color .2s;}
-.ap-search-box input:focus{border-color:var(--accent,#3b82f6);}
+/* Mismo vocabulario que el resto de los campos: blanco con filete. Antes tenía
+   fondo negro al 20% y respaldos del tema oscuro, así que en las tablas quedaba
+   un buscador gris al lado de selects blancos. */
+.ap-search-box input{width:100%;padding:9px 34px 9px 34px;border-radius:8px;border:1px solid var(--border);background:var(--n-0);color:var(--text-primary);font-size:0.9rem;transition:border-color .2s;}
+/* El outline:none que había acá le ganaba al anillo de foco global y dejaba el
+   buscador sin indicador visible al navegar con teclado. */
+.ap-search-box input:focus-visible{border-color:var(--accent);outline:2px solid var(--accent);outline-offset:2px;}
 .ap-search-box .ap-search-clear{position:absolute;right:8px;background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:0.9rem;padding:4px;display:none;}
 .ap-search-box.has-value .ap-search-clear{display:inline-flex;}
 </style>
@@ -95,10 +100,10 @@
         const btn  = wrap.querySelector('.exp-btn');
         const menu = wrap.querySelector('.exp-menu');
 
-        // Se cuelga del <body> a propósito. Los .glass-panel llevan backdrop-filter,
-        // y eso los convierte en bloque contenedor de sus descendientes
-        // position:fixed: dejándolo adentro, las coordenadas de pantalla se
-        // interpretan contra la esquina del panel y el menú aparece corrido.
+        // Se cuelga del <body> a propósito. Nació por el backdrop-filter de los
+        // .glass-panel, que los convertía en bloque contenedor de sus descendientes
+        // position:fixed y dejaba el menú corrido. El vidrio ya no está, pero esto
+        // se mantiene: también evita que un overflow de la tabla lo recorte.
         document.body.appendChild(menu);
         menu.hidden = false;
         btn.setAttribute('aria-expanded', 'true');

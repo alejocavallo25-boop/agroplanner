@@ -1,5 +1,21 @@
 <?php
 // config/auth.php
+
+/* ─── Zona horaria ────────────────────────────────────────────────────────────
+ * Se fija en la aplicación y no en el php.ini a propósito: el php.ini es del
+ * servidor y cambia de un entorno a otro. El XAMPP local venía en Europe/Berlin
+ * y el hosting suele estar en UTC, las dos adelantadas respecto de Argentina.
+ *
+ * Con el reloj adelantado, todo gasto cargado de tarde se guarda con la fecha del
+ * día siguiente, y "ayer" devuelve hoy. Un productor carga los gastos a la noche,
+ * cuando volvió del campo: es justo la franja en la que fallaba.
+ *
+ * Argentina no tiene horario de verano, así que es UTC-3 todo el año.
+ * También está en config/database.php, para el cron y cualquier proceso que no
+ * pase por la sesión.
+ */
+date_default_timezone_set('America/Argentina/Cordoba');
+
 if (session_status() === PHP_SESSION_NONE) {
     // Session hardening before starting
     ini_set('session.cookie_httponly', 1);

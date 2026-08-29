@@ -1,22 +1,88 @@
+/* =====================================================================
+   SISTEMA "LIBRETA"
+
+   Claro, documental, alto contraste. El tema no es una preferencia: el
+   productor usa esto sentado frente a la compu de mañana y después en la
+   camioneta a pleno sol, y hay usuarios de más de 60. Un fondo casi negro
+   con gris claro arriba no sobrevive a ninguna de las dos escenas.
+
+   Dos capas de tokens: primitivas (la escala) y semánticas (el rol). Sólo
+   se cambia la capa semántica; ningún componente toca una primitiva.
+
+   Regla de color que ordena todo el sistema — un color, un significado:
+     verde  = acción primaria y el módulo Agricultura
+     azul   = el módulo Tambo
+     violeta= el módulo Ganadería
+     ámbar  = advertencia / dato viejo
+     rojo   = SÓLO destructivo y valor negativo
+   Un costo registrado no es una anomalía: va en tinta, no en rojo.
+   ===================================================================== */
 :root {
-    --bg-color: #0b0f19;
-    --panel-bg: rgba(17, 24, 39, 0.65);
-    --text-primary: #f3f4f6;
-    --text-muted: #9ca3af;
-    --accent: #10b981; /* Premium Emerald Green */
-    --accent-hover: #059669;
-    --accent-glow: rgba(16, 185, 129, 0.3);
-    --border: rgba(255, 255, 255, 0.08);
-    --danger: #ef4444;
-    --warning: #f59e0b;
-    --surface-hover: rgba(255, 255, 255, 0.03);
-    --input-bg: rgba(0, 0, 0, 0.2);
+    /* ── Primitivas ─────────────────────────────────────────────────
+       Neutros tintados hacia el verde de campo (croma 0.004–0.012), no
+       hacia el crema. Todo en OKLCH: pasos de claridad parejos de verdad. */
+    --n-0:   oklch(1 0 0);
+    --n-25:  oklch(0.985 0.004 150);
+    --n-50:  oklch(0.968 0.006 150);
+    --n-100: oklch(0.940 0.007 150);
+    --n-200: oklch(0.895 0.008 150);
+    --n-300: oklch(0.820 0.009 150);
+    --n-400: oklch(0.660 0.011 150);
+    --n-600: oklch(0.460 0.012 150);
+    --n-700: oklch(0.360 0.012 150);
+    --n-900: oklch(0.240 0.012 150);
+
+    /* Verde de campo. Oscuro a propósito: sostiene texto blanco a 6:1.
+       El emerald-500 de Tailwind daba 2,54:1 con blanco encima. */
+    --g-500: oklch(0.520 0.100 150);
+    --g-600: oklch(0.420 0.100 150);
+    --g-700: oklch(0.340 0.090 150);
+
+    /* Identidad por módulo: mismo L y mismo croma, sólo cambia el tono.
+       Ganadería va a violeta porque es la única banda libre una vez que
+       ámbar es advertencia y rojo es peligro. */
+    --mod-agri:  oklch(0.520 0.100 150);
+    --mod-tambo: oklch(0.520 0.100 240);
+    --mod-gana:  oklch(0.520 0.100 300);
+
+    --se-danger:  oklch(0.450 0.160 28);
+    --se-warning: oklch(0.470 0.120 70);
+    --se-info:    oklch(0.480 0.100 240);
+
+    /* ── Semánticas ─────────────────────────────────────────────────── */
+    --bg-color:      var(--n-50);
+    --panel-bg:      var(--n-0);      /* opaco: se terminó el vidrio */
+    --bg-card:       var(--n-0);
+    --surface-sunk:  var(--n-25);
+    --text-primary:  var(--n-900);
+    --text-muted:    var(--n-600);    /* 4,9:1 sobre el fondo */
+    --accent:        var(--g-600);
+    --accent-hover:  var(--g-700);
+    --on-accent:     var(--n-0);      /* texto sobre relleno de acento */
+    --accent-soft:   oklch(0.520 0.100 150 / 0.10);
+    /* Tintes al 10% para fondos de chip, badge y fila resaltada. Un solo lugar
+       donde se define la intensidad, así ningún módulo la inventa por su cuenta. */
+    --tambo-soft:    oklch(0.520 0.100 240 / 0.10);
+    --gana-soft:     oklch(0.520 0.100 300 / 0.10);
+    --danger-soft:   oklch(0.450 0.160 28 / 0.10);
+    --warning-soft:  oklch(0.470 0.120 70 / 0.10);
+    --focus-ring:    oklch(0.420 0.100 150 / 0.45);
+    --accent-glow:   transparent;     /* se conserva el nombre; ya no brilla */
+    --border:        var(--n-200);
+    --border-color:  var(--n-200);
+    --rule-strong:   var(--n-300);
+    --danger:        var(--se-danger);
+    --warning:       var(--se-warning);
+    --surface-hover: var(--n-50);
+    --input-bg:      var(--n-0);
+
+    --font-body: 'Public Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-display: 'Newsreader', Georgia, 'Times New Roman', serif;
+
     --sidebar-width: 270px;
     /* Ancho de la barra colapsada. 84px = 32px de sangría + 20px de icono + 32px,
        así el icono queda ópticamente centrado y no se mueve al desplegarse. */
     --sidebar-rail: 84px;
-    --bg-card: rgba(31, 41, 55, 0.7);
-    --border-color: rgba(255, 255, 255, 0.1);
 }
 
 @keyframes modalIn {
@@ -33,9 +99,186 @@
     box-sizing: border-box;
     margin: 0;
     padding: 0;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: var(--font-body);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+}
+
+/* Cifras alineadas en columna: en una app de plata, los números tienen que
+   poder compararse de un vistazo sin que se corran los dígitos. */
+td, th, .value, .stat-card .value, input[type="number"] {
+    font-variant-numeric: tabular-nums;
+}
+
+/* =====================
+   PISO TIPOGRÁFICO
+
+   `small` hereda 0.8em, y anidado dentro de algo que ya venía chico cae por
+   debajo de lo legible: en el panel había unidades de 9,9px. Los usuarios de
+   este producto pasan los 60 y a veces miran la pantalla a pleno sol, así que
+   12,8px es el mínimo absoluto. El max() deja que crezca dentro de una cifra
+   grande sin bajar nunca del piso.
+   ===================== */
+small {
+    font-size: max(0.8rem, 0.62em);
+}
+
+/* Salto al contenido: invisible hasta que se lo enfoca con el teclado. */
+.ap-skip {
+    position: absolute;
+    left: 8px;
+    top: -60px;
+    z-index: 1100;
+    background: var(--accent);
+    color: var(--on-accent);
+    padding: 12px 18px;
+    border-radius: 0 0 8px 8px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: top 0.15s ease;
+}
+.ap-skip:focus {
+    top: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+    .ap-skip { transition: none; }
+}
+
+/* ===== SELECTOR DE MONEDA ==================================================
+   Cambia en qué moneda se leen los importes de la pantalla. No es una acción
+   —no guarda ni modifica nada—, es una forma de mirar, así que va en tinta
+   apagada y sin peso de botón primario.
+
+   Vive acá y no en cada página por dos razones que ya costaron caro:
+   .btn-currency estaba copiado en cinco archivos, y en las pantallas donde no
+   estaba —alquileres, producción, insumos— este control salía como un enlace
+   subrayado. Y en Costos y Labores quedaba idéntico al conmutador de importe/
+   porcentaje que tiene al lado, dos pastillas iguales sin forma de saber cuál
+   hacía qué. Por eso este componente tiene su propio nombre, su etiqueta y una
+   forma distinta del otro.
+
+   Sirve para <a> y para <button>: el panel necesita un botón porque además
+   convierte la pizarra por JavaScript, y el resto navega con un parámetro. */
+.ap-moneda {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+
+.ap-moneda__grupo {
+    display: inline-flex;
+    background: var(--n-100);
+    padding: 3px;
+    border-radius: 999px;      /* Redondo entero: lo separa del conmutador de al lado */
+    border: 1px solid var(--border);
+}
+
+.ap-moneda__op {
+    /* El reset va explícito porque esto es un <a> en cinco pantallas y un
+       <button> en el panel, y cada uno trae lo suyo. */
+    appearance: none;
+    border: none;
+    background: transparent;
+    text-decoration: none;
+    font: inherit;
+    line-height: 1;
+    color: var(--text-muted);
+    padding: 6px 13px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.ap-moneda__op:hover {
+    color: var(--text-primary);
+    background: var(--n-0);
+}
+
+.ap-moneda__op[aria-current="true"] {
+    background: var(--accent);
+    color: var(--on-accent);
+}
+
+/* El foco tiene que verse: se navega con teclado y el estado activo ya usa el
+   fondo, así que el anillo va por fuera para no confundirse con la selección. */
+.ap-moneda__op:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ap-moneda__op { transition: none; }
+}
+
+/* En pantallas chicas la etiqueta se va: el símbolo de cada opción ya dice de
+   qué se trata, y el espacio de arriba es el que más escasea en un teléfono. */
+@media (max-width: 560px) {
+    .ap-moneda__etiqueta { display: none; }
+}
+
+/* Texto que sólo leen los lectores de pantalla: etiquetas de campos que ya se
+   entienden por su ícono, y los avisos de que una región cambió sin recargar.
+   Vive acá y no en una página porque la usa el chat flotante, que está en las
+   seis pantallas de Agricultura. Estaba definida sólo en index.php, y en las
+   demás la clase no existía: "Escribí tu pregunta" y "Enviar" aparecían como
+   texto suelto al lado de los botones. */
+.ap-solo-lectores {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* En lugar del gráfico, cuando no hay nada que graficar.
+   Un gráfico con todo en cero no queda vacío: dibuja un eje de $0 a $1 y unas
+   grillas que se leen como datos. Decir que no hay nada es más honesto, y ocupa
+   menos que fingir una escala. */
+.ap-sin-datos {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    min-height: 88px;
+    margin: 0;
+    padding: 0 16px;
+    text-align: center;
+    text-wrap: balance;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+/* El contenedor del gráfico reserva altura fija para que el canvas no salte al
+   cargar. Sin gráfico esa reserva no hace falta, y el ancho tampoco: el texto se
+   lee mejor a lo ancho del panel que dentro de la columna de la dona.
+   Va con las dos clases porque el alto fijo se declara en un <style> de la
+   propia página, que por orden le gana a un selector de una sola clase. */
+.chart-container-bar.esta-vacio,
+.chart-container-dona.esta-vacio {
+    height: auto !important;
+    max-width: none !important;
+}
+
+/* Leaflet trae su propia hoja y pinta la atribución en un celeste que sobre el
+   mapa da 3,6:1. Es texto legal que tiene que poder leerse. */
+.leaflet-control-attribution,
+.leaflet-control-attribution a {
+    color: var(--n-900) !important;
+    font-size: 0.8rem !important;
+}
+.leaflet-control-attribution {
+    background: oklch(1 0 0 / 0.85) !important;
 }
 
 body {
@@ -43,11 +286,8 @@ body {
     color: var(--text-primary);
     display: flex;
     min-height: 100vh;
-    font-size: 14.5px;
-    line-height: 1.5;
-    background-image:
-        radial-gradient(circle at 15% 50%, rgba(16, 185, 129, 0.05), transparent 35%);
-    background-attachment: fixed;
+    font-size: 15px;
+    line-height: 1.55;
     max-width: 100vw;
     overflow-x: hidden;
 }
@@ -60,29 +300,26 @@ html {
     scrollbar-gutter: stable;
 }
 
-/* Glassmorphism Panel Utilities */
+/* Panel de papel. Se conserva el nombre .glass-panel porque lo usan los 12
+   módulos, pero ya no hay vidrio: superficie opaca, filete de 1px y nada de
+   sombra difusa. La profundidad la da el contraste de superficie, no el blur. */
 .glass-panel {
     background: var(--panel-bg);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
     border: 1px solid var(--border);
-    border-radius: 16px;
-    box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
     padding: 24px;
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    transition: border-color 0.2s ease;
 }
 
 .glass-panel:hover {
-    box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    border-color: var(--rule-strong);
 }
 
 /* ===== SIDEBAR ===== */
 .sidebar {
     width: var(--sidebar-width);
-    background: linear-gradient(180deg, rgba(11, 15, 25, 0.9) 0%, rgba(17, 24, 39, 0.85) 100%);
-    backdrop-filter: blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
-    border-right: 1px solid rgba(255, 255, 255, 0.05);
+    background: var(--n-25);
+    border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
     padding: 0;
@@ -103,7 +340,7 @@ html {
     background: transparent;
 }
 .sidebar::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--n-300);
     border-radius: 10px;
 }
 
@@ -117,12 +354,11 @@ html {
     gap: 12px;
     letter-spacing: -0.5px;
     flex-shrink: 0;
-    background: linear-gradient(to bottom, rgba(255,255,255,0.03), transparent);
+    border-bottom: 1px solid var(--border);
 }
 
 .sidebar .brand i {
     color: var(--accent);
-    filter: drop-shadow(0 0 12px var(--accent-glow));
     font-size: 1.8rem;
 }
 
@@ -149,12 +385,11 @@ html {
 
 .nav-link:hover {
     color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.05);
-    transform: translateX(4px);
+    background: var(--n-100);
 }
 
 .nav-link.active {
-    background: rgba(16, 185, 129, 0.1);
+    background: var(--accent-soft);
     color: var(--accent);
     font-weight: 600;
 }
@@ -169,7 +404,6 @@ html {
     height: 20px;
     background: var(--accent);
     border-radius: 0 4px 4px 0;
-    box-shadow: 0 0 15px var(--accent-glow);
 }
 
 .nav-link i {
@@ -198,10 +432,10 @@ html {
     align-items: center;
     padding: 12px 24px;
     margin-bottom: 4px;
-    font-size: 0.68rem;
-    font-weight: 800;
+    font-size: 0.78rem;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 1.5px;
+    letter-spacing: 1.2px;
     cursor: pointer;
     transition: all 0.2s ease;
     border-radius: 12px;
@@ -209,7 +443,7 @@ html {
 }
 
 .nav-section-header:hover {
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--n-100);
 }
 
 .nav-section-title {
@@ -229,10 +463,14 @@ html {
     opacity: 1;
 }
 
-/* Specific Section Colors */
-.nav-section-agri .nav-section-header { color: #34d399; }
-.nav-section-tambo .nav-section-header { color: #38bdf8; }
-.nav-section-gana .nav-section-header { color: #f87171; }
+/* Identidad por módulo. Los tres comparten claridad y croma: lo único que
+   cambia es el tono, así que ninguno pesa más que otro.
+   Ganadería salió del rojo: en el resto de la app el rojo borra cosas y marca
+   pérdidas, y teñir un módulo entero de rojo hacía que entrar a Ganadería se
+   leyera como "acá hay un problema". */
+.nav-section-agri  .nav-section-header { color: var(--mod-agri); }
+.nav-section-tambo .nav-section-header { color: var(--mod-tambo); }
+.nav-section-gana  .nav-section-header { color: var(--mod-gana); }
 
 /* Links Container Animation */
 .nav-section-links {
@@ -254,82 +492,79 @@ html {
     left: 24px;
     right: 24px;
     height: 1px;
-    background: linear-gradient(90deg, rgba(255,255,255,0.05) 0%, transparent 100%);
+    background: var(--border);
 }
 
 .nav-section:last-of-type::after {
     display: none;
 }
 
-/* Links coloridos por módulo (hover/active) */
+/* Links por módulo (activo). El color acá dice "en qué módulo estás", nunca
+   "qué hace este botón": la acción primaria es verde en los tres. */
 .nav-link-tambo.active {
-    background: rgba(14, 165, 233, 0.1);
-    color: #38bdf8;
+    background: oklch(0.520 0.100 240 / 0.10);
+    color: var(--mod-tambo);
 }
 .nav-link-tambo.active::before {
-    background: #0ea5e9;
-    box-shadow: 0 0 15px rgba(14, 165, 233, 0.5);
+    background: var(--mod-tambo);
 }
 
 .nav-link-gana.active {
-    background: rgba(239, 68, 68, 0.1);
-    color: #f87171;
+    background: oklch(0.520 0.100 300 / 0.10);
+    color: var(--mod-gana);
 }
 .nav-link-gana.active::before {
-    background: #ef4444;
-    box-shadow: 0 0 15px rgba(239, 68, 68, 0.5);
+    background: var(--mod-gana);
 }
 
 /* Utility / Admin links */
 .nav-link-utility {
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--n-100);
     color: var(--text-primary);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border);
     margin: 20px 16px 10px;
 }
 .nav-link-utility:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--n-200);
     transform: none;
 }
 
 .nav-link-admin {
-    color: #f59e0b;
+    color: var(--se-warning);
 }
 .nav-link-admin:hover {
-    background: rgba(245, 158, 11, 0.1);
+    background: oklch(0.470 0.120 70 / 0.10);
 }
 .nav-link-admin.active {
-    background: rgba(245, 158, 11, 0.1);
-    color: #f59e0b;
+    background: oklch(0.470 0.120 70 / 0.10);
+    color: var(--se-warning);
 }
 .nav-link-admin.active::before {
-    background: #f59e0b;
-    box-shadow: 0 0 15px rgba(245, 158, 11, 0.5);
+    background: var(--se-warning);
 }
 
 /* User Profile Section in Sidebar */
 .sidebar-user {
     margin-top: auto;
     padding: 20px;
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    border-top: 1px solid var(--border);
     display: flex;
     align-items: center;
     gap: 12px;
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--n-100);
 }
 
 .sidebar-user-avatar {
     width: 38px;
     height: 38px;
-    border-radius: 12px;
-    background: linear-gradient(135deg, var(--accent) 0%, #3b82f6 100%);
+    border-radius: 10px;
+    background: var(--accent);
     display: flex;
     align-items: center;
     justify-content: center;
     font-weight: 700;
-    color: white;
+    color: var(--on-accent);
     font-size: 1rem;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 .sidebar-user-info {
@@ -348,22 +583,27 @@ html {
 }
 
 .sidebar-user-role {
-    font-size: 0.7rem;
+    font-size: 0.78rem;
     color: var(--text-muted);
     text-transform: capitalize;
 }
 
+/* 44px reales de área táctil: antes eran 31×38. */
 .sidebar-logout {
     margin-left: auto;
     color: var(--text-muted);
     transition: all 0.2s;
-    padding: 8px;
+    min-width: 44px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     border-radius: 8px;
 }
 
 .sidebar-logout:hover {
     color: var(--danger);
-    background: rgba(239, 68, 68, 0.1);
+    background: oklch(0.450 0.160 28 / 0.10);
 }
 
 
@@ -397,18 +637,34 @@ html {
       calculado para que caigan en la misma x que cuando está desplegada. Sólo
       aparece y desaparece el texto.
 
-   Se aplica sólo con (hover: hover) — en una tablet o un celular no existe el
-   hover, así que ahí sigue funcionando el cajón lateral de siempre.
+   Antes esto se aplicaba sólo con (hover: hover), y ahí estaba el problema: una
+   laptop con pantalla táctil —que son casi todas— reporta hover:none aunque tenga
+   mouse, así que la barra quedaba desplegada a 270px de forma permanente, tapando
+   contenido y sin manera de cerrarla.
+
+   Ahora el rail vale para cualquier pantalla ancha y se abre de tres maneras: con
+   el mouse encima, con el foco de teclado, o con un toque —esa última la agrega
+   sidebar.php para los equipos sin hover, que si no se quedarían con una barra de
+   iconos que no se puede abrir—. Abajo de 769px sigue el cajón de siempre.
    ===================== */
-@media (min-width: 769px) and (hover: hover) {
+@media (min-width: 769px) {
     .sidebar {
         width: var(--sidebar-rail);
         transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
-    /* :focus-within además de :hover — quien navega con teclado también la abre. */
+    /* :has(:focus-visible) y NO :focus-within — quien navega con teclado también
+       tiene que poder abrirla, pero :focus-within se activa con cualquier foco,
+       incluido el que deja un clic del mouse. Al tocar una sección o un enlace, el
+       foco quedaba adentro y la barra se quedaba abierta tapando el contenido
+       aunque el mouse ya estuviera lejos: había que hacer clic en otro lado para
+       que se cerrara.
+
+       :focus-visible sólo lo pone el navegador cuando el foco llegó por teclado,
+       que es exactamente la distinción que hacía falta. */
     .sidebar:hover,
-    .sidebar:focus-within {
+    .sidebar:has(:focus-visible),
+    .sidebar.sidebar--abierta {
         width: var(--sidebar-width);
         box-shadow: 14px 0 44px rgba(0, 0, 0, 0.45);
     }
@@ -435,22 +691,26 @@ html {
     .sidebar:hover .nav-chevron,
     .sidebar:hover .sidebar-user-info,
     .sidebar:hover .sidebar-logout,
-    .sidebar:focus-within .nav-txt,
-    .sidebar:focus-within .nav-chevron,
-    .sidebar:focus-within .sidebar-user-info,
-    .sidebar:focus-within .sidebar-logout {
+    .sidebar:has(:focus-visible) .nav-txt,
+    .sidebar:has(:focus-visible) .nav-chevron,
+    .sidebar:has(:focus-visible) .sidebar-user-info,
+    .sidebar:has(:focus-visible) .sidebar-logout,
+    .sidebar.sidebar--abierta .nav-txt,
+    .sidebar.sidebar--abierta .nav-chevron,
+    .sidebar.sidebar--abierta .sidebar-user-info,
+    .sidebar.sidebar--abierta .sidebar-logout {
         opacity: 1;
         transition: opacity 0.2s ease 0.1s;
     }
 
     /* Colapsada no se despliega ninguna sección, aunque esté marcada activa. */
-    .sidebar:not(:hover):not(:focus-within) .nav-section-links {
+    .sidebar:not(:hover):not(:has(:focus-visible)):not(.sidebar--abierta) .nav-section-links {
         max-height: 0;
         opacity: 0;
     }
 
     /* Rótulo sin icono: no dice nada en un rail de iconos. */
-    .sidebar:not(:hover):not(:focus-within) .nav-section-header-plain {
+    .sidebar:not(:hover):not(:has(:focus-visible)):not(.sidebar--abierta) .nav-section-header-plain {
         height: 0;
         padding-top: 0;
         padding-bottom: 0;
@@ -481,11 +741,15 @@ header {
     gap: 12px;
 }
 
+/* El serif hace acá el trabajo de "documento serio" que separa esto de una
+   planilla. Es el único lugar donde aparece: en labels y datos sería ruido. */
 h1.page-title {
+    font-family: var(--font-display);
     font-size: 2rem;
-    font-weight: 700;
-    letter-spacing: -0.8px;
+    font-weight: 500;
+    letter-spacing: -0.2px;
     color: var(--text-primary);
+    text-wrap: balance;
 }
 
 .header-left {
@@ -531,9 +795,9 @@ h1.page-title {
 }
 
 .btn-logout {
-    background: rgba(218, 54, 51, 0.1);
-    color: #ff7b72;
-    border: 1px solid rgba(218,54,51,0.3);
+    background: var(--n-0);
+    color: var(--danger);
+    border: 1px solid var(--border);
     padding: 7px 14px;
     border-radius: 20px;
     text-decoration: none;
@@ -547,8 +811,8 @@ h1.page-title {
 }
 
 .btn-logout:hover {
-    background: rgba(218, 54, 51, 0.2);
-    transform: translateY(-1px);
+    background: oklch(0.450 0.160 28 / 0.08);
+    border-color: var(--danger);
 }
 
 /* ===== BUTTONS ===== */
@@ -571,21 +835,53 @@ h1.page-title {
 }
 
 .btn:hover {
-    background: var(--surface-hover);
-    transform: translateY(-2px);
+    background: var(--n-100);
+    border-color: var(--rule-strong);
 }
 
+/* Acción primaria: verde de campo con texto blanco = 6:1.
+   Antes era emerald-500 con blanco encima: 2,54:1, o sea que el elemento
+   seleccionado era el menos legible de la pantalla. Sin degradado y sin glow:
+   la jerarquía la da el relleno lleno contra el resto en filete. */
 .btn-primary {
-    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
-    color: #fff;
-    border: none;
-    box-shadow: 0 4px 12px var(--accent-glow);
+    background: var(--accent);
+    color: var(--on-accent);
+    border: 1px solid var(--accent);
 }
 
 .btn-primary:hover {
-    background: linear-gradient(135deg, #12d494 0%, var(--accent) 100%);
-    transform: translateY(-2px);
-    box-shadow: 0 6px 16px var(--accent-glow);
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+}
+
+/* Destructivo: el único rojo que ejecuta algo. */
+.btn-danger {
+    background: var(--n-0);
+    color: var(--danger);
+    border: 1px solid var(--danger);
+}
+
+.btn-danger:hover {
+    background: oklch(0.450 0.160 28 / 0.08);
+}
+
+/* =====================
+   FOCO VISIBLE
+
+   Estaba roto de forma despareja: los <a> se quedaban con el outline del
+   navegador y los <button> tenían outline:none sin reemplazo, así que quien
+   navega con teclado no veía dónde estaba parado. Un cambio de border-color
+   de 1px no alcanza como indicador de foco.
+   ===================== */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 6px;
 }
 
 /* ===== DASHBOARD GRID ===== */
@@ -603,31 +899,36 @@ h1.page-title {
     overflow: hidden;
 }
 
+/* Etiqueta en caja baja: la versalita apretada es más difícil de leer y acá
+   hay usuarios de más de 60. El peso hace la jerarquía, no las mayúsculas. */
 .stat-card .title {
     color: var(--text-muted);
-    font-size: 0.85rem;
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    font-size: 0.88rem;
     font-weight: 600;
 }
 
 .stat-card .value {
-    font-size: 2.2rem;
-    font-weight: 800;
+    font-size: 2.1rem;
+    font-weight: 700;
     color: var(--text-primary);
-    letter-spacing: -1px;
+    letter-spacing: -0.02em;
     word-break: break-word;
 }
 
 .stat-card .trend {
-    font-size: 0.9rem;
+    font-size: 0.88rem;
     display: flex;
     align-items: center;
     gap: 6px;
     font-weight: 500;
+    color: var(--text-muted);
 }
 .trend.positive { color: var(--accent); }
 .trend.negative { margin-top: auto; color: var(--danger); }
+
+/* La marca de agua gigante detrás del número se va: competía con el dato
+   financiero, que es justamente lo que el principio 1 del producto prohíbe. */
+.stat-card .icon-bg { display: none; }
 
 /* ===== CHARTS GRID ===== */
 .charts-grid {
@@ -646,8 +947,8 @@ h1.page-title {
 .table-container {
     width: 100%;
     overflow-x: auto;
-    border-radius: 12px;
-    background: rgba(0,0,0,0.15);
+    border-radius: 10px;
+    background: var(--n-0);
     border: 1px solid var(--border);
     -webkit-overflow-scrolling: touch;
 }
@@ -667,10 +968,9 @@ th, td {
 th {
     color: var(--text-muted);
     font-weight: 600;
-    font-size: 0.78rem;
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    background: rgba(255,255,255,0.02);
+    font-size: 0.82rem;
+    background: var(--n-25);
+    border-bottom: 1px solid var(--rule-strong);
     white-space: nowrap;
 }
 
@@ -692,23 +992,33 @@ td {
 }
 
 .badge {
-    padding: 6px 12px;
-    border-radius: 20px;
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    padding: 5px 11px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     white-space: nowrap;
 }
-.badge.activo { 
-    background: rgba(16, 185, 129, 0.15); 
-    color: var(--accent); 
-    border: 1px solid rgba(16, 185, 129, 0.3); 
-    box-shadow: 0 0 10px rgba(16, 185, 129, 0.1);
+.badge.activo {
+    background: var(--accent-soft);
+    color: var(--accent);
+    border: 1px solid oklch(0.520 0.100 150 / 0.35);
 }
+
+/* =====================
+   IMPORTES
+
+   Un gasto registrado no es una anomalía: es el contenido esperado de la
+   tabla. Cuando las 15 filas están en rojo, el rojo deja de avisar. Los
+   costos van en tinta con el signo menos haciendo el trabajo, y el rojo
+   queda para lo único que de verdad es una mala noticia: margen negativo.
+   ===================== */
+.importe        { font-variant-numeric: tabular-nums; font-weight: 600; }
+.importe-costo  { color: var(--text-primary); }
+.importe-negativo { color: var(--danger); }
+.importe-positivo { color: var(--accent); }
 
 /* ===== FORMS ===== */
 .form-group input, .form-group select, .form-group textarea,
@@ -724,15 +1034,14 @@ td {
 }
 
 option {
-    background-color: #111827;
-    color: #f3f4f6;
+    background-color: var(--n-0);
+    color: var(--text-primary);
 }
 
 .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
-    outline: none;
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-glow);
-    background: rgba(0,0,0,0.3);
+    box-shadow: 0 0 0 3px var(--focus-ring);
+    background: var(--n-0);
 }
 
 .form-group label {
@@ -755,12 +1064,10 @@ input[type="password"], select, textarea {
     bottom: 0;
     left: 0;
     width: 100%;
-    background: rgba(0, 0, 0, 0.8);
+    background: oklch(0.240 0.012 150 / 0.45);
     align-items: flex-start;
     justify-content: center;
     z-index: 1000;
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
     overflow-y: auto;
     padding: 40px 20px;
 }
@@ -790,6 +1097,7 @@ input[type="password"], select, textarea {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
     border-radius: 12px;
+    box-shadow: 0 24px 60px -12px oklch(0.240 0.012 150 / 0.28);
     padding: 2rem;
     position: relative;
     animation: modalIn 0.3s ease-out;
@@ -808,10 +1116,8 @@ input[type="password"], select, textarea {
     left: 0;
     width: 100vw;
     height: 100vh;
-    background: rgba(0, 0, 0, 0.6);
+    background: oklch(0.240 0.012 150 / 0.45);
     z-index: 90;
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
     transition: opacity 0.3s;
 }
 
@@ -830,7 +1136,7 @@ input[type="password"], select, textarea {
 }
 
 .mobile-menu-btn:hover {
-    background: var(--surface-hover);
+    background: var(--n-100);
 }
 
 /* ===== TICKER (index.php) ===== */
@@ -882,6 +1188,37 @@ input[type="password"], select, textarea {
     gap: 10px;
 }
 
+/* Aviso de que el margen se calculó con un tipo de cambio supuesto.
+   Va pegado arriba de los números que afecta y no en un pie de página: quien
+   mira el margen tiene que enterarse ahí mismo de que es aproximado. */
+.aviso-dolar {
+    display: flex;
+    align-items: flex-start;
+    gap: 11px;
+    margin-bottom: 18px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-size: 0.88rem;
+    line-height: 1.5;
+    color: var(--text-primary);
+    background: oklch(0.480 0.100 240 / 0.07);
+    border: 1px solid oklch(0.480 0.100 240 / 0.30);
+}
+
+.aviso-dolar i { margin-top: 2px; flex: none; color: var(--se-info); }
+.aviso-dolar a { color: var(--se-info); font-weight: 600; }
+
+/* Cuando no hay ninguna cotización el número está directamente inventado, y eso
+   pesa más que una aproximación: mismo componente, más volumen. */
+.aviso-dolar-fuerte {
+    background: oklch(0.470 0.120 70 / 0.09);
+    border-color: oklch(0.470 0.120 70 / 0.40);
+}
+
+.aviso-dolar-fuerte i      { color: var(--se-warning); }
+.aviso-dolar-fuerte strong { color: var(--se-warning); display: block; margin-bottom: 2px; }
+.aviso-dolar-fuerte a      { color: var(--se-warning); }
+
 /* Marca de dato traído de afuera que dejó de actualizarse. Ámbar y no rojo a
    propósito: el número no está mal, está viejo, y la diferencia importa cuando
    con eso se decide una venta. */
@@ -890,13 +1227,13 @@ input[type="password"], select, textarea {
     align-items: center;
     gap: 5px;
     padding: 3px 9px;
-    border-radius: 20px;
-    font-size: 0.7rem;
+    border-radius: 6px;
+    font-size: 0.78rem;
     font-weight: 600;
     white-space: nowrap;
-    color: #f59e0b;
-    background: rgba(245, 158, 11, 0.12);
-    border: 1px solid rgba(245, 158, 11, 0.35);
+    color: var(--se-warning);
+    background: oklch(0.470 0.120 70 / 0.10);
+    border: 1px solid oklch(0.470 0.120 70 / 0.35);
 }
 
 /* =====================
@@ -905,12 +1242,12 @@ input[type="password"], select, textarea {
    Un solo botón que despliega los formatos disponibles, en vez de una fila de
    botones compitiendo por la misma barra.
 
-   El menú se posiciona con `fixed` y coordenadas calculadas desde JS, pero eso
-   solo no alcanza: los .glass-panel llevan backdrop-filter, y un elemento con
-   backdrop-filter se vuelve bloque contenedor de sus descendientes
-   position:fixed. Dejándolo dentro del panel, las coordenadas de pantalla se
-   interpretan contra la esquina del panel y el menú aparece corrido. Por eso el
-   JS lo cuelga del <body> mientras está abierto — ver includes/footer.php.
+   El menú se posiciona con `fixed` y coordenadas calculadas desde JS, y además
+   el JS lo cuelga del <body> mientras está abierto — ver includes/footer.php.
+   Eso nació porque los .glass-panel llevaban backdrop-filter, que convierte al
+   panel en bloque contenedor de sus descendientes position:fixed y dejaba el
+   menú corrido. El vidrio ya no está, pero el reparenting se mantiene: también
+   lo salva de quedar recortado por un overflow de la tabla.
    ===================== */
 .exp-wrap {
     position: relative;
@@ -918,16 +1255,16 @@ input[type="password"], select, textarea {
 }
 
 .exp-btn {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--n-0);
     border: 1px solid var(--border);
     color: var(--text-primary);
-    font-size: 0.85rem;
+    font-size: 0.88rem;
     gap: 8px;
 }
 
 .exp-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.2);
+    background: var(--n-100);
+    border-color: var(--rule-strong);
 }
 
 /* Variante compacta, para cuando el botón va dentro de una fila de tabla. */
@@ -955,14 +1292,12 @@ input[type="password"], select, textarea {
     left: 0;
     min-width: 236px;
     padding: 6px;
-    /* Totalmente opaco, sin vidrio. --bg-card tiene alpha 0.7 y sirve para un
-       panel apoyado sobre el fondo, pero acá el menú flota sobre texto claro y
-       hasta un 3% de transparencia lo deja leer por debajo. En un menú la
-       legibilidad vale más que el efecto. */
-    background: #151d2b;
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+    /* Totalmente opaco: un menú flota sobre texto, y cualquier transparencia
+       lo deja leer por debajo. En un menú la legibilidad vale más que el efecto. */
+    background: var(--n-0);
+    border: 1px solid var(--rule-strong);
+    border-radius: 10px;
+    box-shadow: 0 18px 44px -8px oklch(0.240 0.012 150 / 0.22);
     /* Por encima de los paneles y del sidebar (100), por debajo de los modales (1000). */
     z-index: 900;
     animation: expMenuIn 0.15s ease-out;
@@ -988,14 +1323,14 @@ input[type="password"], select, textarea {
     transition: background 0.15s ease;
 }
 
-.exp-item:hover,
-.exp-item:focus-visible {
-    background: rgba(255, 255, 255, 0.07);
-    outline: none;
+.exp-item:hover {
+    background: var(--n-100);
 }
 
 .exp-item:focus-visible {
-    box-shadow: inset 0 0 0 1px var(--accent);
+    background: var(--n-100);
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
 }
 
 .exp-item i {
@@ -1017,7 +1352,7 @@ input[type="password"], select, textarea {
 }
 
 .exp-item-txt small {
-    font-size: 0.75rem;
+    font-size: 0.8rem;
     color: var(--text-muted);
 }
 
@@ -1055,8 +1390,8 @@ input[type="password"], select, textarea {
         width: 280px; /* Ancho cómodo para móviles */
         transform: translateX(-100%);
         transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-        box-shadow: 20px 0 50px rgba(0,0,0,0.5);
-        border-right: 1px solid rgba(255,255,255,0.1);
+        box-shadow: 20px 0 50px -10px oklch(0.240 0.012 150 / 0.25);
+        border-right: 1px solid var(--rule-strong);
     }
     
     .sidebar.active {
@@ -1095,12 +1430,18 @@ input[type="password"], select, textarea {
         width: auto;
     }
 
+    /* Antes se recortaba con puntos suspensivos a 200px: "Tablero de Control …",
+       "Registro de Costos…". El título de la página es de las pocas cosas que
+       no se pueden perder, así que ahora baja de cuerpo y usa dos líneas. */
     h1.page-title {
-        font-size: 1.3rem;
-        white-space: nowrap;
+        font-size: 1.25rem;
+        line-height: 1.25;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
         overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 200px;
     }
 
     /* User chip: hide username on very small screens */
@@ -1183,9 +1524,8 @@ input[type="password"], select, textarea {
     .table-container tr {
         margin-bottom: 16px;
         background: var(--panel-bg);
-        border-radius: 12px;
+        border-radius: 10px;
         border: 1px solid var(--border);
-        box-shadow: 0 4px 16px rgba(0,0,0,0.2);
         overflow: hidden;
     }
 
@@ -1195,13 +1535,13 @@ input[type="password"], select, textarea {
         align-items: center;
         text-align: right;
         padding: 12px 16px;
-        border-bottom: 1px solid rgba(255,255,255,0.05);
+        border-bottom: 1px solid var(--border);
         min-height: 44px;
     }
 
     .table-container td:last-child {
         border-bottom: none;
-        background: rgba(0,0,0,0.15);
+        background: var(--n-25);
         justify-content: flex-end;
         gap: 10px;
     }
@@ -1210,9 +1550,7 @@ input[type="password"], select, textarea {
         content: attr(data-label);
         font-weight: 600;
         color: var(--text-muted);
-        text-transform: uppercase;
-        font-size: 0.72rem;
-        letter-spacing: 0.8px;
+        font-size: 0.8rem;
         text-align: left;
         margin-right: 12px;
         flex-shrink: 0;
@@ -1232,9 +1570,9 @@ input[type="password"], select, textarea {
         max-height: calc(100vh - 40px);
     }
 
-    /* Buttons: ensure touch targets */
+    /* Área táctil real de 44px, no 40. */
     .btn {
-        min-height: 40px;
+        min-height: 44px;
     }
 }
 

@@ -4,6 +4,8 @@ require_agricultura();
 require_once 'config/database.php';
 require_once 'includes/cultivos.php';
 require_once 'includes/exportar.php';
+// Muestra los importes en pesos o en dólares; no cambia nada de lo guardado.
+require_once 'includes/moneda.php';
 $usuario_id = $_SESSION['usuario_id'];
 $page_title = 'Producción y Ventas';
 validate_csrf();
@@ -21,16 +23,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             else { $cultivo = trim($cultivo_info); }
         }
         $cultivo_id = cultivo_resolve($pdo, $usuario_id, $lote_id, $cultivo, $campania);
-        $stmt = $pdo->prepare("INSERT INTO produccion_ventas (lote_id, cultivo_id, kg_cosechados, precio_kg, fecha_venta, usuario_id, campania_vendida, cultivo_vendido, notas) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$lote_id, $cultivo_id, (float)$_POST['kg'], (float)$_POST['precio'], $_POST['fecha'], $usuario_id, $campania, $cultivo, trim($_POST['notas'] ?? '')]);
+        // La moneda en que se vendió. No se convierte al guardar: se convierte al mirar.
+        $moneda = (($_POST['moneda'] ?? 'ARS') === 'USD') ? 'USD' : 'ARS';
+        $stmt = $pdo->prepare("INSERT INTO produccion_ventas (lote_id, cultivo_id, kg_cosechados, precio_kg, moneda, fecha_venta, usuario_id, campania_vendida, cultivo_vendido, notas) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$lote_id, $cultivo_id, (float)$_POST['kg'], (float)$_POST['precio'], $moneda, $_POST['fecha'], $usuario_id, $campania, $cultivo, trim($_POST['notas'] ?? '')]);
         // NO cerramos la campaña automáticamente — el usuario lo hace manualmente
         set_flash('success', 'Venta registrada exitosamente.');
         header("Location: produccion.php"); exit;
 
     // ── Editar venta ──────────────────────────────────────────────────────────
     } elseif ($_POST['action'] === 'edit') {
-        $stmt = $pdo->prepare("UPDATE produccion_ventas SET kg_cosechados=?, precio_kg=?, fecha_venta=?, notas=? WHERE id=? AND usuario_id=?");
-        $stmt->execute([(float)$_POST['kg'], (float)$_POST['precio'], $_POST['fecha'], trim($_POST['notas'] ?? ''), (int)$_POST['id'], $usuario_id]);
+        $moneda = (($_POST['moneda'] ?? 'ARS') === 'USD') ? 'USD' : 'ARS';
+        $stmt = $pdo->prepare("UPDATE produccion_ventas SET kg_cosechados=?, precio_kg=?, moneda=?, fecha_venta=?, notas=? WHERE id=? AND usuario_id=?");
+        $stmt->execute([(float)$_POST['kg'], (float)$_POST['precio'], $moneda, $_POST['fecha'], trim($_POST['notas'] ?? ''), (int)$_POST['id'], $usuario_id]);
         set_flash('success', 'Venta actualizada exitosamente.');
         header("Location: produccion.php"); exit;
 
@@ -158,7 +163,10 @@ foreach ($ventas as $v) {
     }
     $ventas_por_campania[$key]['ventas'][]    = $v;
     $ventas_por_campania[$key]['total_kgs']  += (float)$v['kg_cosechados'];
-    $ventas_por_campania[$key]['total_ing']  += (float)$v['ingreso_total'];
+    // Convertido entrega por entrega, con la cotización del mes de cada una.
+    $ventas_por_campania[$key]['total_ing']  += moneda_convertir(
+        $pdo, $usuario_id, $v['ingreso_total'], $v['moneda'] ?? 'ARS', $v['fecha_venta']
+    );
 }
 
 // Campañas ya cerradas (en historial) — para NO mostrar botón en grupos ya cerrados
@@ -175,15 +183,15 @@ require_once 'includes/header.php';
 .campania-group { margin-bottom: 28px; }
 .campania-header {
     display: flex; justify-content: space-between; align-items: center;
-    background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.2);
+    background: var(--accent-soft); border: 1px solid var(--accent-soft);
     border-radius: 10px; padding: 12px 18px; margin-bottom: 8px; flex-wrap: wrap; gap: 10px;
 }
 .campania-header h3 { margin: 0; font-size: 1rem; font-weight: 700; color: var(--accent); display: flex; align-items: center; gap: 8px; }
 .campania-subtotal { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
 .campania-subtotal span { font-size: 0.85rem; color: var(--text-muted); }
 .campania-subtotal strong { color: var(--text-primary); }
-.btn-cerrar-campania { background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.3); color: #ff7b72; font-size: 0.8rem; padding: 5px 12px; border-radius: 20px; cursor: pointer; transition: all 0.2s; }
-.btn-cerrar-campania:hover { background: rgba(239,68,68,0.25); }
+.btn-cerrar-campania { background: oklch(0.450 0.160 28 / 0.10); border: 1px solid oklch(0.450 0.160 28 / 0.10); color: var(--danger); font-size: 0.8rem; padding: 5px 12px; border-radius: 20px; cursor: pointer; transition: all 0.2s; }
+.btn-cerrar-campania:hover { background: oklch(0.450 0.160 28 / 0.10); }
 </style>
 
 <div class="glass-panel" style="margin-bottom: 24px;">
@@ -193,7 +201,8 @@ require_once 'includes/header.php';
             Registro de Cosechas y Ventas
         </h2>
         <?php $buscador_placeholder = 'Buscar campaña, cultivo, lote, kg, precio, nota...'; include 'includes/buscador.php'; ?>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <?php moneda_toggle(); ?>
             <?php
             // Producción todavía no tiene reporte PDF, así que por ahora hay un
             // solo formato: boton_exportar() con una sola opción resuelve un
@@ -226,7 +235,7 @@ require_once 'includes/header.php';
             </h3>
             <div class="campania-subtotal">
                 <span>Total: <strong><?= number_format($grupo['total_kgs'], 2, ',', '.') ?> kg</strong></span>
-                <span>Ingreso: <strong style="color: var(--accent);">$<?= number_format($grupo['total_ing'], 2, ',', '.') ?></strong></span>
+                <span>Ingreso: <strong style="color: var(--accent);"><?= ap_plata($grupo['total_ing']) ?></strong></span>
                 <?php
                 // ── LÓGICA CORREGIDA: mostrar "Cerrar Campaña" solo si:
                 // 1. El lote tiene campaña activa (campania != null)
@@ -257,7 +266,7 @@ require_once 'includes/header.php';
                     </button>
                 </form>
                 <?php elseif ($yaEnHistorial): ?>
-                    <span style="font-size:0.78rem; color:var(--text-muted); background:rgba(16,185,129,0.07); border:1px solid rgba(16,185,129,0.15); border-radius:20px; padding:4px 10px;">
+                    <span style="font-size:0.78rem; color:var(--text-muted); background:var(--accent-soft); border:1px solid var(--accent-soft); border-radius:20px; padding:4px 10px;">
                         <i class="fas fa-check-circle" style="color:var(--accent);"></i> Cerrada
                     </span>
                 <?php endif; ?>
@@ -282,8 +291,21 @@ require_once 'includes/header.php';
                     <tr>
                         <td data-label="Fecha"><?= date('d/m/Y', strtotime($v['fecha_venta'])) ?></td>
                         <td data-label="Kilogramos"><strong><?= number_format($v['kg_cosechados'], 2, ',', '.') ?></strong> kg</td>
-                        <td data-label="Precio/kg">$<?= number_format($v['precio_kg'], 2, ',', '.') ?></td>
-                        <td data-label="Ingreso" style="color: var(--accent); font-weight: 600;">$<?= number_format($v['ingreso_total'], 2, ',', '.') ?></td>
+                        <?php
+                        // Cada entrega se convierte con la cotización del mes de SU fecha.
+                        $v_moneda  = $v['moneda'] ?? 'ARS';
+                        $v_precio  = moneda_convertir($pdo, $usuario_id, $v['precio_kg'], $v_moneda, $v['fecha_venta']);
+                        $v_ingreso = moneda_convertir($pdo, $usuario_id, $v['ingreso_total'], $v_moneda, $v['fecha_venta']);
+                        ?>
+                        <td data-label="Precio/kg">
+                            <?= ap_plata($v_precio) ?>
+                            <?php if ($v_moneda !== moneda_actual()): ?>
+                                <br><small style="color:var(--text-muted);">
+                                    vendido <?= $v_moneda === 'USD' ? 'US$' : '$' ?><?= number_format($v['precio_kg'], 2, ',', '.') ?>
+                                </small>
+                            <?php endif; ?>
+                        </td>
+                        <td data-label="Ingreso" style="color: var(--accent); font-weight: 600;"><?= ap_plata($v_ingreso) ?></td>
                         <td data-label="Notas"><small style="color:var(--text-muted);"><?= htmlspecialchars($v['notas'] ?: '—') ?></small></td>
                         <td data-label="Acciones">
                             <button type="button" class="btn" style="color:var(--accent); background:transparent; padding:4px 8px;"
@@ -309,13 +331,13 @@ require_once 'includes/header.php';
     <?php if ($total_pages > 1): ?>
     <div style="display:flex; justify-content: center; gap:10px; margin-top:20px; padding-bottom:10px;">
         <?php if ($page > 1): ?>
-            <a href="?page=<?= $page-1 ?>&q=<?= urlencode($q) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
+            <a href="?page=<?= $page-1 ?>&q=<?= urlencode($q) ?>" class="btn" style="background:var(--n-100); color:var(--text-primary); padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
         <?php endif; ?>
         
         <span style="color:var(--text-muted); align-self:center; font-size:0.9rem;">Página <?= $page ?> de <?= $total_pages ?></span>
 
         <?php if ($page < $total_pages): ?>
-            <a href="?page=<?= $page+1 ?>&q=<?= urlencode($q) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
+            <a href="?page=<?= $page+1 ?>&q=<?= urlencode($q) ?>" class="btn" style="background:var(--n-100); color:var(--text-primary); padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
         <?php endif; ?>
     </div>
     <?php endif; ?>
@@ -333,9 +355,9 @@ require_once 'includes/header.php';
             <input type="hidden" name="id"     id="prodId"     value="">
 
             <div style="display: flex; flex-direction: column; gap: 5px;">
-                <label>Lote</label>
+                <label for="loteSelectP">Lote</label>
                 <select name="lote_id" id="loteSelectP" required
-                    style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: white;"
+                    style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: var(--text-primary);"
                     onchange="updateCultivosP()">
                     <option value="">-- Seleccionar Lote --</option>
                     <?php foreach($lotes as $l): ?>
@@ -345,55 +367,72 @@ require_once 'includes/header.php';
             </div>
 
             <div style="display: flex; flex-direction: column; gap: 5px;" id="cultPContainer">
-                <label>Campaña / Cultivo</label>
+                <label for="cultivoSelectP">Campaña / Cultivo</label>
                 <select name="form_cultivo" id="cultivoSelectP"
-                    style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: white;">
+                    style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: var(--text-primary);">
                     <option value="">-- Seleccionar primero un lote --</option>
                 </select>
             </div>
 
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                 <div style="display: flex; flex-direction: column; gap: 5px;">
-                    <label>Kilogramos entregados</label>
+                    <label for="prodKgs">Kilogramos entregados</label>
                     <input type="number" step="0.01" name="kg" id="prodKgs" required
                         placeholder="Ej: 150.50"
-                        style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: white;">
+                        style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--n-0); color: var(--text-primary);">
                 </div>
+                <?php /* Decía "(USD)" y el ejemplo era 320, que es el precio del
+                         trigo en PESOS por kilo (la Cámara lo publica a 320.400 la
+                         tonelada). La etiqueta contradecía al ejemplo y al cálculo,
+                         que sumaba estos ingresos contra costos en pesos. Ahora la
+                         moneda se elige al lado y el precio es el de un kilo. */ ?>
                 <div style="display: flex; flex-direction: column; gap: 5px;">
-                    <label>Precio por kg (USD)</label>
+                    <label for="prodPrecio">Precio por kg</label>
                     <input type="number" step="0.0001" name="precio" id="prodPrecio" required
                         placeholder="Ej: 320.00"
-                        style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: white;">
+                        style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--n-0); color: var(--text-primary);">
                 </div>
+            </div>
+
+            <?php /* Se guarda la moneda en que se vendió; el panel convierte al
+                     mirar, con el dólar del mes de la entrega. */ ?>
+            <div style="display: flex; flex-direction: column; gap: 5px;">
+                <label for="prodMoneda">Moneda de la venta</label>
+                <select name="moneda" id="prodMoneda" onchange="calcPreview()"
+                    style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: var(--text-primary);">
+                    <option value="ARS" selected>$ — Pesos</option>
+                    <option value="USD">US$ — Dólares</option>
+                </select>
             </div>
 
             <!-- Preview ingreso -->
-            <div id="prodPreview" style="display:none; background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.2); border-radius:8px; padding:10px; text-align:center;">
+            <div id="prodPreview" style="display:none; background:var(--accent-soft); border:1px solid var(--accent-soft); border-radius:8px; padding:10px; text-align:center;">
                 <span style="font-size:0.8rem; color:var(--text-muted);">Ingreso estimado</span><br>
-                <span id="prodPreviewVal" style="font-size:1.4rem; font-weight:800; color:var(--accent);">0.00 USD</span>
+                <span id="prodPreviewVal" style="font-size:1.4rem; font-weight:800; color:var(--accent);">$0,00</span>
             </div>
 
             <div style="display: flex; flex-direction: column; gap: 5px;">
-                <label>Fecha de Entrega</label>
+                <label for="prodFecha">Fecha de Entrega</label>
                 <input type="date" name="fecha" id="prodFecha" value="<?= date('Y-m-d') ?>" required
-                    style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: white;">
+                    style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--n-100); color: var(--text-primary);">
             </div>
 
             <div style="display: flex; flex-direction: column; gap: 5px;">
-                <label>Notas <small style="color:var(--text-muted);">(Opcional)</small></label>
+                <label for="prodNotas">Notas <small style="color:var(--text-muted);">(Opcional)</small></label>
                 <input type="text" name="notas" id="prodNotas"
                     placeholder="Ej: 1ra entrega, destino exportación..."
-                    style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: white;">
+                    style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--n-0); color: var(--text-primary);">
             </div>
 
             <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
-                <button type="button" class="btn" onclick="closeProdModal()" style="background:rgba(255,255,255,0.1); color:white;">Cancelar</button>
+                <button type="button" class="btn" onclick="closeProdModal()" style="background:rgba(255,255,255,0.1); color:var(--text-primary);">Cancelar</button>
                 <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Guardar</button>
             </div>
         </form>
     </div>
 </div>
 
+<?php require_once 'includes/chat_motor.php'; ?>
 <?php require_once 'includes/footer.php'; ?>
 
 <script>
@@ -470,7 +509,12 @@ function calcPreview() {
     const prev  = document.getElementById('prodPreview');
     if (total > 0) {
         prev.style.display = 'block';
-        document.getElementById('prodPreviewVal').textContent = total.toLocaleString('es-AR', {minimumFractionDigits:2}) + ' USD';
+        // El símbolo sigue a la moneda elegida: decía "USD" fijo aunque el precio
+        // se cargue casi siempre en pesos, y ese cartel era el que confundía.
+        const sel = document.getElementById('prodMoneda');
+        const sim = (sel && sel.value === 'USD') ? 'US$' : '$';
+        document.getElementById('prodPreviewVal').textContent =
+            sim + total.toLocaleString('es-AR', {minimumFractionDigits:2});
     } else {
         prev.style.display = 'none';
     }

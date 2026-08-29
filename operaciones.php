@@ -4,6 +4,8 @@ require_agricultura();
 require_once 'config/database.php';
 require_once 'includes/cultivos.php';
 require_once 'includes/exportar.php';
+// Muestra los importes en pesos o en dólares; no cambia nada de lo guardado.
+require_once 'includes/moneda.php';
 $usuario_id = $_SESSION['usuario_id'];
 $page_title = 'Registro de Costos y Labores';
 
@@ -29,6 +31,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $precio_u = 0;
     $cargas = null;
     $tipo_comp_db = ($tipo_comp === 'insumo') ? 'multi_insumo' : $tipo_comp;
+    // La moneda en que se pagó. No se convierte al guardar: se convierte al mirar.
+    $moneda = (($_POST['moneda'] ?? 'ARS') === 'USD') ? 'USD' : 'ARS';
 
     if ($_POST['action'] === 'add' || $_POST['action'] === 'edit') {
         if ($cultivo_info) {
@@ -88,8 +92,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $pdo->beginTransaction();
     try {
         if ($_POST['action'] === 'add') {
-            $stmt = $pdo->prepare("INSERT INTO operaciones (usuario_id, lote_id, cultivo_id, grupo_gasto, grupo_descripcion, tipo_componente, insumo_id, proveedor_servicio, cantidad_ha, precio_unitario, costo_total, fecha, campania_operacion, cultivo_operacion, cargas, hectareas) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$usuario_id, $lote_id, $cultivo_id, $grupo, $grupo_desc, $tipo_comp_db, $proveedor, $cant_ha, $precio_u, $costo_total, $fecha, $campania, $cultivo, $cargas, $hectareas_db]);
+            $stmt = $pdo->prepare("INSERT INTO operaciones (usuario_id, lote_id, cultivo_id, grupo_gasto, grupo_descripcion, tipo_componente, insumo_id, proveedor_servicio, cantidad_ha, precio_unitario, costo_total, moneda, fecha, campania_operacion, cultivo_operacion, cargas, hectareas) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$usuario_id, $lote_id, $cultivo_id, $grupo, $grupo_desc, $tipo_comp_db, $proveedor, $cant_ha, $precio_u, $costo_total, $moneda, $fecha, $campania, $cultivo, $cargas, $hectareas_db]);
             $op_id = $pdo->lastInsertId();
 
             if (($tipo_comp === 'insumo' || $tipo_comp === 'receta_labor') && isset($_POST['insumo_id']) && is_array($_POST['insumo_id'])) {
@@ -152,8 +156,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $pdo->prepare("DELETE FROM operacion_insumos WHERE operacion_id = ?")->execute([$id]);
 
             // Actualizar padre
-            $stmt = $pdo->prepare("UPDATE operaciones SET lote_id=?, cultivo_id=?, grupo_gasto=?, grupo_descripcion=?, tipo_componente=?, insumo_id=NULL, proveedor_servicio=?, cantidad_ha=?, precio_unitario=?, costo_total=?, fecha=?, campania_operacion=?, cultivo_operacion=?, cargas=?, hectareas=? WHERE id=? AND usuario_id=?");
-            $stmt->execute([$lote_id, $cultivo_id, $grupo, $grupo_desc, $tipo_comp_db, $proveedor, $cant_ha, $precio_u, $costo_total, $fecha, $campania, $cultivo, $cargas, $hectareas_db, $id, $usuario_id]);
+            $stmt = $pdo->prepare("UPDATE operaciones SET lote_id=?, cultivo_id=?, grupo_gasto=?, grupo_descripcion=?, tipo_componente=?, insumo_id=NULL, proveedor_servicio=?, cantidad_ha=?, precio_unitario=?, costo_total=?, moneda=?, fecha=?, campania_operacion=?, cultivo_operacion=?, cargas=?, hectareas=? WHERE id=? AND usuario_id=?");
+            $stmt->execute([$lote_id, $cultivo_id, $grupo, $grupo_desc, $tipo_comp_db, $proveedor, $cant_ha, $precio_u, $costo_total, $moneda, $fecha, $campania, $cultivo, $cargas, $hectareas_db, $id, $usuario_id]);
 
             // Insertar hijos nuevos
             if (($tipo_comp === 'insumo' || $tipo_comp === 'receta_labor') && isset($_POST['insumo_id']) && is_array($_POST['insumo_id'])) {
@@ -214,7 +218,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         header("Location: operaciones.php"); exit;
     } catch (Exception $e) {
         $pdo->rollBack();
-        die("Error: " . $e->getMessage());
+
+        /* Antes acá había un die() con el mensaje crudo de la excepción: pantalla
+           en blanco, un error de SQL que el productor no puede interpretar, y el
+           formulario perdido.
+
+           Es especialmente malo en el borrado, que restaura stock de insumos: al
+           ver un error sin explicación uno no sabe si el stock volvió o no. Por
+           eso el mensaje dice explícitamente que no quedó nada a medias — que es
+           verdad, porque el rollBack() de arriba deshace la transacción entera.
+
+           El detalle técnico va al log, donde sirve; a la pantalla va lo que el
+           productor necesita saber para decidir qué hacer. */
+        error_log('[operaciones] ' . $_POST['action'] . ' falló: ' . $e->getMessage());
+
+        $accion = $_POST['action'] ?? '';
+        $que = $accion === 'delete' ? 'eliminar la operación'
+             : ($accion === 'edit' ? 'guardar los cambios' : 'registrar el gasto');
+
+        set_flash('error', 'No se pudo ' . $que . '. No quedó nada a medias: '
+                         . 'la operación se deshizo completa y el stock quedó como estaba. '
+                         . 'Probá de nuevo; si vuelve a pasar, avisanos.');
+        header("Location: operaciones.php"); exit;
     }
 }
 
@@ -314,12 +339,16 @@ $stmt = $pdo->prepare("
 $stmt->execute($params);
 $operaciones = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// 3. Totales por grupo (KPIs) - Respetando filtros pero sin paginación
+/* 3. Totales por grupo (KPIs) — respetando filtros pero sin paginación.
+   Se agrupa también por mes porque cada mes tiene su propia cotización: sumar
+   primero y convertir después aplanaría gastos de meses distintos con un solo
+   tipo de cambio, que es justo lo que el botón de moneda viene a evitar. */
 $stmtStats = $pdo->prepare("
-    SELECT o.grupo_gasto, SUM(o.costo_total) as total
+    SELECT o.grupo_gasto, o.moneda, DATE_FORMAT(o.fecha, '%Y-%m-01') AS mes,
+           SUM(o.costo_total) as total
     FROM operaciones o
     $where
-    GROUP BY o.grupo_gasto
+    GROUP BY o.grupo_gasto, o.moneda, DATE_FORMAT(o.fecha, '%Y-%m-01')
 ");
 $stmtStats->execute($params);
 $stats_raw = $stmtStats->fetchAll(PDO::FETCH_ASSOC);
@@ -327,7 +356,7 @@ $stats_raw = $stmtStats->fetchAll(PDO::FETCH_ASSOC);
 $totales_grupo = ['siembra'=>0,'cosecha'=>0,'pulverizacion'=>0,'fertilizacion'=>0,'otros'=>0,'total'=>0];
 foreach ($stats_raw as $s) {
     $g = $s['grupo_gasto'];
-    $c = (float)$s['total'];
+    $c = moneda_convertir($pdo, $usuario_id, $s['total'], $s['moneda'], $s['mes']);
     if (isset($totales_grupo[$g])) $totales_grupo[$g] += $c;
     else $totales_grupo['otros'] += $c;
     $totales_grupo['total'] += $c;
@@ -365,11 +394,11 @@ function labelGrupo($op) {
 // Helper: color del grupo
 function colorGrupo($g) {
     return match($g) {
-        'siembra'        => 'rgba(80,200,120,0.15);color:#50c878;border:1px solid rgba(80,200,120,0.3)',
-        'cosecha'        => 'rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3)',
-        'pulverizacion'  => 'rgba(59,130,246,0.15);color:#60a5fa;border:1px solid rgba(59,130,246,0.3)',
+        'siembra'        => 'rgba(80,200,120,0.15);color:var(--accent);border:1px solid rgba(80,200,120,0.3)',
+        'cosecha'        => 'oklch(0.470 0.120 70 / 0.10);color:var(--se-warning);border:1px solid oklch(0.470 0.120 70 / 0.10)',
+        'pulverizacion'  => 'oklch(0.480 0.100 240 / 0.10);color: var(--accent);border:1px solid var(--border)',
         'fertilizacion'  => 'rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.3)',
-        default          => 'rgba(255,255,255,0.06);color:var(--text-muted)',
+        default          => 'var(--border);color:var(--text-muted)',
     };
 }
 ?>
@@ -378,18 +407,18 @@ function colorGrupo($g) {
 .grupo-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
 .grupo-tab {
     padding: 7px 16px; border-radius: 20px; font-size: 0.82rem; font-weight: 600;
-    cursor: pointer; border: 1px solid var(--border); background: rgba(255,255,255,0.04);
+    cursor: pointer; border: 1px solid var(--border); background: var(--n-25);
     color: var(--text-muted); transition: all 0.2s; white-space: nowrap;
 }
 .grupo-tab:hover { border-color: var(--accent); color: var(--text-primary); }
-.grupo-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
+.grupo-tab.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
 
     .currency-toggle-container {
         display: inline-flex;
-        background: rgba(0, 0, 0, 0.2);
+        background: var(--n-100);
         padding: 4px;
         border-radius: 10px;
-        border: 1px solid rgba(255, 255, 255, 0.05);
+        border: 1px solid var(--border);
     }
     .btn-currency {
         border: none;
@@ -407,27 +436,27 @@ function colorGrupo($g) {
     }
     .btn-currency:hover {
         color: var(--text-primary);
-        background: rgba(255, 255, 255, 0.05);
+        background: var(--n-100);
     }
     .btn-currency.active {
         background: var(--accent);
-        color: white !important;
-        box-shadow: 0 2px 8px rgba(16, 185, 129, 0.4);
+        color: var(--on-accent) !important;
+        box-shadow: 0 2px 8px var(--accent-soft);
     }
-.filter-select { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: var(--text-primary); font-size: 0.85rem; cursor: pointer; min-width: 160px; }
+.filter-select { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--n-100); color: var(--text-primary); font-size: 0.85rem; cursor: pointer; min-width: 160px; }
 .filter-select:focus { outline: none; border-color: var(--accent); }
 
 /* KPI Resumen Gastos */
 .gastos-kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px,1fr)); gap: 10px; margin-bottom: 20px; }
 .gasto-kpi {
-    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+    background: var(--n-25); border: 1px solid var(--border);
     border-radius: 12px; padding: 12px 14px;
     transition: transform 0.2s;
 }
 .gasto-kpi:hover { transform: translateY(-2px); }
-.gasto-kpi .gk-label { font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+.gasto-kpi .gk-label { font-size: 0.85rem; color: var(--text-muted); font-weight: 600; margin-bottom: 4px; }
 .gasto-kpi .gk-val   { font-size: 1.15rem; font-weight: 700; color: var(--text-primary); }
-.gasto-kpi.total-kpi { background: rgba(16,185,129,0.06); border-color: rgba(16,185,129,0.2); }
+.gasto-kpi.total-kpi { background: var(--accent-soft); border-color: var(--accent-soft); }
 .gasto-kpi.total-kpi .gk-val { color: var(--accent); }
 </style>
 
@@ -453,12 +482,16 @@ function colorGrupo($g) {
         </div>
     </div>
 
-    <div style="display:flex; justify-content: flex-end; margin-bottom: 12px;">
+    <div style="display:flex; justify-content: flex-end; gap:8px; margin-bottom: 12px;">
+        <?php moneda_toggle(); ?>
+        <?php /* El título decía "Ver en Dinero (USD)" y mostraba pesos. Ahora la
+                 moneda la elige el botón de al lado, así que este dice sólo lo que
+                 hace: importe o porcentaje. */ ?>
         <div class="currency-toggle-container">
-            <button type="button" class="btn-currency active" id="btnModeMoney" onclick="setKpiMode('money')" title="Ver en Dinero (USD)">
+            <button type="button" class="btn-currency active" id="btnModeMoney" onclick="setKpiMode('money')" title="Ver el importe">
                 <i class="fas fa-dollar-sign"></i>
             </button>
-            <button type="button" class="btn-currency" id="btnModePercent" onclick="setKpiMode('percent')" title="Ver en Porcentaje (%)">
+            <button type="button" class="btn-currency" id="btnModePercent" onclick="setKpiMode('percent')" title="Ver en porcentaje del total">
                 <i class="fas fa-percent"></i>
             </button>
         </div>
@@ -468,32 +501,32 @@ function colorGrupo($g) {
     <div class="gastos-kpi-grid" id="gastosKpiGrid">
         <div class="gasto-kpi" data-grupo="siembra">
             <div class="gk-label"><i class="fas fa-seedling" style="margin-right:4px;"></i> Siembra</div>
-            <div class="gk-val" id="kpiSiembra" data-val="<?= $totales_grupo['siembra'] ?>">$<?= number_format($totales_grupo['siembra'], 0, ',', '.') ?></div>
+            <div class="gk-val" id="kpiSiembra" data-val="<?= $totales_grupo['siembra'] ?>"><?= ap_plata($totales_grupo['siembra'], 0) ?></div>
         </div>
         <div class="gasto-kpi" data-grupo="cosecha">
             <div class="gk-label"><i class="fas fa-wheat-awn" style="margin-right:4px;"></i> Cosecha</div>
-            <div class="gk-val" id="kpiCosecha" data-val="<?= $totales_grupo['cosecha'] ?>">$<?= number_format($totales_grupo['cosecha'], 0, ',', '.') ?></div>
+            <div class="gk-val" id="kpiCosecha" data-val="<?= $totales_grupo['cosecha'] ?>"><?= ap_plata($totales_grupo['cosecha'], 0) ?></div>
         </div>
         <div class="gasto-kpi" data-grupo="pulverizacion">
             <div class="gk-label"><i class="fas fa-spray-can" style="margin-right:4px;"></i> Pulverización</div>
-            <div class="gk-val" id="kpiPulv" data-val="<?= $totales_grupo['pulverizacion'] ?>">$<?= number_format($totales_grupo['pulverizacion'], 0, ',', '.') ?></div>
+            <div class="gk-val" id="kpiPulv" data-val="<?= $totales_grupo['pulverizacion'] ?>"><?= ap_plata($totales_grupo['pulverizacion'], 0) ?></div>
         </div>
         <div class="gasto-kpi" data-grupo="fertilizacion">
             <div class="gk-label"><i class="fas fa-fill-drip" style="margin-right:4px;"></i> Fertilización</div>
-            <div class="gk-val" id="kpiFert" data-val="<?= $totales_grupo['fertilizacion'] ?>">$<?= number_format($totales_grupo['fertilizacion'], 0, ',', '.') ?></div>
+            <div class="gk-val" id="kpiFert" data-val="<?= $totales_grupo['fertilizacion'] ?>"><?= ap_plata($totales_grupo['fertilizacion'], 0) ?></div>
         </div>
         <div class="gasto-kpi" data-grupo="otros">
             <div class="gk-label"><i class="fas fa-ellipsis-h" style="margin-right:4px;"></i> Otros</div>
-            <div class="gk-val" id="kpiOtros" data-val="<?= $totales_grupo['otros'] ?>">$<?= number_format($totales_grupo['otros'], 0, ',', '.') ?></div>
+            <div class="gk-val" id="kpiOtros" data-val="<?= $totales_grupo['otros'] ?>"><?= ap_plata($totales_grupo['otros'], 0) ?></div>
         </div>
         <div class="gasto-kpi total-kpi">
             <div class="gk-label">Total General</div>
-            <div class="gk-val" id="kpiTotal" data-val="<?= $totales_grupo['total'] ?>">$<?= number_format($totales_grupo['total'], 0, ',', '.') ?></div>
+            <div class="gk-val" id="kpiTotal" data-val="<?= $totales_grupo['total'] ?>"><?= ap_plata($totales_grupo['total'], 0) ?></div>
         </div>
     </div>
 
     <!-- ===== TOOLBAR DE FILTROS ===== -->
-    <div style="background:rgba(255,255,255,0.02); border-top:1px solid rgba(255,255,255,0.05); border-bottom:1px solid rgba(255,255,255,0.05); padding:16px 20px; margin: 0 -20px 20px -20px;" class="filter-toolbar">
+    <div style="background:var(--n-25); border-top:1px solid var(--border); border-bottom:1px solid var(--border); padding:16px 20px; margin: 0 -20px 20px -20px;" class="filter-toolbar">
         <div class="grupo-tabs">
             <button class="grupo-tab <?= $f_grupo === 'todos' ? 'active' : '' ?>" onclick="setFiltroGrupo('todos')"><i class="fas fa-layer-group"></i> Todos</button>
             <button class="grupo-tab <?= $f_grupo === 'siembra' ? 'active' : '' ?>" onclick="setFiltroGrupo('siembra')"><i class="fas fa-seedling"></i> Siembra</button>
@@ -515,7 +548,7 @@ function colorGrupo($g) {
             </select>
             <?php endif; ?>
             <!-- Filtro por Lote -->
-            <select class="filter-select" id="loteFilter" onchange="aplicarFiltros()">
+            <select class="filter-select" id="loteFilter" aria-label="Filtrar por lote" onchange="aplicarFiltros()">
                 <option value="todos">-- Todos los Lotes --</option>
                 <?php foreach($lotes as $l): ?>
                     <option value="<?= $l['id'] ?>" <?= (string)$f_lote === (string)$l['id'] ? 'selected' : '' ?>><?= htmlspecialchars($l['nombre']) ?></option>
@@ -531,7 +564,7 @@ function colorGrupo($g) {
                     <th>Operación</th>
                     <th>Detalle (Labor/Insumo)</th>
                     <th>Lote / Cultivo</th>
-                    <th>Costo Total ($)</th>
+                    <th>Costo Total (<?= moneda_actual() ?>)</th>
                     <th>Acciones</th>
                 </tr>
             </thead>
@@ -548,21 +581,27 @@ function colorGrupo($g) {
                             <?= labelGrupo($op) ?>
                         </span>
                     </td>
+                    <?php /* El desglose describe la factura original, así que va en
+                             LA MONEDA DE ESA FILA y no en la que se está mirando: si
+                             se convirtiera, "100 ha × $X" dejaría de multiplicar al
+                             monto que dice el papel. Se escribe el símbolo propio
+                             para que no se confunda con el del total de al lado. */
+                          $op_sim = ($op['moneda'] ?? 'ARS') === 'USD' ? 'US$' : '$'; ?>
                     <td data-label="Detalle" style="position:relative;">
                         <?php if($op['tipo_componente'] === 'labor'): ?>
                             <i class="fas fa-user-cog" title="Labor" style="color:var(--accent);"></i>
                             <b><?= htmlspecialchars($op['proveedor_servicio']) ?></b><br>
                             <small style="color:var(--text-muted);">
-                                <?= number_format($op['cantidad_ha'], 1, ',', '.') ?> ha × $<?= number_format($op['precio_unitario'], 2, ',', '.') ?>
+                                <?= number_format($op['cantidad_ha'], 1, ',', '.') ?> ha × <?= $op_sim ?><?= number_format($op['precio_unitario'], 2, ',', '.') ?>
                             </small>
                         <?php elseif($op['tipo_componente'] === 'insumo' && !empty($op['insumo_nombre'])): ?>
-                            <i class="fas fa-box-open" title="Insumo" style="color:#60a5fa;"></i>
+                            <i class="fas fa-box-open" title="Insumo" style="color: var(--accent);"></i>
                             <b><?= htmlspecialchars($op['insumo_nombre']) ?></b><br>
                             <small style="color:var(--text-muted);">
-                                <?= $op['cantidad_ha'] ?> <?= $op['unidad_medida'] ?>/ha × $<?= number_format($op['precio_unitario'], 2, ',', '.') ?>
+                                <?= $op['cantidad_ha'] ?> <?= $op['unidad_medida'] ?>/ha × <?= $op_sim ?><?= number_format($op['precio_unitario'], 2, ',', '.') ?>
                             </small>
                         <?php elseif($op['tipo_componente'] === 'receta_labor'): ?>
-                            <i class="fas fa-file-invoice" title="Receta de Aplicación" style="color:#f59e0b;"></i>
+                            <i class="fas fa-file-invoice" title="Receta de Aplicación" style="color:var(--se-warning);"></i>
                             <b>Receta (Labor + Insumos)</b>
                             <div style="margin-top: 5px;">
                                 <?php boton_exportar([
@@ -573,15 +612,15 @@ function colorGrupo($g) {
                                      'nueva_pestana' => true],
                                 ], 'Receta', 'exp-btn-sm'); ?>
                                 <div style="display:inline-block; position:relative; margin-left:4px;">
-                                    <button type="button" onclick="toggleInsumosList(<?= $op['id'] ?>)" class="btn" style="background:transparent; border:1px solid rgba(255,255,255,0.1); padding:3px 8px; font-size:0.75rem; color:var(--text-primary); border-radius:6px;"><i class="fas fa-ellipsis-h"></i> Detalles</button>
-                                    <div id="insumos-list-<?= $op['id'] ?>" style="display:none; position:absolute; z-index:99; background:var(--bg-card); border:1px solid rgba(255,255,255,0.1); padding:10px; border-radius:8px; width:max-content; top:100%; left:0; box-shadow:0 4px 15px rgba(0,0,0,0.5); margin-top:5px;">
-                                        <div style="font-size:0.8rem; border-bottom:1px solid rgba(255,255,255,0.1); margin-bottom:5px; padding-bottom:5px;">
-                                            <strong>Labor:</strong> <?= htmlspecialchars($op['proveedor_servicio']) ?> ($<?= number_format($op['precio_unitario'], 2, ',', '.') ?>/ha)
+                                    <button type="button" onclick="toggleInsumosList(<?= $op['id'] ?>)" class="btn" style="background:transparent; border:1px solid var(--border); padding:3px 8px; font-size:0.75rem; color:var(--text-primary); border-radius:6px;"><i class="fas fa-ellipsis-h"></i> Detalles</button>
+                                    <div id="insumos-list-<?= $op['id'] ?>" style="display:none; position:absolute; z-index:99; background:var(--bg-card); border:1px solid var(--border); padding:10px; border-radius:8px; width:max-content; top:100%; left:0; box-shadow:0 4px 15px rgba(0,0,0,0.5); margin-top:5px;">
+                                        <div style="font-size:0.8rem; border-bottom:1px solid var(--border); margin-bottom:5px; padding-bottom:5px;">
+                                            <strong>Labor:</strong> <?= htmlspecialchars($op['proveedor_servicio']) ?> (<?= $op_sim ?><?= number_format($op['precio_unitario'], 2, ',', '.') ?>/ha)
                                         </div>
                                         <ul style="list-style:none; margin:0; padding:0; font-size:0.8rem; text-align:left;">
                                             <?php foreach($op['hijos_insumos'] as $h): ?>
-                                            <li style="margin-bottom:4px; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:4px; color:var(--text-primary);">
-                                                <strong><?= htmlspecialchars($h['nombre'] ?: $h['nombre_libre']) ?></strong>: <?= number_format($h['cantidad_ha'], 3, ',', '.') ?> <?= htmlspecialchars($h['unidad_medida'] ?: 'un/lts') ?>/ha ($<?= number_format($h['precio_unitario'], 2, ',', '.') ?>)
+                                            <li style="margin-bottom:4px; border-bottom:1px solid var(--border); padding-bottom:4px; color:var(--text-primary);">
+                                                <strong><?= htmlspecialchars($h['nombre'] ?: $h['nombre_libre']) ?></strong>: <?= number_format($h['cantidad_ha'], 3, ',', '.') ?> <?= htmlspecialchars($h['unidad_medida'] ?: 'un/lts') ?>/ha (<?= $op_sim ?><?= number_format($h['precio_unitario'], 2, ',', '.') ?>)
                                             </li>
                                             <?php endforeach; ?>
                                         </ul>
@@ -589,15 +628,15 @@ function colorGrupo($g) {
                                 </div>
                             </div>
                         <?php elseif($op['tipo_componente'] === 'multi_insumo' || !empty($op['hijos_insumos'])): ?>
-                            <i class="fas fa-box-open" title="Múltiples Insumos" style="color:#60a5fa;"></i>
+                            <i class="fas fa-box-open" title="Múltiples Insumos" style="color: var(--accent);"></i>
                             <b>Múltiples Insumos (<?= count($op['hijos_insumos']) ?>)</b>
                             <div style="display:inline-block; position:relative; margin-left:8px;">
-                                <button type="button" onclick="toggleInsumosList(<?= $op['id'] ?>)" class="btn" style="background:transparent; border:1px solid rgba(255,255,255,0.1); padding:2px 6px; font-size:0.75rem; color:var(--text-primary);"><i class="fas fa-ellipsis-h"></i></button>
-                                <div id="insumos-list-<?= $op['id'] ?>" style="display:none; position:absolute; z-index:99; background:var(--bg-card); border:1px solid rgba(255,255,255,0.1); padding:10px; border-radius:8px; width:max-content; top:100%; left:0; box-shadow:0 4px 15px rgba(0,0,0,0.5); margin-top:5px;">
+                                <button type="button" onclick="toggleInsumosList(<?= $op['id'] ?>)" class="btn" style="background:transparent; border:1px solid var(--border); padding:2px 6px; font-size:0.75rem; color:var(--text-primary);"><i class="fas fa-ellipsis-h"></i></button>
+                                <div id="insumos-list-<?= $op['id'] ?>" style="display:none; position:absolute; z-index:99; background:var(--bg-card); border:1px solid var(--border); padding:10px; border-radius:8px; width:max-content; top:100%; left:0; box-shadow:0 4px 15px rgba(0,0,0,0.5); margin-top:5px;">
                                     <ul style="list-style:none; margin:0; padding:0; font-size:0.8rem; text-align:left;">
                                         <?php foreach($op['hijos_insumos'] as $h): ?>
-                                        <li style="margin-bottom:4px; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:4px; color:var(--text-primary);">
-                                            <strong><?= htmlspecialchars($h['nombre'] ?: $h['nombre_libre']) ?></strong>: <?= number_format($h['cantidad_ha'], 3, ',', '.') ?> <?= htmlspecialchars($h['unidad_medida'] ?: 'un/lts') ?>/ha ($<?= number_format($h['precio_unitario'], 2, ',', '.') ?>)
+                                        <li style="margin-bottom:4px; border-bottom:1px solid var(--border); padding-bottom:4px; color:var(--text-primary);">
+                                            <strong><?= htmlspecialchars($h['nombre'] ?: $h['nombre_libre']) ?></strong>: <?= number_format($h['cantidad_ha'], 3, ',', '.') ?> <?= htmlspecialchars($h['unidad_medida'] ?: 'un/lts') ?>/ha (<?= $op_sim ?><?= number_format($h['precio_unitario'], 2, ',', '.') ?>)
                                         </li>
                                         <?php endforeach; ?>
                                     </ul>
@@ -615,8 +654,19 @@ function colorGrupo($g) {
                             </small>
                         <?php endif; ?>
                     </td>
-                    <td data-label="Costo Total ($)" style="font-weight: 600; color: var(--danger);">
-                        -$<?= number_format($op['costo_total'], 2, ',', '.') ?>
+                    <?php /* Cada fila se convierte con la cotización del mes de SU
+                             fecha. Y cuando se está mirando en la otra moneda se
+                             muestra abajo lo que realmente se pagó: el convertido
+                             sirve para comparar, el original es el que figura en la
+                             factura. */
+                          $op_conv = moneda_convertir($pdo, $usuario_id, $op['costo_total'], $op['moneda'] ?? 'ARS', $op['fecha']); ?>
+                    <td data-label="Costo Total" style="font-weight: 600; color: var(--danger);">
+                        <?= ap_egreso($op_conv) ?>
+                        <?php if (($op['moneda'] ?? 'ARS') !== moneda_actual()): ?>
+                            <br><small style="color:var(--text-muted); font-weight:400;">
+                                pagado <?= ($op['moneda'] ?? 'ARS') === 'USD' ? 'US$' : '$' ?><?= number_format($op['costo_total'], 2, ',', '.') ?>
+                            </small>
+                        <?php endif; ?>
                     </td>
                     <td data-label="Acciones">
                         <!-- Editar -->
@@ -650,13 +700,13 @@ function colorGrupo($g) {
     <?php if ($total_pages > 1): ?>
     <div style="display:flex; justify-content: center; gap:10px; margin-top:20px; padding-bottom:10px;">
         <?php if ($page > 1): ?>
-            <a href="?page=<?= $page-1 ?>&grupo=<?= $f_grupo ?>&lote_id=<?= $f_lote ?>&campania=<?= urlencode($f_camp) ?>&q=<?= urlencode($q) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
+            <a href="?page=<?= $page-1 ?>&grupo=<?= $f_grupo ?>&lote_id=<?= $f_lote ?>&campania=<?= urlencode($f_camp) ?>&q=<?= urlencode($q) ?>" class="btn" style="background:var(--n-100); color:var(--text-primary); padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
         <?php endif; ?>
         
         <span style="color:var(--text-muted); align-self:center; font-size:0.9rem;">Página <?= $page ?> de <?= $total_pages ?></span>
 
         <?php if ($page < $total_pages): ?>
-            <a href="?page=<?= $page+1 ?>&grupo=<?= $f_grupo ?>&lote_id=<?= $f_lote ?>&campania=<?= urlencode($f_camp) ?>&q=<?= urlencode($q) ?>" class="btn" style="background:rgba(255,255,255,0.05); color:white; padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
+            <a href="?page=<?= $page+1 ?>&grupo=<?= $f_grupo ?>&lote_id=<?= $f_lote ?>&campania=<?= urlencode($f_camp) ?>&q=<?= urlencode($q) ?>" class="btn" style="background:var(--n-100); color:var(--text-primary); padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
         <?php endif; ?>
     </div>
     <?php endif; ?>
@@ -673,10 +723,10 @@ function colorGrupo($g) {
 
             <!-- Grupo de Gasto -->
             <div style="display: flex; flex-direction: column; gap: 5px;">
-                <label>Grupo de Gasto</label>
+                <label for="grupoGastoSelect">Grupo de Gasto</label>
                 <select name="grupo_gasto" id="grupoGastoSelect" required
                     onchange="toggleGrupoDesc(); togglePulv();"
-                    style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: white;">
+                    style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: var(--text-primary);">
                     <option value="siembra">🌱 Siembra</option>
                     <option value="cosecha">🚜 Cosecha</option>
                     <option value="pulverizacion">🧪 Pulverización</option>
@@ -687,27 +737,27 @@ function colorGrupo($g) {
 
             <!-- Campo libre para "Otros" -->
             <div id="grupoDescContainer" style="display: none; flex-direction: column; gap: 5px;">
-                <label>Descripción del Gasto <span style="color:var(--text-muted);font-size:0.85em;">(especificá cuál)</span></label>
+                <label for="grupoDescInput">Descripción del Gasto <span style="color:var(--text-muted);font-size:0.85em;">(especificá cuál)</span></label>
                 <input type="text" name="grupo_descripcion" id="grupoDescInput"
                     placeholder="Ej: Fletes, Análisis de suelo, Asesoramiento..."
-                    style="padding: 10px; border-radius: 6px; border: 1px solid var(--accent); background: rgba(16,185,129,0.05); color: white;">
+                    style="padding: 10px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--text-primary);">
             </div>
 
             <!-- Tipo Componente + Lote (side by side) -->
             <div class="form-grid-2">
                 <div style="display: flex; flex-direction: column; gap: 5px;">
-                    <label>Tipo Componente</label>
+                    <label for="tipoCompSelect">Tipo Componente</label>
                     <select name="tipo_componente" id="tipoCompSelect" required onchange="toggleFormMode()"
-                        style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: white;">
+                        style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: var(--text-primary);">
                         <option value="labor">👷 Mano de Obra (Labor)</option>
                         <option value="insumo">📦 Insumo</option>
                         <option value="receta_labor">🚜 Aplicación / Receta (Labor + Insumos)</option>
                     </select>
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 5px;">
-                    <label>Lote Afectado</label>
+                    <label for="loteSelect">Lote Afectado</label>
                     <select name="lote_id" id="loteSelect" required onchange="updateCultivos(); prefillHectareasFromLote();"
-                        style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: white;">
+                        style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: var(--text-primary);">
                         <option value="">-- Seleccionar Lote --</option>
                         <?php foreach($lotes as $l): ?>
                             <option value="<?= $l['id'] ?>"><?= htmlspecialchars($l['nombre']) ?> (<?= $l['superficie'] ?> ha)</option>
@@ -718,77 +768,97 @@ function colorGrupo($g) {
 
             <!-- Campaña / Cultivo -->
             <div style="display: flex; flex-direction: column; gap: 5px;">
-                <label>Campaña / Cultivo Actual</label>
+                <label for="cultivoSelect">Campaña / Cultivo Actual</label>
                 <select name="form_cultivo" id="cultivoSelect"
-                    style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: white;">
+                    style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: var(--text-primary);">
                     <option value="">-- Seleccionar primero un lote --</option>
                 </select>
             </div>
 
+            <?php /* Moneda del gasto. Se guarda la que se pagó y la conversión se
+                     hace al mirar: el panel tiene un botón ARS/USD que pasa todo a
+                     la misma moneda usando la cotización del mes de cada
+                     movimiento. Por eso no hace falta convertir de cabeza acá, y
+                     por eso conviene no hacerlo: el contratista factura en pesos y
+                     el fertilizante se compra en dólares, y guardar lo que
+                     realmente se pagó es lo único que después se puede reconstruir. */ ?>
+            <div style="display: flex; flex-direction: column; gap: 5px;">
+                <label for="monedaSelect">Moneda del gasto</label>
+                <select name="moneda" id="monedaSelect"
+                    style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: var(--text-primary);">
+                    <option value="ARS" selected>$ — Pesos</option>
+                    <option value="USD">US$ — Dólares</option>
+                </select>
+                <small style="color:var(--text-muted);">
+                    <i class="fas fa-info-circle"></i>
+                    Guardá lo que pagaste. El panel lo convierte con el dólar del mes.
+                </small>
+            </div>
+
             <!-- Modo de Ingreso (Insumos) -->
             <div id="modoCalculoContainer" style="display: none; flex-direction: column; gap: 5px; margin-top: 5px;">
-                <label>Modo de Ingreso para Insumos</label>
+                <label for="modoCalculoSelect">Modo de Ingreso para Insumos</label>
                 <select name="modo_calculo" id="modoCalculoSelect" onchange="toggleFormMode(); updateCostoPreview();"
-                    style="padding: 10px; border-radius: 6px; border: 1px dashed #60a5fa; background: rgba(96,165,250,0.05); color: white;">
+                    style="padding: 10px; border-radius: 6px; border: 1px dashed var(--accent); background: rgba(96,165,250,0.05); color: var(--text-primary);">
                     <option value="ha">Por Hectárea (Cant/Ha)</option>
                     <option value="total">Total del Lote (Se dividirá automáticamente por las hectáreas)</option>
                 </select>
             </div>
 
             <!-- SECCIÓN LABOR -->
-            <div id="sectionLabor" style="display: flex; flex-direction: column; gap: 14px; background:rgba(255,255,255,0.02); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
-                <div style="font-size:0.9rem; font-weight:600; color:var(--text-muted); border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:5px;">Datos de la Labor</div>
+            <div id="sectionLabor" style="display: flex; flex-direction: column; gap: 14px; background:var(--n-25); padding:10px; border-radius:8px; border:1px solid var(--border);">
+                <div style="font-size:0.9rem; font-weight:600; color:var(--text-muted); border-bottom:1px solid var(--border); padding-bottom:5px;">Datos de la Labor</div>
                 <div style="display: flex; flex-direction: column; gap: 5px;">
-                    <label>Proveedor del Servicio</label>
+                    <label for="proveedorInput">Proveedor del Servicio</label>
                     <input type="text" name="proveedor_servicio" id="proveedorInput"
                         placeholder="Ej: Contratista Juan"
-                        style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: white;">
+                        style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--n-0); color: var(--text-primary);">
                 </div>
                 <div class="form-grid-2">
                     <div style="display:none; flex-direction: column; gap: 5px;" id="divCargas">
-                        <label>Cantidad de Cargas <small>(Opcional)</small></label>
+                        <label for="cargasInput">Cantidad de Cargas <small>(Opcional)</small></label>
                         <input type="number" step="1" name="cargas" id="cargasInput" placeholder="Ej: 3"
-                            style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: white;">
+                            style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--n-0); color: var(--text-primary);">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 5px;">
-                        <label id="lblCantHaLabor">Cantidad de Has.</label>
+                        <label for="cantHaLabor" id="lblCantHaLabor">Cantidad de Has.</label>
                         <input type="number" step="0.1" name="cantidad_ha" id="cantHaLabor" placeholder="Ej: 120"
-                            style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: white;">
+                            style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--n-0); color: var(--text-primary);">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 5px;">
-                        <label>Precio $ / Ha.</label>
+                        <label for="priceHaLabor">Precio $ / Ha.</label>
                         <input type="number" step="0.0001" name="precio_unitario" id="priceHaLabor" placeholder="Ej: 4500"
-                            style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: white;">
+                            style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--n-0); color: var(--text-primary);">
                     </div>
                 </div>
             </div>
 
             <!-- SECCIÓN INSUMO (MULTI-INSUMO) -->
-            <div id="sectionInsumo" style="display: none; flex-direction: column; gap: 14px; background:rgba(255,255,255,0.02); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
-                <div style="font-size:0.9rem; font-weight:600; color:var(--text-muted); border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:5px;">Insumos y Productos Utilizados</div>
+            <div id="sectionInsumo" style="display: none; flex-direction: column; gap: 14px; background:var(--n-25); padding:10px; border-radius:8px; border:1px solid var(--border);">
+                <div style="font-size:0.9rem; font-weight:600; color:var(--text-muted); border-bottom:1px solid var(--border); padding-bottom:5px;">Insumos y Productos Utilizados</div>
                 <div style="display:flex; flex-direction:column; gap:5px;">
-                    <label>Hectáreas a aplicar <small style="color:var(--text-muted);">(se completa con las del lote, podés cambiarlo)</small></label>
+                    <label for="hectareasInsumo">Hectáreas a aplicar <small style="color:var(--text-muted);">(se completa con las del lote, podés cambiarlo)</small></label>
                     <input type="number" step="0.01" name="hectareas_insumo" id="hectareasInsumo" placeholder="Ej: 50"
                         oninput="updateCostoPreview()"
-                        style="padding: 10px; border-radius: 6px; border: 1px dashed #60a5fa; background: rgba(96,165,250,0.05); color: white;">
+                        style="padding: 10px; border-radius: 6px; border: 1px dashed var(--accent); background: rgba(96,165,250,0.05); color: var(--text-primary);">
                 </div>
                 <div id="insumosContainer" style="display:flex; flex-direction:column; gap:10px;">
                     <!-- Filas dinámicas irán aquí -->
                 </div>
-                <button type="button" class="btn" style="background:rgba(255,255,255,0.05); border:1px dashed rgba(255,255,255,0.2); align-self:flex-start;" onclick="addInsumoRow()">
+                <button type="button" class="btn" style="background:var(--n-100); border:1px dashed var(--border); align-self:flex-start;" onclick="addInsumoRow()">
                     <i class="fas fa-plus"></i> Añadir Insumo
                 </button>
             </div>
 
             <!-- Fecha -->
             <div style="display: flex; flex-direction: column; gap: 5px;">
-                <label>Fecha</label>
+                <label for="fechaInput">Fecha</label>
                 <input type="date" name="fecha" id="fechaInput" value="<?= date('Y-m-d') ?>" required
-                    style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: white;">
+                    style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--n-100); color: var(--text-primary);">
             </div>
 
             <!-- Preview costo calculado -->
-            <div id="costoPreview" style="display:none; background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.2); border-radius: 8px; padding: 12px; text-align: center;">
+            <div id="costoPreview" style="display:none; background: var(--accent-soft); border: 1px solid var(--accent-soft); border-radius: 8px; padding: 12px; text-align: center;">
                 <span style="font-size:0.85rem; color:var(--text-muted);">Costo Total Estimado</span><br>
                 <span id="costoPreviewVal" style="font-size:1.5rem; font-weight:800; color:var(--accent);">$0.00</span>
             </div>
@@ -796,13 +866,13 @@ function colorGrupo($g) {
             <!-- Vista previa del Excel de la receta (en vivo, solo modo receta) -->
             <div id="recetaPreviewWrap" style="display:none; flex-direction:column; gap:6px;">
                 <span style="font-size:0.8rem; color:var(--text-muted); display:flex; align-items:center; gap:6px;">
-                    <i class="fas fa-file-excel" style="color:#10b981;"></i> Vista previa del Excel (se actualiza al escribir)
+                    <i class="fas fa-file-excel" style="color:var(--accent);"></i> Vista previa del Excel (se actualiza al escribir)
                 </span>
                 <div id="recetaPreview" style="overflow-x:auto; background:#ffffff; border-radius:8px; padding:10px;"></div>
             </div>
 
             <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px;">
-                <button type="button" class="btn" onclick="closeOpModal()" style="background: rgba(255,255,255,0.1); color: white;">Cancelar</button>
+                <button type="button" class="btn" onclick="closeOpModal()" style="background: rgba(255,255,255,0.1); color: var(--text-primary);">Cancelar</button>
                 <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Guardar</button>
             </div>
         </form>
@@ -813,6 +883,9 @@ function colorGrupo($g) {
 const lotesRaw   = <?= $lotes_json ?>;
 const cultivosRaw = <?= $cultivos_json ?>;
 const insumosRaw = <?= $insumos_json ?>;
+// El símbolo de la moneda que se está mirando, para que los KPI que redibuja el
+// JavaScript no digan otra cosa que los que pintó el PHP.
+const AP_SIMBOLO = <?= json_encode(ap_simbolo()) ?>;
 let kpiMode = 'money';
 
 function setKpiMode(mode) {
@@ -827,11 +900,12 @@ function renderKpis() {
     const total = parseFloat(document.getElementById('kpiTotal').dataset.val);
     
     if (kpiMode === 'money') {
+        // El mismo símbolo que el PHP: los data-val ya vienen convertidos.
         ids.forEach(id => {
             const el = document.getElementById(id);
-            if (el) el.textContent = '$' + Math.round(parseFloat(el.dataset.val)).toLocaleString('es-AR');
+            if (el) el.textContent = AP_SIMBOLO + Math.round(parseFloat(el.dataset.val)).toLocaleString('es-AR');
         });
-        document.getElementById('kpiTotal').textContent = '$' + Math.round(total).toLocaleString('es-AR');
+        document.getElementById('kpiTotal').textContent = AP_SIMBOLO + Math.round(total).toLocaleString('es-AR');
     } else {
         ids.forEach(id => {
             const el = document.getElementById(id);
@@ -900,20 +974,20 @@ function addInsumoRow(ins_id = '', cant = '', price = '', nom_libre = '') {
         <button type="button" onclick="document.getElementById('row-${rowId}').remove(); updateCostoPreview();" style="position:absolute; top:8px; right:8px; background:transparent; border:none; color:var(--danger); cursor:pointer;"><i class="fas fa-times"></i></button>
         <div style="display:flex; flex-direction:column; gap:4px; padding-right:20px;">
             <label style="font-size:0.8rem;">Insumo</label>
-            <select name="insumo_id[]" onchange="onInsumoChangeRow(this)" style="padding:8px; border-radius:6px; border:1px solid var(--border); background:var(--bg-color); color:white;" ${req}>
+            <select name="insumo_id[]" onchange="onInsumoChangeRow(this)" style="padding:8px; border-radius:6px; border:1px solid var(--border); background:var(--bg-color); color:var(--text-primary);" ${req}>
                 ${optionsHtml}
             </select>
-            <input type="text" name="nombre_libre_ins[]" class="libre-input" value="${nom_libre}" oninput="updateCostoPreview()" placeholder="Escribe el nombre del insumo o labor..." style="display:${(!ins_id && nom_libre) ? 'block' : 'none'}; padding:8px; border-radius:6px; border:1px dashed var(--accent); background:rgba(0,0,0,0.3); color:white; margin-top:5px;">
+            <input type="text" name="nombre_libre_ins[]" class="libre-input" value="${nom_libre}" oninput="updateCostoPreview()" placeholder="Escribe el nombre del insumo o labor..." style="display:${(!ins_id && nom_libre) ? 'block' : 'none'}; padding:8px; border-radius:6px; border:1px dashed var(--accent); background:var(--n-0); color:var(--text-primary); margin-top:5px;">
             <div class="stockIndicadorRow" style="display:none; font-size:0.8rem; margin-top:2px;"></div>
         </div>
         <div style="display:flex; gap:10px;">
             <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
                 <label style="font-size:0.8rem;" class="lbl-cant-ins">Cant/Ha</label>
-                <input type="number" step="0.0001" name="cantidad_ha_ins[]" class="cant-ins-input" value="${cant}" oninput="updateCostoPreview()" placeholder="Ej: 0.15" style="padding:8px; border-radius:6px; border:1px solid var(--border); background:rgba(0,0,0,0.2); color:white;" ${req}>
+                <input type="number" step="0.0001" name="cantidad_ha_ins[]" class="cant-ins-input" value="${cant}" oninput="updateCostoPreview()" placeholder="Ej: 0.15" style="padding:8px; border-radius:6px; border:1px solid var(--border); background:var(--n-0); color:var(--text-primary);" ${req}>
             </div>
             <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
                 <label style="font-size:0.8rem;">Precio USD</label>
-                <input type="number" step="0.0001" name="precio_unitario_ins[]" class="price-ins-input" value="${price}" oninput="updateCostoPreview()" placeholder="Ej: 6.50" style="padding:8px; border-radius:6px; border:1px solid var(--border); background:rgba(0,0,0,0.2); color:white;" ${req}>
+                <input type="number" step="0.0001" name="precio_unitario_ins[]" class="price-ins-input" value="${price}" oninput="updateCostoPreview()" placeholder="Ej: 6.50" style="padding:8px; border-radius:6px; border:1px solid var(--border); background:var(--n-0); color:var(--text-primary);" ${req}>
             </div>
         </div>
     </div>`;
@@ -1174,7 +1248,7 @@ function renderRecetaPreview() {
 
     // Estilos de celdas (definidos ANTES del bucle: se usan dentro de él)
     const th = 'background:#0f172a;color:#fff;font-weight:bold;text-align:center;padding:5px 7px;border:1px solid #1a1a2e;';
-    const td = 'text-align:center;padding:4px 7px;border:1px solid #cbd5e1;color:#0f172a;';
+    const td = 'text-align:center;padding:4px 7px;border:1px solid var(--text-muted);color:#0f172a;';
 
     // Insumos
     let filas = '';
@@ -1246,7 +1320,7 @@ function renderRecetaPreview() {
             </tr>
             ${filas || `<tr><td colspan="6" style="${td}color:#64748b;">Sin insumos cargados</td></tr>`}
             <tr>
-                <td colspan="5" style="text-align:right;font-weight:bold;background:#f1f5f9;border:1px solid #cbd5e1;border-top:2px solid #000;padding:5px 7px;">TOTAL INSUMOS</td>
+                <td colspan="5" style="text-align:right;font-weight:bold;background:#f1f5f9;border:1px solid var(--text-muted);border-top:2px solid #000;padding:5px 7px;">TOTAL INSUMOS</td>
                 <td style="${td}font-weight:bold;background:#f1f5f9;border-top:2px solid #000;">${fmt(totalInsumos)}</td>
             </tr>
         </table>
@@ -1373,4 +1447,8 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 </script>
 
+<?php /* El chat va en todas las pantallas de Agricultura: el motor contesta sobre
+         la campaña, no sobre la pantalla, así que la pregunta "cuánto gasté en
+         siembra" vale igual acá que en el panel. */ ?>
+<?php require_once 'includes/chat_motor.php'; ?>
 <?php require_once 'includes/footer.php'; ?>

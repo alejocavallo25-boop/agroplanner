@@ -32,5 +32,15 @@ desktop.ini
 .idea/
 *.swp
 
+# ── Copias de seguridad antes de un rediseño ────────────────────────────────
+# Se guardan los archivos como estaban antes de una migración grande, para poder
+# comparar mientras se trabaja. Son una red local: el historial de Git ya guarda
+# esa versión, así que subirlas duplicaría el proyecto entero en el repo.
+_backup_*/
+*.bak.css
+*.bak.php
+
 # ── Local de herramientas ───────────────────────────────────────────────────
 .claude/settings.local.json
+.design/
+.impeccable/

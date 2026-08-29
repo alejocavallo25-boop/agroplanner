@@ -14,7 +14,7 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
     <title>Planificador Agrícola</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="assets/css/style.css?v=<?= @filemtime(__DIR__ . '/../assets/css/style.css') ?: '1' ?>">
     <!-- Favicon: La hojita idéntica a AgroPlanner (Vectorial y Transparente) -->
@@ -45,11 +45,16 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
     <script src="assets/js/offline.js" defer></script>
 </head>
 <body>
+<?php /* Salto al contenido. Sin esto, quien navega con teclado tiene que pasar
+         por los 12 links del menú ANTES de llegar al contenido, en cada página y
+         cada vez. Sólo se ve al enfocarlo, así que no cambia nada visualmente. */ ?>
+<a href="#contenido-principal" class="ap-skip">Saltar al contenido</a>
+
 <div id="overlay"></div>
 
 <?php require_once 'sidebar.php'; ?>
 
-<main class="main-content">
+<main class="main-content" id="contenido-principal" tabindex="-1">
     <header>
         <div class="header-left">
             <button class="mobile-menu-btn" id="menuToggle" aria-label="Abrir menú"><i class="fas fa-bars"></i></button>
@@ -71,12 +76,14 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
     </div>
     <style>
         .demo-banner{display:flex;align-items:center;gap:10px;margin:0 0 18px;padding:11px 16px;
-            border:1px solid rgba(245,158,11,.45);background:rgba(245,158,11,.1);border-radius:10px;
-            color:#b45309;font-size:.9rem;line-height:1.4}
-        .demo-banner i{color:#f59e0b;flex:none}
+            border:1px solid oklch(0.470 0.120 70 / .40);background:oklch(0.470 0.120 70 / .09);
+            border-radius:10px;
+            color:var(--se-warning);font-size:.92rem;line-height:1.45}
+        .demo-banner i{color:var(--se-warning);flex:none}
         /* controles neutralizados: se ven, se entiende que existen, pero no responden */
         .demo-ro{opacity:.45 !important;cursor:not-allowed !important;pointer-events:none !important}
-        @media (prefers-color-scheme: dark){ .demo-banner{color:#fcd34d} }
+        /* Sin override por prefers-color-scheme: la app es de tema claro fijo, así que
+           el amarillo claro que había acá quedaba ilegible sobre el banner. */
     </style>
     <script>
     (function(){

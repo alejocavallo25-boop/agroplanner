@@ -8,7 +8,11 @@ $enter_only = !empty($buscador_enter_only);
 ?>
 <div class="ap-search-box<?= $qv !== '' ? ' has-value' : '' ?>">
     <i class="fas fa-search"></i>
+    <?php /* El placeholder no cuenta como etiqueta: desaparece al escribir y varios
+             lectores de pantalla no lo anuncian. Como acá no hay label visible
+             —sólo la lupa— el nombre accesible va en aria-label. */ ?>
     <input type="text" placeholder="<?= htmlspecialchars($ph) ?>"
+           aria-label="<?= htmlspecialchars($ph) ?>"
            value="<?= htmlspecialchars($qv) ?>"
            oninput="apBuscar(this)" onkeydown="apBuscarEnter(this, event)" autocomplete="off"<?= $enter_only ? ' data-search-on-enter="1"' : '' ?>>
     <button type="button" class="ap-search-clear" title="Limpiar" onclick="apBuscarLimpiar(this)">
