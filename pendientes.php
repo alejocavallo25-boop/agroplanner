@@ -27,7 +27,9 @@ require_once 'includes/header.php';
         Por favor, contacta al administrador del sistema para que te asigne los módulos que te correspondan.
     </p>
     <div style="margin-top: 30px;">
-        <a href="logout.php" class="btn" style="background: rgba(255,255,255,0.1); color: white;">Cerrar sesión por ahora</a>
+        <?php /* Era blanco al 10% con texto blanco: sobre el panel claro quedaba
+                 invisible, y es la única acción que ofrece esta pantalla. */ ?>
+        <a href="logout.php" class="btn" style="background: var(--n-100); color: var(--text-primary); border: 1px solid var(--border);">Cerrar sesión por ahora</a>
     </div>
 </div>
 

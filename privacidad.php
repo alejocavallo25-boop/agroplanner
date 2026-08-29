@@ -16,13 +16,16 @@
             min-height: 100vh;
             background: var(--bg-color); /* asumiendo que está en style.css */
         }
+        /* Estos valores venían del tema oscuro: negro al 25% con bordes en
+           blanco al 8%. Sobre el fondo claro daban un panel gris con el texto
+           gris encima, y los bordes no se veían. Ahora son los mismos tokens
+           que usa el panel de papel del resto de la aplicación. */
         .content-wrapper {
             width: 100%; max-width: 800px;
-            background: rgba(0, 0, 0, 0.25);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 20px;
+            background: var(--panel-bg);
+            border: 1px solid var(--border);
+            border-radius: 10px;
             padding: 40px;
-            backdrop-filter: blur(12px);
             color: var(--text-primary);
             line-height: 1.6;
             margin-top: 20px;
@@ -41,11 +44,13 @@
             font-weight: 600;
             transition: color 0.2s;
             padding: 8px 16px;
-            background: rgba(255,255,255,0.05);
-            border-radius: 12px;
-            border: 1px solid rgba(255,255,255,0.1);
+            /* Blanco translúcido sobre fondo claro es invisible: el botón de
+               volver quedaba sin fondo ni borde. */
+            background: var(--n-100);
+            border-radius: 8px;
+            border: 1px solid var(--border);
         }
-        .back-link:hover { color: var(--text-primary); background: rgba(255,255,255,0.1); }
+        .back-link:hover { color: var(--text-primary); background: var(--n-200); }
     </style>
 </head>
 <body>

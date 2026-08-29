@@ -105,9 +105,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
                 
                 <?php if ($recovery_link): ?>
-                <div style="background: rgba(255, 255, 255, 0.05); padding: 15px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 24px; word-break: break-all;">
-                    <strong style="color: #38bdf8; font-size: 0.85rem; text-transform: uppercase;">MODO DESARROLLO (SOLO LOCAL):</strong><br>
-                    <a href="<?= $recovery_link ?>" style="color: #fff; font-size: 0.9rem; text-decoration: underline; margin-top: 5px; display: inline-block;">
+                <?php /* La caja era blanco al 5% y el enlace, blanco puro: sobre el
+                         fondo claro no se veía ni el recuadro ni el link. */ ?>
+                <div style="background: var(--n-50); padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 24px; word-break: break-all;">
+                    <strong style="color: var(--se-info); font-size: 0.85rem; text-transform: uppercase;">MODO DESARROLLO (SOLO LOCAL):</strong><br>
+                    <a href="<?= $recovery_link ?>" style="color: var(--accent); font-size: 0.9rem; text-decoration: underline; margin-top: 5px; display: inline-block;">
                         Haz clic aquí para cambiar tu contraseña
                     </a>
                 </div>
