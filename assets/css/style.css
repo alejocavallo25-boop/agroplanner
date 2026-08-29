@@ -592,6 +592,10 @@ html {
 .sidebar-logout {
     margin-left: auto;
     color: var(--text-muted);
+    /* Es un <a> y no hay reset global de links, así que sin esto el navegador
+       le pone el subrayado por defecto: quedaba una rayita bajo el ícono de
+       salir. Los .nav-link ya lo declaraban; éste se había pasado por alto. */
+    text-decoration: none;
     transition: all 0.2s;
     min-width: 44px;
     min-height: 44px;

@@ -93,7 +93,13 @@ function is_active($page, $current_page) {
         </div>
         <div class="sidebar-user-info">
             <span class="sidebar-user-name"><?= htmlspecialchars($_SESSION['username'] ?? 'Usuario') ?></span>
-            <span class="sidebar-user-role"><?= htmlspecialchars($_SESSION['role'] ?? 'Invitado') ?></span>
+            <?php /* Mostraba el valor crudo del enum, que está en inglés: debajo del
+                     nombre decía "User". Se traduce acá y no en la base porque el
+                     enum lo usan las consultas de permisos. */
+            $roles = ['admin' => 'Administrador', 'user' => 'Usuario'];
+            $rol   = $_SESSION['role'] ?? '';
+            ?>
+            <span class="sidebar-user-role"><?= htmlspecialchars($roles[$rol] ?? 'Invitado') ?></span>
         </div>
         <a href="logout.php" class="sidebar-logout" title="Cerrar Sesión">
             <i class="fas fa-sign-out-alt"></i>
