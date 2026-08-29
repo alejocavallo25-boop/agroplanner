@@ -14,18 +14,24 @@ $error = '';
 $message = '';
 $token = $_GET['token'] ?? '';
 
+/* Antes esto era un die() con texto pelado: quien llegaba con el link cortado
+   —pasa al copiarlo de un correo— veía una página en blanco, sin estilo y sin
+   forma de volver. Un link sin token es un link inválido, así que entra por la
+   misma rama que los otros dos casos y sale con la página completa y el enlace
+   para pedir uno nuevo. */
+$user = null;
+
 if (!$token) {
-    die("Token de seguridad no proporcionado.");
+    $error = "El enlace de recuperación es inválido o no existe.";
+} else {
+    $stmt = $pdo->prepare("SELECT id, reset_expires FROM users WHERE reset_token = ?");
+    $stmt->execute([$token]);
+    $user = $stmt->fetch();
 }
 
-// Verificar token
-$stmt = $pdo->prepare("SELECT id, reset_expires FROM users WHERE reset_token = ?");
-$stmt->execute([$token]);
-$user = $stmt->fetch();
-
-if (!$user) {
+if (!$error && !$user) {
     $error = "El enlace de recuperación es inválido o no existe.";
-} elseif (strtotime($user['reset_expires']) < time()) {
+} elseif ($user && strtotime($user['reset_expires']) < time()) {
     $error = "El enlace de recuperación ha expirado. Por favor solicita uno nuevo.";
 }
 
@@ -55,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$error) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Restablecer Contraseña - AgroPlanner</title>
-    <link rel="stylesheet" href="assets/css/style.css">
+    <?php require __DIR__ . '/includes/head_publico.php'; ?>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='-30 -30 572 572'><path fill='%2310b981' d='M471.3 6.7C477.7 .6 487-1.6 495.6 1.2 505.4 4.5 512 13.7 512 24l0 186.9c0 131.2-108.1 237.1-238.8 237.1-77 0-143.4-49.5-167.5-118.7-35.4 30.8-57.7 76.1-57.7 126.7 0 13.3-10.7 24-24 24S0 469.3 0 456C0 381.1 38.2 315.1 96.1 276.3 131.4 252.7 173.5 240 216 240l80 0c13.3 0 24-10.7 24-24s-10.7-24-24-24l-80 0c-39.7 0-77.3 8.8-111 24.5 23.3-70 89.2-120.5 167-120.5 66.4 0 115.8-22.1 148.7-44 19.2-12.8 35.5-28.1 50.7-45.3z'/></svg>">
     <style>

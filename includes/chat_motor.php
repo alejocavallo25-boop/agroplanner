@@ -74,6 +74,23 @@
     background: var(--n-25);
     flex-shrink: 0;
 }
+
+/* Foto de perfil de Cafrita. El fondo blanco no es decorativo: el isotipo es
+   verde oscuro con una hoja dorada, y sobre el gris de la cabecera perdía
+   contraste. flex:none porque si no el círculo se aplasta cuando el nombre
+   ocupa lugar. */
+.mc-avatar {
+    width: 40px; height: 40px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--n-0);
+    border: 1px solid var(--border);
+    display: inline-flex; align-items: center; justify-content: center;
+    overflow: hidden;
+}
+/* El isotipo trae aire propio dentro de su viewBox, así que a 26px las dos
+   hojas se empastaban y sólo se leía el hexágono. A 34 se distinguen. */
+.mc-avatar img { display: block; width: 34px; height: 34px; }
 /* El nombre y, debajo, qué hace. La bajada existe porque "Cafrita" sola no dice
    nada la primera vez: el nombre da confianza, la línea de abajo da la función. */
 .mc-nombre { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
@@ -217,7 +234,12 @@
 <div class="mc-panel" id="mc-panel" role="dialog" aria-modal="false"
      aria-labelledby="mc-titulo" hidden>
     <div class="mc-cabecera">
-        <i class="fas fa-seedling" style="color: var(--accent);" aria-hidden="true"></i>
+        <?php /* Era un ícono genérico de plantita. Ahora va el isotipo de CaFra,
+                 en redondo y como foto de perfil: Cafrita es de la casa, no una
+                 función del sistema, y el logo lo dice sin explicarlo. */ ?>
+        <span class="mc-avatar" aria-hidden="true">
+            <img src="assets/img/cafra-isotipo.svg" alt="" width="34" height="34">
+        </span>
         <div class="mc-nombre">
             <h2 id="mc-titulo">Cafrita</h2>
             <span class="mc-bajada">La que te lleva las cuentas</span>
