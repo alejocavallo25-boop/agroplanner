@@ -768,7 +768,8 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
             'detalle' => 'Puedo darte ' . implode(', ', array_map(fn($m) => $m['etiqueta'], $cat))
                        . '. Y desglosar el gasto por etapa, por tipo de insumo o por proveedor, '
                        . 'filtrar por lote, cultivo o mes, y comparar campañas, lotes o meses entre sí. '
-                       . 'También te digo el clima y la lluvia de cada lote.',
+                       . 'También te digo el clima y la lluvia de cada lote, y a cuánto está el grano '
+                       . 'en la pizarra: con eso te saco cuánto te deja la hectárea a ese precio.',
             'valor' => null, 'filtros' => [], 'link' => null,
             'sugerencias' => ['¿En qué gasté más?', '¿Cómo está el clima?', '¿Cuánto gasté en agosto?'],
         ];
@@ -1339,6 +1340,136 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
             'filtros' => ['ciclo' => $campania, 'lote' => (int)$lt['id'], 'cultivo' => $cultivo, 'metrica' => null],
             'link' => 'clima_historico.php?id=' . (int)$lt['id'],
             'sugerencias' => ['¿Cuánto llovió en enero?', '¿Cuál es mi mejor lote?', '¿En qué gasté más?'],
+        ];
+    }
+
+    /* ── Precio de pizarra y qué deja la hectárea ────────────────────────────
+       La cotización sola es un dato de diario. Cruzada con el rinde y el costo
+       del productor pasa a ser su número. */
+    if (motor_pide_precio($texto)) {
+        $especie = motor_cultivo_cotizable($pdo, $texto);
+
+        /* Si no nombró el grano, se usa el de la campaña. Con más de uno se
+           pregunta: valuar la producción entera al precio de un solo cultivo
+           daría un número prolijo y equivocado. */
+        if ($especie === null) {
+            if ($cultivo !== null) {
+                $especie = motor_normalizar(explode(' ', trim($cultivo))[0]);
+            } else {
+                /* getCultivosData devuelve el cultivo como CLAVE del arreglo, no
+                   como campo de cada fila. */
+                $datos = $ctrl->getCultivosData($campania);
+                $esp = array_values(array_filter(
+                    array_keys($datos),
+                    fn($e) => $e !== '' && $e !== 'Sin Especificar'
+                ));
+                if (count($esp) === 1) {
+                    $especie = motor_normalizar(explode(' ', trim($esp[0]))[0]);
+                } elseif (count($esp) > 1) {
+                    return [
+                        'ok' => false, 'tipo' => 'falta_dato',
+                        'respuesta' => '¿De qué cultivo querés el precio?',
+                        'detalle' => 'En ' . $campania . ' tenés: ' . implode(', ', $esp) . '.',
+                        'valor' => null,
+                        'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => null, 'metrica' => null],
+                        'link' => motor_link($campania, $loteId, null),
+                        'sugerencias' => array_map(
+                            fn($e) => '¿A cuánto está ' . motor_articulo_cultivo($e) . ' '
+                                    . mb_strtolower($e, 'UTF-8') . '?',
+                            array_slice($esp, 0, 3)),
+                    ];
+                }
+            }
+        }
+
+        if ($especie === null) {
+            return [
+                'ok' => false, 'tipo' => 'falta_dato',
+                'respuesta' => '¿De qué grano querés el precio?',
+                'detalle' => 'Tengo la pizarra de Rosario para trigo, soja, maíz, sorgo y girasol.',
+                'valor' => null,
+                'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => null],
+                'link' => null,
+                'sugerencias' => ['¿A cuánto está la soja?', '¿A cuánto está el trigo?', '¿A cuánto está el maíz?'],
+            ];
+        }
+
+        $ref = motor_precio_referencia($pdo, ucfirst($especie));
+        if ($ref === null) {
+            return [
+                'ok' => false, 'tipo' => 'sin_datos',
+                'respuesta' => 'No tengo la cotización de ' . $especie . ' en este momento.',
+                'detalle' => 'La pizarra la baja un proceso automático desde la Cámara de Rosario. '
+                           . 'Si viene fallando, en el panel se ve la última que entró.',
+                'valor' => null,
+                'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => null],
+                'link' => motor_link($campania, $loteId, $cultivo), 'sugerencias' => [],
+            ];
+        }
+
+        /* La pizarra viene en pesos; el panel puede estar en dólares. Convertir
+           acá es la misma regla que el resto: se guarda lo que se pagó y se
+           convierte al mostrar. */
+        $precio_kg = motor_a_moneda_actual($pdo, $usuarioId, $ref['precio_kg']);
+        $fechaTxt  = date('d/m', strtotime($ref['fecha']));
+
+        /* El kilo en pesos son cientos ($320,40) y en dólares son centavos
+           ($0,2117): con un formato fijo, uno de los dos queda mal. Se elige por
+           la magnitud y así sirve en las dos monedas. */
+        $fmtPrecio = $precio_kg < 10 ? 'dinero_fino' : 'dinero';
+
+        $st       = $ctrl->getGlobalStats($campania, $loteId, $cultivo);
+        $rinde    = (float)$st['rendimiento_ha'];
+        $costoHa  = (float)$st['costo_por_ha'];
+
+        $art      = motor_articulo_cultivo($especie);
+        $cabecera = ucfirst($art) . ' ' . $especie . ' está a '
+                  . motor_formatear($precio_kg, $fmtPrecio) . ' el kilo.';
+        $partes   = ['Pizarra de Rosario del ' . $fechaTxt . '.'];
+
+        /* Sin rinde cargado no hay cuenta por hectárea que hacer, y media cuenta
+           es peor que ninguna: se dice qué falta. */
+        if ($rinde > 0) {
+            $ingresoHa = $rinde * $precio_kg;
+            $quedaHa   = $ingresoHa - $costoHa;
+
+            $cabecera = 'A ' . motor_formatear($precio_kg, $fmtPrecio) . ' el kilo de ' . $especie
+                      . ', la hectárea te deja ' . motor_formatear($quedaHa, 'dinero') . '.';
+            $partes[] = 'Con tu rinde de ' . motor_formatear($rinde, 'kg_ha') . ' la hectárea da '
+                      . motor_formatear($ingresoHa, 'dinero') . ', y el costo es de '
+                      . motor_formatear($costoHa, 'dinero') . ' por hectárea (laboreo más alquiler).';
+            if ($quedaHa < 0) {
+                $partes[] = 'A este precio no cubrís el costo.';
+            }
+
+            // Con qué precio vendió de verdad: dice si la pizarra de hoy está mejor.
+            $kg = (float)$st['kg'];
+            if ($kg > 0 && (float)$st['ingresos'] > 0) {
+                $vendido = (float)$st['ingresos'] / $kg;
+                $partes[] = 'Lo que ya vendiste salió a '
+                          . motor_formatear($vendido, $vendido < 10 ? 'dinero_fino' : 'dinero')
+                          . ' el kilo en promedio.';
+            }
+            $valor = $quedaHa;
+        } else {
+            $partes[] = 'Todavía no tenés producción cargada en ' . $campania . ', '
+                      . 'así que no puedo decirte cuánto deja la hectárea.';
+            $valor = $precio_kg;
+        }
+
+        return [
+            'ok' => true, 'tipo' => 'precio',
+            'respuesta' => $cabecera,
+            'detalle' => implode(' ', $partes)
+                       . ' Es el precio de referencia de la Cámara, no lo que te paguen a vos.'
+                       . (motor_dolar_estimado($pdo, $usuarioId)
+                          ? ' Ojo que no tenés cotización del dólar cargada para este mes, '
+                            . 'así que el pasaje a dólares es aproximado.'
+                          : ''),
+            'valor' => $valor,
+            'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => null],
+            'link' => motor_link($campania, $loteId, $cultivo),
+            'sugerencias' => ['¿Cuál es mi rinde de indiferencia?', '¿En qué gasté más?', '¿Cuál es mi mejor lote?'],
         ];
     }
 
@@ -2906,6 +3037,92 @@ function motor_precio_referencia(PDO $pdo, string $cultivo): ?array {
     }
 }
 
+/* =====================================================================
+   PRECIO DE PIZARRA Y CUÁNTA PLATA DEJA LA HECTÁREA
+
+   La cotización ya se bajaba sola —cron/get_siogranos.php trae la pizarra de
+   Rosario— y sólo se usaba para avisar de un error de escala al cargar una
+   venta. Acá se la cruza con los números del productor.
+
+   Lo que se contesta es CUÁNTO QUEDA por hectárea a este precio, no si le
+   conviene vender. La diferencia no es de redacción: si le conviene depende de
+   su caja, de si espera mejor precio y de cuánto le cuesta guardar el grano,
+   que son cosas que el sistema no sabe. La cuenta sí la sabe hacer, y con la
+   cuenta a la vista la decisión la toma él.
+   ===================================================================== */
+
+function motor_pide_precio(string $t): bool {
+    /* Pide lenguaje de mercado a propósito. "cuánto gano" a secas es sinónimo
+       de margen neto y lo tiene que seguir atendiendo la rama de métricas; acá
+       sólo entra lo que habla del precio o de vender a precio de hoy. */
+    foreach (['a cuanto esta','a cuanto se esta','cotizacion','cotizaciones','pizarra',
+              'precio de mercado','precio de la tonelada','a como esta',
+              'si vendo','si vendiera','si vendemos','si lo vendo','vender ahora',
+              'a precio de hoy','precio de hoy','cuanto vale el','cuanto vale la',
+              'a cuanto pagan','cuanto pagan por'] as $p) {
+        if (strpos($t, $p) !== false) return true;
+    }
+    return false;
+}
+
+/**
+ * "el" o "la" según el grano.
+ *
+ * El género no está en la base y no se puede deducir de la terminación —soja
+ * termina en a y trigo en o, pero cebada y avena también son femeninas mientras
+ * que maíz es masculino—, así que va la lista de las femeninas y el resto toma
+ * "el". Decir "el soja" arruina una frase que por lo demás está bien.
+ */
+function motor_articulo_cultivo(string $especie): string {
+    $femeninas = ['soja', 'cebada', 'avena', 'colza', 'quinoa', 'alfalfa', 'lenteja', 'arveja'];
+    return in_array(motor_normalizar($especie), $femeninas, true) ? 'la' : 'el';
+}
+
+/**
+ * El cultivo nombrado en la pregunta, si es alguno de los que tienen pizarra.
+ *
+ * La lista sale de la tabla y no de un arreglo escrito acá: si mañana la Cámara
+ * publica otro grano, se reconoce solo sin tocar código.
+ */
+function motor_cultivo_cotizable(PDO $pdo, string $t): ?string {
+    try {
+        $filas = $pdo->query(
+            "SELECT DISTINCT cultivo FROM cotizaciones_siogranos WHERE precio_promedio > 0"
+        )->fetchAll(PDO::FETCH_COLUMN);
+    } catch (Throwable $e) {
+        return null;
+    }
+    foreach ($filas as $c) {
+        // "Trigo Cámara" → "trigo": la pizarra le agrega el sufijo, el productor no.
+        $base = motor_normalizar(explode(' ', trim($c))[0]);
+        if ($base !== '' && strpos($t, $base) !== false) return $base;
+    }
+    return null;
+}
+
+/** Pasa un importe en pesos a la moneda que se está mirando en el panel. */
+function motor_a_moneda_actual(PDO $pdo, int $uid, float $ars): float {
+    if (motor_moneda() !== 'USD') return $ars;
+    dolar_asegurar_tabla($pdo);
+    $ref = (float)dolar_referencia($pdo, $uid)['valor'];
+    return $ref > 0 ? $ars / $ref : $ars;
+}
+
+/**
+ * ¿La conversión a dólares se está haciendo con una cotización inventada?
+ *
+ * Cuando no hay ninguna cargada, dolar_referencia devuelve un valor de respaldo
+ * y lo marca estimado. El número convertido igual se muestra —es mejor que no
+ * mostrar nada— pero decir de dónde sale es la diferencia entre una cuenta y
+ * una cifra que parece firme y no lo es. Sólo aplica mirando en dólares: en
+ * pesos no se convierte nada.
+ */
+function motor_dolar_estimado(PDO $pdo, int $uid): bool {
+    if (motor_moneda() !== 'USD') return false;
+    dolar_asegurar_tabla($pdo);
+    return !empty(dolar_referencia($pdo, $uid)['estimado']);
+}
+
 /** Los cultivos de un lote, para imputar el alquiler igual que el formulario. */
 function motor_cultivos_del_lote(PDO $pdo, int $uid, int $loteId): array {
     $st = $pdo->prepare(
@@ -3729,7 +3946,7 @@ function motor_sin_entender($ctrl, string $motivo): array {
         'respuesta' => $motivo,
         'detalle' => 'Puedo darte: ' . implode(', ', array_map(fn($m) => $m['etiqueta'], $cat)) . '. '
                    . 'Y desglosar el gasto por ' . motor_frase_categorias() . ', o por proveedor. '
-                   . 'También el clima y la lluvia de cada lote.',
+                   . 'También el clima y la lluvia de cada lote, y el precio del grano.',
         'valor' => null, 'filtros' => [], 'link' => null,
         'sugerencias' => $ejemplos,
     ];
