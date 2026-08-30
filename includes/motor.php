@@ -1925,8 +1925,11 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
 
         return [
             'ok' => true, 'tipo' => 'porcentaje',
+            /* "De tus costos" era ambiguo: el desglose por etapa usa como base
+               los costos de laboreo SOLOS, y acá la base incluye el alquiler.
+               Dos porcentajes con distinta base tienen que decir cuál es. */
             'respuesta' => 'En ' . $campania . ', el alquiler fue el '
-                         . number_format($pct, 1, ',', '.') . '% de tus costos.',
+                         . number_format($pct, 1, ',', '.') . '% de tus costos totales.',
             'detalle' => motor_formatear($alq, 'dinero') . ' de alquiler sobre '
                        . motor_formatear($total, 'dinero') . ' de costo total ('
                        . motor_formatear($lab, 'dinero') . ' de laboreo).' . $extra,
@@ -2087,7 +2090,9 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
         /* Un solo formato para toda la lista, elegido por el precio más chico:
            mezclar $12,00 con $6,5000 en renglones consecutivos se lee como si
            fueran magnitudes distintas cuando son la misma. */
-        $precios = array_map(fn($i) => motor_a_moneda_actual($pdo, $usuarioId, (float)$i['precio']), $items);
+        /* precio_estimado_usd está en dólares: va la conversión DESDE dólares.
+           Con la otra el catálogo mostraba un dólar como si fuera un peso. */
+        $precios = array_map(fn($i) => motor_desde_usd($pdo, $usuarioId, (float)$i['precio']), $items);
         $menor   = min(array_filter($precios) ?: [1]);
         $fmtP    = $menor < 10 ? 'dinero_fino' : 'dinero';
 
@@ -2115,8 +2120,10 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
         }
 
         $valor = 0.0;
-        foreach ($items as $i) {
-            $valor += motor_a_moneda_actual($pdo, $usuarioId, (float)$i['precio']) * (float)$i['stock_actual'];
+        foreach ($items as $n2 => $i) {
+            // Se reusan los precios ya convertidos: recalcularlos era la puerta
+            // por la que se coló la conversión al revés.
+            $valor += $precios[$n2] * (float)$i['stock_actual'];
         }
 
         /* Si preguntó por vencimientos, la lista se recorta a los insumos que
@@ -3821,6 +3828,23 @@ function motor_a_moneda_actual(PDO $pdo, int $uid, float $ars): float {
     dolar_asegurar_tabla($pdo);
     $ref = (float)dolar_referencia($pdo, $uid)['valor'];
     return $ref > 0 ? $ars / $ref : $ars;
+}
+
+/**
+ * Pasa un importe que YA ESTÁ EN DÓLARES a la moneda que se está mirando.
+ *
+ * Es la inversa de motor_a_moneda_actual() y no da lo mismo cuál se use. El
+ * catálogo de insumos guarda `precio_estimado_usd`: si se lo pasa por la
+ * función de pesos, en pantalla queda un dólar mostrado como si fuera un peso
+ * —mil veces menos— y en modo dólares se lo divide otra vez por la cotización.
+ * Es el mismo error de mezclar monedas que costó el margen entero, sólo que
+ * en chico.
+ */
+function motor_desde_usd(PDO $pdo, int $uid, float $usd): float {
+    if (motor_moneda() === 'USD') return $usd;
+    dolar_asegurar_tabla($pdo);
+    $ref = (float)dolar_referencia($pdo, $uid)['valor'];
+    return $ref > 0 ? $usd * $ref : $usd;
 }
 
 /**
