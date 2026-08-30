@@ -582,6 +582,29 @@ function motor_pide_comparar(string $texto): bool {
     return false;
 }
 
+/**
+ * ¿Pide abrir el resultado por lote o por cultivo? 'lote' | 'cultivo' | null.
+ *
+ * Es distinto de "cuál es mi mejor lote", que ya existe y elige un ganador.
+ * Acá se pide la lista completa: cuánto dejó CADA uno. Uno responde "quién
+ * ganó" y el otro "cómo le fue a cada cual", y el productor quiere las dos
+ * cosas en momentos distintos.
+ *
+ * Se exigen las frases con "por" o "cada" a propósito: "en qué lote gasté más"
+ * es el ranking que ya existe, y no tiene que caer acá.
+ */
+function motor_pide_desglose_dimension(string $t): ?string {
+    foreach (['por lote','por cada lote','en cada lote','lote por lote',
+              'de cada lote','para cada lote','por los lotes'] as $p) {
+        if (strpos($t, $p) !== false) return 'lote';
+    }
+    foreach (['por cultivo','por cada cultivo','en cada cultivo','cultivo por cultivo',
+              'de cada cultivo','para cada cultivo','por especie','por los cultivos'] as $p) {
+        if (strpos($t, $p) !== false) return 'cultivo';
+    }
+    return null;
+}
+
 /** ¿Pide el mejor o el peor lote? Devuelve 'mejor' | 'peor' | null. */
 function motor_pide_ranking_lotes(string $texto): ?string {
     foreach (['mejor lote','lote mas rentable','lote que mas rinde','cual lote rinde mas',
@@ -767,7 +790,8 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
             'respuesta' => 'Soy Cafrita' . $vocativo . '. Te llevo las cuentas del campo.',
             'detalle' => 'Puedo darte ' . implode(', ', array_map(fn($m) => $m['etiqueta'], $cat))
                        . '. Y desglosar el gasto por etapa, por tipo de insumo o por proveedor, '
-                       . 'filtrar por lote, cultivo o mes, y comparar campañas, lotes o meses entre sí. '
+                       . 'filtrar por lote, cultivo o mes, abrir cualquier número por lote o por '
+                       . 'cultivo, y comparar campañas, lotes o meses entre sí. '
                        . 'También te digo el clima y la lluvia de cada lote, y a cuánto está el grano '
                        . 'en la pizarra: con eso te saco cuánto te deja la hectárea a ese precio. '
                        . 'Y te armo el reporte o el Excel de lo que quieras: toda la campaña, un lote, '
@@ -1087,7 +1111,10 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
     /* ── Análisis ────────────────────────────────────────────────────────────
        "¿Cómo viene la campaña?" — el motor mira los números y dice lo llamativo,
        ordenado por lo que se puede hacer al respecto. */
-    if (motor_pide_analisis($texto)) {
+    /* "Cómo me fue" pide el análisis general, pero "cómo me fue EN CADA LOTE"
+       pide la lista abierta. Sin este guardia gana el análisis por estar
+       primero, y devuelve un resumen de campaña a quien preguntó por lote. */
+    if (motor_pide_analisis($texto) && motor_pide_desglose_dimension($texto) === null) {
         $hallazgos = motor_analisis($pdo, $ctrl, $usuarioId, $campania, $loteId, $cultivo);
 
         if (!$hallazgos) {
@@ -1636,6 +1663,79 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
     /* ── Mejor / peor lote ───────────────────────────────────────────────────
        Se ordena por margen POR HECTÁREA y no por margen total: si no, gana
        siempre el lote más grande y la respuesta no dice nada útil. */
+    /* ── Resultado abierto por lote o por cultivo ────────────────────────────
+       "¿cuánto gané por lote?", "¿cómo me fue en cada cultivo?". Va antes de
+       los rankings porque es la lista completa y no la elección de un ganador,
+       y antes de la métrica genérica porque si no devolvería un solo total. */
+    $dim = motor_pide_desglose_dimension($texto);
+    if ($dim !== null) {
+        // La métrica que nombre; si no nombra ninguna, el margen, que es lo que
+        // se quiere saber cuando se pregunta "cómo me fue".
+        $metClave = motor_detectar_metrica($texto) ?? 'margen_neto';
+        $cat      = motor_metricas()[$metClave] ?? motor_metricas()['margen_neto'];
+
+        $items = $dim === 'lote'
+            ? array_map(fn($l) => ['nombre' => $l['nombre'], 'id' => (int)$l['id']],
+                        $ctrl->getLotesDelCiclo($campania))
+            : array_map(fn($c) => ['nombre' => $c, 'id' => null],
+                        $ctrl->getCultivosDelCiclo($campania));
+
+        $filas = [];
+        foreach ($items as $it) {
+            $s = $dim === 'lote'
+                ? $ctrl->getGlobalStats($campania, $it['id'], $cultivo)
+                : $ctrl->getGlobalStats($campania, $loteId, $it['nombre']);
+            $ha  = (float)($s['hectareas'] ?? 0);
+            $val = (float)($s[$metClave] ?? 0);
+            // Sin superficie ni valor no hay nada que mostrar; la fila sólo hace ruido.
+            if ($ha <= 0 && $val == 0.0) continue;
+            $filas[] = ['nombre' => $it['nombre'], 'id' => $it['id'],
+                        'val' => $val, 'ha' => $ha,
+                        'porHa' => $ha > 0 ? $val / $ha : null];
+        }
+
+        if (!$filas) {
+            return [
+                'ok' => false, 'tipo' => 'sin_datos',
+                'respuesta' => 'Todavía no hay nada cargado en ' . $campania
+                             . ' para abrirlo por ' . $dim . '.',
+                'detalle' => 'Con operaciones y ventas registradas te lo puedo desglosar.',
+                'valor' => null,
+                'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => $metClave],
+                'link' => motor_link($campania, $loteId, $cultivo), 'sugerencias' => [],
+            ];
+        }
+
+        // De mayor a menor: lo que interesa primero, sin tener que buscarlo.
+        usort($filas, fn($a, $b) => $b['val'] <=> $a['val']);
+        $total = array_sum(array_column($filas, 'val'));
+
+        /* El por hectárea va al lado del total porque sin él la lista engaña:
+           un lote grande siempre parece mejor que uno chico. */
+        $lineas = array_map(function ($f) use ($cat) {
+            $t = '• ' . $f['nombre'] . ': ' . motor_formatear($f['val'], $cat['formato']);
+            if ($f['porHa'] !== null) {
+                $t .= ' (' . motor_formatear($f['porHa'], $cat['formato']) . '/ha'
+                    . ' sobre ' . motor_formatear($f['ha'], 'ha') . ')';
+            }
+            return $t;
+        }, $filas);
+
+        $etq = $dim === 'lote' ? 'lote' : 'cultivo';
+        return [
+            'ok' => true, 'tipo' => 'desglose_dimension',
+            'respuesta' => 'En ' . $campania . ', ' . $cat['etiqueta'] . ' por ' . $etq
+                         . ': ' . motor_formatear($total, $cat['formato']) . ' en total.',
+            'detalle' => implode("\n", $lineas),
+            'valor' => $total,
+            'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => $metClave],
+            'link' => motor_link($campania, $loteId, $cultivo),
+            'sugerencias' => $dim === 'lote'
+                ? ['¿Cuál es mi mejor lote?', '¿Cuánto gané por cultivo?', '¿En qué gasté más?']
+                : ['¿Cuánto gané por lote?', '¿Cuál es mi mejor lote?', '¿En qué gasté más?'],
+        ];
+    }
+
     $orden = motor_pide_ranking_lotes($texto);
     if ($orden !== null) {
         if (count($lotes) < 2) {
@@ -4068,6 +4168,7 @@ function motor_sin_entender($ctrl, string $motivo): array {
         'respuesta' => $motivo,
         'detalle' => 'Puedo darte: ' . implode(', ', array_map(fn($m) => $m['etiqueta'], $cat)) . '. '
                    . 'Y desglosar el gasto por ' . motor_frase_categorias() . ', o por proveedor. '
+                   . 'Cualquiera de esos números lo abro por lote o por cultivo. '
                    . 'También el clima y la lluvia de cada lote, el precio del grano, '
                    . 'y el reporte o el Excel de cualquier recorte.',
         'valor' => null, 'filtros' => [], 'link' => null,
