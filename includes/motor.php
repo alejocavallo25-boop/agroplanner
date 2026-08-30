@@ -614,6 +614,29 @@ function motor_pide_desglose_dimension(string $t): ?string {
     return null;
 }
 
+/**
+ * ¿Pregunta si el alquiler está acorde, o hasta cuánto podría pagar?
+ *
+ * Son la misma cuenta vista desde dos lados: lo que la hectárea deja después
+ * del laboreo es, a la vez, el techo de lo que se puede pagar y la vara contra
+ * la que se mide lo que se paga hoy.
+ *
+ * No se contesta "conviene" ni "está bien": eso depende de si hay otro campo
+ * disponible, de la relación con el dueño y de cuánto riesgo se quiere tomar.
+ * Se da el número y la comparación; el juicio lo hace el productor.
+ */
+function motor_pide_alquiler_potencial(string $t): bool {
+    if (!preg_match('/(alquiler|alquileres|arrendamiento|renta|arriendo)/u', $t)) return false;
+    foreach (['acorde','potencial','esta bien','está bien','vale lo que','justo',
+              'hasta cuanto','hasta cuánto','cuanto puedo pagar','cuánto puedo pagar',
+              'cuanto podria pagar','maximo que puedo','máximo que puedo','techo',
+              'caro','barato','sobrepago','estoy pagando de mas','pagando de mas',
+              'me conviene pagar','conviene pagar'] as $p) {
+        if (strpos($t, $p) !== false) return true;
+    }
+    return false;
+}
+
 /** ¿Pregunta por el stock, el precio del catálogo o el vencimiento? */
 function motor_pide_stock(string $t): bool {
     foreach (['stock','inventario','cuanto me queda de','cuanto tengo de',
@@ -1757,6 +1780,120 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
     /* ── Mejor / peor lote ───────────────────────────────────────────────────
        Se ordena por margen POR HECTÁREA y no por margen total: si no, gana
        siempre el lote más grande y la respuesta no dice nada útil. */
+    /* ── El alquiler contra lo que el lote deja ──────────────────────────────
+       "¿Está acorde al potencial?" y "¿hasta cuánto puedo pagar?" son la misma
+       cuenta: lo que la hectárea deja después del laboreo es el techo del
+       alquiler, y contra ese techo se mide lo que se paga hoy.
+
+       Va por lote y no por campaña. Un promedio entre un campo propio y uno
+       alquilado no describe a ninguno, y acá el número se usa para negociar un
+       contrato puntual. */
+    if (motor_pide_alquiler_potencial($texto)) {
+        $filas = [];
+        foreach (motor_lotes_del_usuario($pdo, $usuarioId) as $l) {
+            $s   = $ctrl->getGlobalStats($campania, (int)$l['id'], $cultivo);
+            $ha  = (float)$s['hectareas'];
+            $alq = (float)$s['costos_alquiler'];
+            if ($ha <= 0 || $alq <= 0) continue;   // sin alquiler no hay nada que medir
+            $ing = (float)$s['ingresos']       / $ha;
+            $lab = (float)$s['costos_directos'] / $ha;
+            $filas[] = [
+                'nombre' => $l['nombre'],
+                'ha'     => $ha,
+                'alq'    => $alq / $ha,
+                'ing'    => $ing,
+                'lab'    => $lab,
+                'techo'  => $ing - $lab,          // lo que queda para el alquiler
+                'kg'     => (float)$s['kg'] / $ha,
+            ];
+        }
+
+        if (!$filas) {
+            return [
+                'ok' => false, 'tipo' => 'sin_datos',
+                'respuesta' => 'No tengo alquileres cargados en ' . $campania . ' para comparar.',
+                'detalle' => 'Hace falta el pago del alquiler y la producción del lote: sin lo que '
+                           . 'la hectárea deja no hay contra qué medirlo.',
+                'valor' => null,
+                'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => 'costos_alquiler'],
+                'link' => 'alquileres.php', 'sugerencias' => [],
+            ];
+        }
+
+        /* El alquiler se pacta en quintales, así que además de pesos se dice a
+           cuántos kilos de grano equivale. Es el idioma en que se negocia. */
+        $ref = null;
+        if ($cultivo) $ref = motor_precio_referencia($pdo, ucfirst(motor_normalizar(explode(' ', trim($cultivo))[0])));
+        if ($ref === null) {
+            foreach ($ctrl->getCultivosDelCiclo($campania) as $e) {
+                $ref = motor_precio_referencia($pdo, ucfirst(motor_normalizar(explode(' ', trim($e))[0])));
+                if ($ref !== null) break;
+            }
+        }
+        $precioKg = $ref ? motor_a_moneda_actual($pdo, $usuarioId, $ref['precio_kg']) : 0;
+
+        $lineas = [];
+        foreach ($filas as $f) {
+            $usa = $f['techo'] > 0 ? $f['alq'] / $f['techo'] * 100 : null;
+            $t = '• ' . $f['nombre'] . ': pagás ' . motor_formatear($f['alq'], 'dinero') . '/ha';
+            if ($precioKg > 0) {
+                $t .= ' (' . number_format($f['alq'] / $precioKg, 0, ',', '.') . ' kg de grano)';
+            }
+            $t .= '. La hectárea deja ' . motor_formatear($f['techo'], 'dinero')
+                . ' después del laboreo, así que el techo es ése';
+            $t .= $usa === null
+                ? '. Con lo que produjo, el alquiler no se cubre.'
+                : ' y estás usando el ' . number_format($usa, 0, ',', '.') . '%.';
+            $lineas[] = $t;
+        }
+
+        // El encabezado habla del lote si se preguntó por uno; si no, del conjunto.
+        $peor = $filas[0];
+        foreach ($filas as $f) {
+            $a = $f['techo'] > 0 ? $f['alq'] / $f['techo'] : PHP_INT_MAX;
+            $b = $peor['techo'] > 0 ? $peor['alq'] / $peor['techo'] : PHP_INT_MAX;
+            if ($a > $b) $peor = $f;
+        }
+        $pctPeor = $peor['techo'] > 0 ? $peor['alq'] / $peor['techo'] * 100 : null;
+
+        /* Las dos preguntas comparten la cuenta pero no lo que quieren escuchar:
+           "¿está acorde?" quiere saber cómo viene lo que ya paga, y "¿hasta
+           cuánto?" quiere el techo. El encabezado sigue a la pregunta. */
+        $quiereTecho = (bool)preg_match('/(hasta cuanto|hasta cuánto|cuanto puedo pagar|'
+                                      . 'cuánto puedo pagar|cuanto podria|maximo|máximo|techo)/u', $texto);
+
+        if (count($filas) === 1) {
+            $cab = 'En ' . $peor['nombre'] . ' podrías pagar hasta '
+                 . motor_formatear($peor['techo'], 'dinero') . '/ha antes de perder plata, '
+                 . 'y pagás ' . motor_formatear($peor['alq'], 'dinero') . '.';
+        } elseif ($quiereTecho) {
+            $techos = array_column($filas, 'techo');
+            $tmin = min($techos); $tmax = max($techos);
+            $cab = round($tmin) === round($tmax)
+                ? 'Podrías pagar hasta ' . motor_formatear($tmax, 'dinero')
+                  . '/ha antes de que el lote pierda plata.'
+                : 'El techo va de ' . motor_formatear($tmin, 'dinero') . ' a '
+                  . motor_formatear($tmax, 'dinero') . ' por hectárea, según el lote.';
+        } else {
+            $cab = 'El alquiler más ajustado es el de ' . $peor['nombre']
+                 . ($pctPeor !== null ? ': se lleva el ' . number_format($pctPeor, 0, ',', '.')
+                                      . '% de lo que deja la hectárea.' : '.');
+        }
+
+        return [
+            'ok' => true, 'tipo' => 'alquiler_potencial',
+            'respuesta' => $cab,
+            'detalle' => implode("\n", $lineas)
+                       . "\nEl techo es lo que produce la hectárea menos el laboreo: por encima "
+                       . 'de eso el lote pierde. Cuánto por debajo conviene quedarse ya depende '
+                       . 'de vos, no de un número.',
+            'valor' => $peor['techo'],
+            'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => 'costos_alquiler'],
+            'link' => 'alquileres.php',
+            'sugerencias' => ['¿Qué porcentaje fue el alquiler?', '¿Cuánto gané por lote?', '¿Cuál es mi mejor lote?'],
+        ];
+    }
+
     /* ── Qué porcentaje representa el alquiler ───────────────────────────────
        "¿Qué porcentaje fue de alquiler?" devolvía el monto pagado: el número
        correcto de otra pregunta. Los desgloses por etapa y por rubro ya dan su
