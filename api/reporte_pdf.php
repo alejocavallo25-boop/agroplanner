@@ -139,7 +139,120 @@ if ($tipo === 'operaciones') {
     }
     $reg_count = $dash_total_lotes;
 
+    /* Los mismos datos con los que el panel dibuja sus dos gráficos, calculados
+       igual y sobre la misma fuente. Un reporte que muestre otros números que la
+       pantalla de la que salió no sirve para nada. */
+    $dash_barras = [];   // un renglón por lote: ingreso, costo y margen
+    $dash_pe     = [];   // rinde de indiferencia de cada lote
+    foreach ($dash_cultivos as $d) {
+        foreach ($d['lotes'] as $l) {
+            $n = $l['nombre'];
+            if (isset($dash_barras[$n])) continue;
+            $costo = (float)$l['costo_dir'] + (float)$l['alquiler'];
+            $dash_barras[$n] = [
+                'ingreso' => (float)$l['ingreso'],
+                'costo'   => $costo,
+                'margen'  => (float)$l['ingreso'] - $costo,
+                'sup'     => (float)$l['sup'],
+                'labores' => (float)$l['labores'],
+                'insumos' => (float)$l['insumos'],
+                'alquiler'=> (float)$l['alquiler'],
+                'kgs'     => (float)$l['kgs'],
+            ];
+            $precio = $l['kgs'] > 0 ? $l['ingreso'] / $l['kgs'] : 0;
+            if ($precio > 0 && $l['sup'] > 0) {
+                $dash_pe[$n] = ($costo / $precio) / $l['sup'];
+            }
+        }
+    }
+
     $titulo = 'Reporte General Agrícola' . ($ciclo_sel ? " — Campaña $ciclo_sel" : '');
+}
+
+/* ─── Gráficos ────────────────────────────────────────────────────────────────
+   Se dibujan como SVG escrito acá, sin librería. Este archivo se abre en el
+   navegador para imprimirlo, y una biblioteca de gráficos traería dos problemas
+   que en pantalla no importan pero al imprimir sí: depende de que un script de
+   afuera cargue, y dibuja con animación, así que quien aprieta Imprimir enseguida
+   se lleva un gráfico a medio hacer. El SVG ya está listo cuando llega la página.
+
+   Los colores son los mismos que usa el panel. */
+const AP_SERIES = ['#348f4f', '#3284d0', '#b13b92'];
+const AP_MUTED  = '#535a55';
+const AP_GRID   = '#d9deda';
+
+/** Anillo de proporciones. $datos = ['etiqueta' => valor]. */
+function svg_dona(array $datos, int $tam = 190): string {
+    $total = array_sum($datos);
+    if ($total <= 0) return '';
+    $r = $tam * 0.36; $c = $tam / 2; $circ = 2 * M_PI * $r;
+    $grosor = $tam * 0.17;
+
+    $out = '<svg width="' . $tam . '" height="' . $tam . '" viewBox="0 0 ' . $tam . ' ' . $tam . '">';
+    $acum = 0.0; $i = 0;
+    foreach ($datos as $val) {
+        $val = (float)$val;
+        if ($val <= 0) { $i++; continue; }
+        $largo = $circ * ($val / $total);
+        /* El gajo se dibuja como un trazo punteado de un solo tramo: más corto
+           y más seguro que componer arcos a mano. El giro de -90 arranca arriba. */
+        $out .= '<circle cx="' . $c . '" cy="' . $c . '" r="' . $r . '" fill="none"'
+              . ' stroke="' . AP_SERIES[$i % 3] . '" stroke-width="' . $grosor . '"'
+              . ' stroke-dasharray="' . round($largo, 2) . ' ' . round($circ - $largo, 2) . '"'
+              . ' stroke-dashoffset="' . round(-$acum, 2) . '"'
+              . ' transform="rotate(-90 ' . $c . ' ' . $c . ')" />';
+        $acum += $largo;
+        $i++;
+    }
+    return $out . '</svg>';
+}
+
+/** Barras agrupadas por lote: ingreso, costo y margen. */
+function svg_barras(array $filas, int $ancho = 520, int $alto = 210): string {
+    if (!$filas) return '';
+    $series = ['ingreso', 'costo', 'margen'];
+    $tope = 0.0; $piso = 0.0;
+    foreach ($filas as $f) {
+        foreach ($series as $s) {
+            $tope = max($tope, (float)$f[$s]);
+            $piso = min($piso, (float)$f[$s]);   // el margen puede ser negativo
+        }
+    }
+    if ($tope <= 0 && $piso >= 0) return '';
+
+    $mIzq = 8; $mAbajo = 26; $mArriba = 8;
+    $areaW = $ancho - $mIzq * 2;
+    $areaH = $alto - $mAbajo - $mArriba;
+    $rango = ($tope - $piso) ?: 1;
+    $y0 = $mArriba + $areaH * ($tope / $rango);   // dónde cae el cero
+
+    $out = '<svg width="' . $ancho . '" height="' . $alto . '" viewBox="0 0 ' . $ancho . ' ' . $alto . '">';
+    // Línea del cero: sin ella una barra negativa no se distingue de una chica.
+    $out .= '<line x1="' . $mIzq . '" y1="' . round($y0, 1) . '" x2="' . ($ancho - $mIzq) . '"'
+          . ' y2="' . round($y0, 1) . '" stroke="' . AP_GRID . '" stroke-width="1" />';
+
+    $grupos = count($filas);
+    $anchoGrupo = $areaW / $grupos;
+    $anchoBarra = min(18, ($anchoGrupo - 14) / 3);
+    $g = 0;
+    foreach ($filas as $nombre => $f) {
+        $x0 = $mIzq + $anchoGrupo * $g + ($anchoGrupo - $anchoBarra * 3 - 6) / 2;
+        foreach ($series as $k => $s) {
+            $v = (float)$f[$s];
+            $h = abs($v) / $rango * $areaH;
+            $y = $v >= 0 ? $y0 - $h : $y0;
+            $x = $x0 + ($anchoBarra + 3) * $k;
+            $out .= '<rect x="' . round($x, 1) . '" y="' . round($y, 1) . '"'
+                  . ' width="' . round($anchoBarra, 1) . '" height="' . round(max($h, 1), 1) . '"'
+                  . ' rx="2" fill="' . AP_SERIES[$k] . '" />';
+        }
+        $et = mb_strlen($nombre) > 11 ? mb_substr($nombre, 0, 10) . '…' : $nombre;
+        $out .= '<text x="' . round($mIzq + $anchoGrupo * ($g + 0.5), 1) . '" y="' . ($alto - 8) . '"'
+              . ' text-anchor="middle" font-size="10" fill="' . AP_MUTED . '">'
+              . htmlspecialchars($et) . '</text>';
+        $g++;
+    }
+    return $out . '</svg>';
 }
 
 // ─── Nombre del usuario ───────────────────────────────────────────────────────
@@ -368,6 +481,89 @@ $fechaGen = date('d/m/Y H:i');
             opacity: 0.9;
         }
 
+        /* ── Gráficos y fichas por lote ──────────────────────────────────
+           El reporte del panel se ve como el panel: las mismas tarjetas, los
+           mismos dos gráficos y una ficha por lote. */
+        .graficos {
+            display: flex;
+            gap: 16px;
+            margin: 18px 0;
+            align-items: flex-start;
+        }
+
+        .grafico {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 14px 16px;
+            background: #fff;
+            text-align: center;
+        }
+
+        .grafico-ancho { flex: 1; }
+
+        .grafico-titulo {
+            font-size: 11px;
+            font-weight: 700;
+            color: #0f172a;
+            text-align: left;
+            margin-bottom: 10px;
+        }
+
+        .leyenda {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 10px;
+            font-size: 10px;
+            color: #535a55;
+        }
+
+        .leyenda span { display: inline-flex; align-items: center; gap: 5px; }
+
+        .leyenda i {
+            width: 9px;
+            height: 9px;
+            border-radius: 2px;
+            display: inline-block;
+        }
+
+        .lotes-pdf {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .lote-pdf {
+            flex: 1 1 210px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 12px 14px;
+            background: #f8fafc;
+        }
+
+        .lote-pdf-cab {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            font-size: 12px;
+            margin-bottom: 6px;
+        }
+
+        .lote-pdf-cab span { color: #64748b; font-size: 10px; }
+
+        .lote-pdf-margen {
+            font-size: 17px;
+            font-weight: 800;
+            margin-bottom: 8px;
+        }
+
+        .lote-pdf-margen span { font-size: 10px; font-weight: 500; color: #64748b; }
+
+        .lote-pdf-det { width: 100%; font-size: 10px; border-collapse: collapse; }
+        .lote-pdf-det td { padding: 2px 0; color: #475569; }
+        .lote-pdf-det td:last-child { text-align: right; font-weight: 600; color: #0f172a; }
+
         @media print {
             body {
                 -webkit-print-color-adjust: exact;
@@ -377,6 +573,14 @@ $fechaGen = date('d/m/Y H:i');
             .print-bar {
                 display: none !important;
             }
+
+            /* Un gráfico o una ficha partidos por el salto de página no se leen.
+               Se mantienen enteros y se deja que el hueco caiga antes. */
+            .grafico,
+            .lote-pdf,
+            .summary-box { break-inside: avoid; page-break-inside: avoid; }
+
+            .graficos { break-inside: avoid; page-break-inside: avoid; }
         }
     </style>
 </head>
@@ -673,9 +877,59 @@ $fechaGen = date('d/m/Y H:i');
                 </div>
                 <div class="summary-box">
                     <div class="label">Rinde Indiferencia</div>
-                    <div class="value" style="color:#d97706;"><?= number_format($dash_stats['punto_equilibrio_kg_ha'], 0, ',', '.') ?> <span style="font-size:11px;">kg/ha</span></div>
+                    <?php /* El del panel: el de cada lote, no el promedio global. Un
+                             lote propio y uno alquilado no empatan en el mismo rinde,
+                             y el promedio no describe a ninguno de los dos. */
+                    $pe_min = $dash_pe ? min($dash_pe) : 0;
+                    $pe_max = $dash_pe ? max($dash_pe) : 0; ?>
+                    <div class="value" style="color:#d97706;">
+                        <?php if (!$dash_pe): ?>—
+                        <?php elseif (round($pe_min) === round($pe_max)): ?>
+                            <?= number_format($pe_max, 0, ',', '.') ?>
+                        <?php else: ?>
+                            <?= number_format($pe_min, 0, ',', '.') ?>–<?= number_format($pe_max, 0, ',', '.') ?>
+                        <?php endif; ?>
+                        <span style="font-size:11px;">kg/ha</span>
+                    </div>
                 </div>
             </div>
+
+            <?php /* Los dos gráficos del panel. Sólo se dibujan si hay algo que
+                     mostrar: un anillo vacío o un eje sin barras ocupan lugar y no
+                     dicen nada, y en papel eso se nota más que en pantalla. */
+            $dona = svg_dona([
+                'Labores'   => $dash_labores,
+                'Insumos'   => $dash_insumos,
+                'Alquiler'  => (float)$dash_stats['costos_alquiler'],
+            ]);
+            $barras = svg_barras($dash_barras);
+            ?>
+            <?php if ($dona || $barras): ?>
+            <div class="graficos">
+                <?php if ($dona): ?>
+                <div class="grafico">
+                    <div class="grafico-titulo">Composición del costo</div>
+                    <?= $dona ?>
+                    <div class="leyenda">
+                        <span><i style="background:#348f4f"></i>Labores $<?= number_format($dash_labores, 0, ',', '.') ?></span>
+                        <span><i style="background:#3284d0"></i>Insumos $<?= number_format($dash_insumos, 0, ',', '.') ?></span>
+                        <span><i style="background:#b13b92"></i>Alquiler $<?= number_format($dash_stats['costos_alquiler'], 0, ',', '.') ?></span>
+                    </div>
+                </div>
+                <?php endif; ?>
+                <?php if ($barras): ?>
+                <div class="grafico grafico-ancho">
+                    <div class="grafico-titulo">Por lote</div>
+                    <?= $barras ?>
+                    <div class="leyenda">
+                        <span><i style="background:#348f4f"></i>Ingresos</span>
+                        <span><i style="background:#3284d0"></i>Costos</span>
+                        <span><i style="background:#b13b92"></i>Margen</span>
+                    </div>
+                </div>
+                <?php endif; ?>
+            </div>
+            <?php endif; ?>
 
             <h2 style="font-size:14px; color:#0f172a; margin:18px 0 8px;">Desglose de Costos</h2>
             <div class="summary-row">
@@ -692,6 +946,37 @@ $fechaGen = date('d/m/Y H:i');
                     <div class="value danger">$<?= number_format($dash_stats['costos_alquiler'], 2, ',', '.') ?></div>
                 </div>
             </div>
+
+            <?php if ($dash_barras): ?>
+            <h2 style="font-size:14px; color:#0f172a; margin:18px 0 8px;">Lote por lote</h2>
+            <div class="lotes-pdf">
+                <?php foreach ($dash_barras as $nombre => $f):
+                    $sup = $f['sup'] > 0 ? $f['sup'] : 0;
+                    $mha = $sup > 0 ? $f['margen'] / $sup : 0;
+                    $roi = $f['costo'] > 0 ? $f['margen'] / $f['costo'] * 100 : 0;
+                ?>
+                <div class="lote-pdf">
+                    <div class="lote-pdf-cab">
+                        <strong><?= htmlspecialchars($nombre) ?></strong>
+                        <span><?= number_format($sup, 1, ',', '.') ?> ha</span>
+                    </div>
+                    <div class="lote-pdf-margen <?= $f['margen'] >= 0 ? 'success' : 'danger' ?>">
+                        $<?= number_format($mha, 0, ',', '.') ?> <span>/ha de margen</span>
+                    </div>
+                    <table class="lote-pdf-det">
+                        <tr><td>Ingresos</td><td>$<?= number_format($sup > 0 ? $f['ingreso'] / $sup : 0, 0, ',', '.') ?> /ha</td></tr>
+                        <tr><td>Labores</td><td>$<?= number_format($sup > 0 ? $f['labores'] / $sup : 0, 0, ',', '.') ?> /ha</td></tr>
+                        <tr><td>Insumos</td><td>$<?= number_format($sup > 0 ? $f['insumos'] / $sup : 0, 0, ',', '.') ?> /ha</td></tr>
+                        <tr><td>Alquiler</td><td>$<?= number_format($sup > 0 ? $f['alquiler'] / $sup : 0, 0, ',', '.') ?> /ha</td></tr>
+                        <tr><td>Retorno</td><td><?= number_format($roi, 1, ',', '.') ?>%</td></tr>
+                        <?php if (isset($dash_pe[$nombre])): ?>
+                        <tr><td>Indiferencia</td><td><?= number_format($dash_pe[$nombre], 0, ',', '.') ?> kg/ha</td></tr>
+                        <?php endif; ?>
+                    </table>
+                </div>
+                <?php endforeach; ?>
+            </div>
+            <?php endif; ?>
 
             <h2 style="font-size:14px; color:#0f172a; margin:18px 0 8px;">Detalle por Cultivo y Lote</h2>
             <table>
