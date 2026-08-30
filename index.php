@@ -96,6 +96,29 @@ $dolar_info = $controller->getDolarInfo();
 // Pestañas por Especie
 $cultivos_data = $controller->getCultivosData($ciclo_sel, $lote_sel, $cultivo_sel, $moneda_sel);
 
+/* ── Rinde de indiferencia, lote por lote ─────────────────────────
+   El KPI mostraba un número global: los costos de toda la campaña divididos por
+   el precio promedio de todo lo vendido. Ese número no coincide con NINGÚN lote
+   y esconde lo único que importa. En esta misma campaña un lote propio necesita
+   440 kg/ha para empatar y uno alquilado 1.317: tres veces más. Un promedio de
+   1.122 no le sirve a nadie para decidir sobre un lote en particular.
+
+   Se calcula acá con la misma fórmula que usa la tarjeta de cada lote más
+   abajo, y sobre los mismos datos, así que los números no pueden divergir. */
+$pe_por_lote = [];
+foreach ($cultivos_data as $esp => $data) {
+    foreach ($data['lotes'] as $lote) {
+        if (isset($pe_por_lote[$lote['nombre']])) continue;
+        $precio_prom = $lote['kgs'] > 0 ? $lote['ingreso'] / $lote['kgs'] : 0;
+        $costo_tot_l = $lote['costo_dir'] + $lote['alquiler'];
+        if ($precio_prom > 0 && $lote['sup'] > 0) {
+            $pe_por_lote[$lote['nombre']] = ($costo_tot_l / $precio_prom) / $lote['sup'];
+        }
+    }
+}
+$pe_min = $pe_por_lote ? min($pe_por_lote) : 0;
+$pe_max = $pe_por_lote ? max($pe_por_lote) : 0;
+
 // ── Datos para gráficos ───────────────────────────────────────────
 // Dona: desglose de costos globales
 $total_labores_g = 0; $total_insumos_g = 0;
@@ -574,9 +597,25 @@ require_once 'includes/header.php';
         </a>
         <a href="produccion.php" class="glass-panel stat-card" title="Punto de Equilibrio">
             <span class="title">Rinde Indiferencia</span>
-            <?php if ($stats['punto_equilibrio_kg_ha'] > 0): ?>
-                <span class="value"><?= number_format($stats['punto_equilibrio_kg_ha'], 0, ',', '.') ?> <small style="font-size: 0.9rem; font-weight: 500; color: var(--text-muted);">kg/Ha</small></span>
-                <span class="trend">Para cubrir gastos globales <i class="fas fa-arrow-right"></i></span>
+            <?php if ($pe_por_lote): ?>
+                <?php /* El número de los lotes, no un promedio que no es de ninguno.
+                         Con un solo valor va ese; con varios va el rango, porque un
+                         lote propio y uno alquilado no empatan en el mismo rinde y
+                         mostrar uno solo escondería justamente esa diferencia. */ ?>
+                <span class="value">
+                    <?php if (round($pe_min) === round($pe_max)): ?>
+                        <?= number_format($pe_max, 0, ',', '.') ?>
+                    <?php else: ?>
+                        <?= number_format($pe_min, 0, ',', '.') ?>–<?= number_format($pe_max, 0, ',', '.') ?>
+                    <?php endif; ?>
+                    <small style="font-size: 0.9rem; font-weight: 500; color: var(--text-muted);">kg/Ha</small>
+                </span>
+                <span class="trend">
+                    <?= count($pe_por_lote) === 1 || round($pe_min) === round($pe_max)
+                        ? 'Para cubrir los gastos del lote'
+                        : 'Según el lote, de ' . array_search($pe_min, $pe_por_lote) . ' a ' . array_search($pe_max, $pe_por_lote) ?>
+                    <i class="fas fa-arrow-right"></i>
+                </span>
             <?php else: ?>
                 <span class="value" style="color: var(--text-muted); font-size: 1.5rem;">—</span>
                 <span class="trend">Requiere registrar ventas <i class="fas fa-arrow-right"></i></span>
