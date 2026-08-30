@@ -1820,7 +1820,8 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
         // ── A qué precio se compró, que no es lo mismo que cuánto se gastó ───
         if (motor_pide_precio_insumo($texto)) {
             $filas = motor_precio_pagado_insumo($pdo, $usuarioId, $campania,
-                                                $rubro['clave'] ?? null, $unIns['id'] ?? null);
+                                                $rubro['clave'] ?? null, $unIns['id'] ?? null,
+                                                $loteId, $cultivo);
             if (!$filas) {
                 return [
                     'ok' => false, 'tipo' => 'sin_datos',
@@ -1872,7 +1873,8 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
         // ── Consumo: cuánto se aplicó, abierto por lote ──────────────────────
         if ($pideCantidad) {
             $filas = motor_consumo_por_lote($pdo, $usuarioId, $campania,
-                                            $rubro['clave'] ?? null, $unIns['id'] ?? null);
+                                            $rubro['clave'] ?? null, $unIns['id'] ?? null,
+                                            $loteId, $cultivo);
             if (!$filas) {
                 $qué = $unIns ? $unIns['nombre'] : ($rubro ? $rubro['etiqueta'] : 'insumos del catálogo');
                 return [
@@ -3725,7 +3727,8 @@ function motor_sql_consumo(): string {
  * @param int|null    $insumo  Filtra por un insumo puntual del catálogo.
  */
 function motor_consumo_por_lote(PDO $pdo, int $uid, string $ciclo,
-                                ?string $rubro, ?int $insumo): array {
+                                ?string $rubro, ?int $insumo,
+                                ?int $lote = null, ?string $cultivo = null): array {
     $c   = motor_sql_consumo();
     $sql = "SELECT l.nombre AS lote, l.id AS lote_id,
                    i.nombre AS insumo, i.unidad_medida AS unidad,
@@ -3734,10 +3737,19 @@ function motor_consumo_por_lote(PDO $pdo, int $uid, string $ciclo,
               JOIN operaciones o ON oi.operacion_id = o.id
               JOIN lotes l       ON o.lote_id = l.id
               JOIN insumos i     ON oi.insumo_id = i.id
+              LEFT JOIN cultivos cu ON o.cultivo_id = cu.id
              WHERE o.usuario_id = ? AND o.campania_operacion = ?";
     $p = [$uid, $ciclo];
     if ($rubro)  { $sql .= " AND i.tipo_insumo = ?"; $p[] = $rubro; }
     if ($insumo) { $sql .= " AND i.id = ?";          $p[] = $insumo; }
+    if ($lote)   { $sql .= " AND o.lote_id = ?";     $p[] = $lote; }
+    /* Mismo recorte por cultivo que getGlobalStats: la especie puede estar en la
+       ficha del cultivo o escrita en la operación, y hay que mirar las dos. */
+    if ($cultivo) {
+        $sql .= " AND COALESCE(NULLIF(cu.nombre, ''), NULLIF(o.cultivo_operacion, ''), 'Sin Especificar')"
+              . " COLLATE utf8mb4_unicode_ci = ?";
+        $p[] = $cultivo;
+    }
     /* Se agrupa también por insumo: dos semillas distintas en el mismo lote no
        se pueden sumar en un solo número sin decir cuáles son. */
     $sql .= " GROUP BY l.id, i.id HAVING cantidad > 0 ORDER BY l.nombre, cantidad DESC";
@@ -3760,7 +3772,8 @@ function motor_consumo_por_lote(PDO $pdo, int $uid, string $ciclo,
  * momentos del año, el promedio solo lo escondería.
  */
 function motor_precio_pagado_insumo(PDO $pdo, int $uid, string $ciclo,
-                                    ?string $rubro, ?int $insumo): array {
+                                    ?string $rubro, ?int $insumo,
+                                    ?int $lote = null, ?string $cultivo = null): array {
     $c   = motor_sql_consumo();
     $sql = "SELECT i.nombre AS insumo, i.unidad_medida AS unidad,
                    SUM($c) AS cantidad,
@@ -3772,11 +3785,18 @@ function motor_precio_pagado_insumo(PDO $pdo, int $uid, string $ciclo,
               JOIN operaciones o ON oi.operacion_id = o.id
               JOIN lotes l       ON o.lote_id = l.id
               JOIN insumos i     ON oi.insumo_id = i.id
+              LEFT JOIN cultivos cu ON o.cultivo_id = cu.id
              WHERE o.usuario_id = ? AND o.campania_operacion = ?
                AND oi.precio_unitario > 0";
     $p = [$uid, $ciclo];
     if ($rubro)  { $sql .= " AND i.tipo_insumo = ?"; $p[] = $rubro; }
     if ($insumo) { $sql .= " AND i.id = ?";          $p[] = $insumo; }
+    if ($lote)   { $sql .= " AND o.lote_id = ?";     $p[] = $lote; }
+    if ($cultivo) {
+        $sql .= " AND COALESCE(NULLIF(cu.nombre, ''), NULLIF(o.cultivo_operacion, ''), 'Sin Especificar')"
+              . " COLLATE utf8mb4_unicode_ci = ?";
+        $p[] = $cultivo;
+    }
     $sql .= " GROUP BY i.id HAVING cantidad > 0 ORDER BY gastado DESC";
 
     $st = $pdo->prepare($sql);
