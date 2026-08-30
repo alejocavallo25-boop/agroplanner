@@ -408,6 +408,12 @@ html {
 
 .nav-link i {
     font-size: 1.15rem;
+    /* flex-basis y no sólo width: como ítem de un flex, la caja no baja de su
+       contenido, así que un glifo ancho la agrandaba y uno angosto la achicaba.
+       Medido, iban de 13,8 a 22px, y con el menú cerrado eso corría cada ícono
+       de su lugar: el de la nube quedaba 5px a la derecha del resto. Con la
+       base fija todos ocupan lo mismo y el glifo se desborda parejo. */
+    flex: 0 0 20px;
     width: 20px;
     text-align: center;
     transition: all 0.3s ease;
@@ -522,7 +528,12 @@ html {
     background: var(--n-100);
     color: var(--text-primary);
     border: 1px solid var(--border);
-    margin: 20px 16px 10px;
+    /* El margen lateral tiene que ser el mismo que el de los demás enlaces (12).
+       Con 16 este botón arrancaba 4px más a la derecha, y con el menú cerrado su
+       ícono quedaba fuera de la columna que forman todos los otros. Va 11 y no
+       12 porque éste es el único con borde: ese 1px corre su contenido hacia
+       adentro y hay que devolverlo para que el ícono caiga en la misma línea. */
+    margin: 20px 11px 10px;
 }
 .nav-link-utility:hover {
     background: var(--n-200);
@@ -677,10 +688,35 @@ html {
 
     /* Los iconos de los encabezados se alinean con los de los links. */
     .sidebar .nav-section-title i {
+        flex: 0 0 20px;
         width: 20px;
         text-align: center;
     }
-    .sidebar .brand { padding-left: 26px; }
+    /* La marca y el avatar se centran con la cuenta, no con un número a ojo: la
+       caja del ícono es fija y conocida, así que el padding que lo deja en el
+       medio sale del ancho del rail. Si mañana el rail cambia, siguen centrados.
+       No se puede usar justify-content acá: el nombre y el botón de salir siguen
+       ocupando lugar aunque estén invisibles, así que centrar la fila entera
+       correría el ícono a la izquierda en vez de centrarlo. */
+    .sidebar .brand {
+        padding-left: calc((var(--sidebar-rail) - 22px) / 2);
+    }
+    .sidebar .brand i {
+        flex: 0 0 22px;
+        width: 22px;
+        text-align: center;
+    }
+
+    .sidebar-user {
+        padding-left: calc((var(--sidebar-rail) - 38px) / 2);
+        padding-right: 0;
+    }
+    .sidebar:hover .sidebar-user,
+    .sidebar:has(:focus-visible) .sidebar-user,
+    .sidebar.sidebar--abierta .sidebar-user {
+        padding-left: 20px;
+        padding-right: 20px;
+    }
 
     /* Texto: se desvanece y deja el icono solo. Al abrir entra con un pelín de
        retardo para que primero termine de ensancharse la barra. */
