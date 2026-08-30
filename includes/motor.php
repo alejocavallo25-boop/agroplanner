@@ -1057,7 +1057,7 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
                 } elseif ($campo === 'lotes') {
                     /* "todos" primero: si el productor lo dice, no hace falta que
                        ninguno de los nombres aparezca en la frase. */
-                    if (preg_match('/(^|\s)(todos|todo el campo|todos los lotes|en todos)(\s|$)/u', $texto)) {
+                    if (preg_match('/(^|\s)(todos|todo el campo|todos los lotes|en todos|cada lote|cada uno de los lotes|lote por lote)(\s|$)/u', $texto)) {
                         $slots['lotes'] = array_map(fn($l) => (int)$l['id'], $lotes);
                     } else {
                         $ls = motor_detectar_lotes($texto, $lotes);
