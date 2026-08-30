@@ -605,6 +605,28 @@ function motor_pide_desglose_dimension(string $t): ?string {
     return null;
 }
 
+/** ¿Pregunta por el stock, el precio del catálogo o el vencimiento? */
+function motor_pide_stock(string $t): bool {
+    foreach (['stock','inventario','cuanto me queda de','cuanto tengo de',
+              'que tengo cargado','que insumos tengo','vencimiento','vencen',
+              'por vencer','precio de los insumos','precios de los insumos',
+              'compara los precios','comparar los precios','a cuanto tengo'] as $p) {
+        if (strpos($t, $p) !== false) return true;
+    }
+    return false;
+}
+
+/** ¿Pregunta cuánto insumo se USÓ, que es otra cosa que cuánto queda? */
+function motor_pide_consumo(string $t): bool {
+    foreach (['cuanto use','cuantos kilos use','cuantos kg use','cuanta use','cuantos use',
+              'cuanto apliq','cuanto puse','cuanto lleva','cuanto llevo',
+              'kg de semilla','kilos de semilla','cantidad de semilla',
+              'cuanto consumi','consumo de'] as $p) {
+        if (strpos($t, $p) !== false) return true;
+    }
+    return false;
+}
+
 /** ¿Pide el mejor o el peor lote? Devuelve 'mejor' | 'peor' | null. */
 function motor_pide_ranking_lotes(string $texto): ?string {
     foreach (['mejor lote','lote mas rentable','lote que mas rinde','cual lote rinde mas',
@@ -795,7 +817,9 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
                        . 'También te digo el clima y la lluvia de cada lote, y a cuánto está el grano '
                        . 'en la pizarra: con eso te saco cuánto te deja la hectárea a ese precio. '
                        . 'Y te armo el reporte o el Excel de lo que quieras: toda la campaña, un lote, '
-                       . 'un cultivo, o sólo una etapa como siembra o fertilización.',
+                       . 'un cultivo, o sólo una etapa como siembra o fertilización. '
+                       . 'Del catálogo de insumos te digo qué tenés en stock, a qué precio, qué está '
+                       . 'por debajo del mínimo o vencido, y cuánto usaste de cada uno en cada lote.',
             'valor' => null, 'filtros' => [], 'link' => null,
             'sugerencias' => ['¿En qué gasté más?', '¿Cómo está el clima?', '¿Cuánto gasté en agosto?'],
         ];
@@ -1602,8 +1626,13 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
     $meses_nombrados = motor_detectar_meses($pdo, $usuarioId, $texto);
     $lotes_nombrados = motor_detectar_lotes($texto, $lotes);
 
-    if (motor_pide_comparar($texto) || $quiere_anterior || $otras
-        || count($meses_nombrados) >= 2 || count($lotes_nombrados) >= 2) {
+    /* El guardia del stock: "comparar" también aparece en "compará los precios
+       de los insumos", que no es una comparación entre campañas sino la lista
+       del catálogo. Sin esto gana esta rama por estar primero y contesta que no
+       hay otra campaña con la que comparar, que no tiene nada que ver. */
+    if ((motor_pide_comparar($texto) || $quiere_anterior || $otras
+        || count($meses_nombrados) >= 2 || count($lotes_nombrados) >= 2)
+        && !motor_pide_stock($texto) && !motor_pide_consumo($texto)) {
 
         $mk  = $metrica ?? ($contexto['metrica'] ?? 'margen_neto');
         $sug = ['¿Y el costo por hectárea?', '¿En qué gasté más?', '¿Cuál es mi mejor lote?'];
@@ -1663,6 +1692,156 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
     /* ── Mejor / peor lote ───────────────────────────────────────────────────
        Se ordena por margen POR HECTÁREA y no por margen total: si no, gana
        siempre el lote más grande y la respuesta no dice nada útil. */
+    /* ── Insumos: cuánto usé, cuánto queda, a qué precio ─────────────────────
+       Va antes del desglose por dimensión y de la métrica: "cuántos kg de
+       semilla usé en cada lote" nombra un lote y un rubro, y sin esto lo
+       atendería el desglose de plata devolviendo pesos donde se pidieron kilos. */
+    if (motor_pide_consumo($texto) || motor_pide_stock($texto)) {
+        $rubro  = motor_detectar_dimension($texto, motor_tipos_insumo());
+        $unIns  = motor_insumo_nombrado($pdo, $usuarioId, $texto);
+        $unidad = fn($u) => $u ? ' ' . $u : '';
+        $cant   = fn($v) => number_format((float)$v, 2, ',', '.');
+
+        // ── Consumo: cuánto se aplicó, abierto por lote ──────────────────────
+        if (motor_pide_consumo($texto)) {
+            $filas = motor_consumo_por_lote($pdo, $usuarioId, $campania,
+                                            $rubro['clave'] ?? null, $unIns['id'] ?? null);
+            if (!$filas) {
+                $qué = $unIns ? $unIns['nombre'] : ($rubro ? $rubro['etiqueta'] : 'insumos del catálogo');
+                return [
+                    'ok' => false, 'tipo' => 'sin_datos',
+                    'respuesta' => 'No tengo consumo de ' . $qué . ' cargado en ' . $campania . '.',
+                    'detalle' => 'Sólo puedo contarlo cuando el insumo se elige del catálogo: '
+                               . 'los que se escriben a mano no descuentan stock ni quedan asociados a una ficha.',
+                    'valor' => null,
+                    'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => null],
+                    'link' => 'insumos.php', 'sugerencias' => [],
+                ];
+            }
+
+            $porLote = [];
+            $total   = 0.0; $uni = null;
+            foreach ($filas as $f) {
+                $porLote[$f['lote']][] = $f['insumo'] . ' ' . $cant($f['cantidad']) . $unidad($f['unidad']);
+                $total += (float)$f['cantidad'];
+                $uni = $uni ?? $f['unidad'];
+            }
+            $lineas = [];
+            foreach ($porLote as $lote => $items) {
+                $lineas[] = '• ' . $lote . ': ' . implode(' · ', $items);
+            }
+
+            $qué  = $unIns ? $unIns['nombre'] : ($rubro ? $rubro['etiqueta'] : 'insumos');
+            $unico = count($filas) === 1 || $unIns !== null;
+            return [
+                'ok' => true, 'tipo' => 'consumo_insumo',
+                'respuesta' => 'En ' . $campania . ' usaste ' . $cant($total) . $unidad($uni)
+                             . ' de ' . $qué . ($unico ? '.' : ', repartidos así:'),
+                'detalle' => implode("\n", $lineas)
+                           . "\nEs lo aplicado según las operaciones cargadas, con la misma cuenta "
+                           . 'con la que se descuenta el stock.',
+                'valor' => $total,
+                'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => null],
+                'link' => 'insumos.php',
+                'sugerencias' => ['¿Qué tengo en stock?', '¿Cuánto gasté en semillas?', '¿En qué gasté más?'],
+            ];
+        }
+
+        // ── Stock y precios del catálogo ─────────────────────────────────────
+        $items = motor_stock_insumos($pdo, $usuarioId, $rubro['clave'] ?? null, $unIns['id'] ?? null);
+        if (!$items) {
+            return [
+                'ok' => false, 'tipo' => 'sin_datos',
+                'respuesta' => $rubro || $unIns
+                    ? 'No tengo ' . ($unIns['nombre'] ?? $rubro['etiqueta']) . ' en el catálogo.'
+                    : 'Todavía no tenés insumos cargados en el catálogo.',
+                'detalle' => 'Se cargan desde Insumos, con su stock, su precio y su vencimiento.',
+                'valor' => null,
+                'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => null],
+                'link' => 'insumos.php', 'sugerencias' => [],
+            ];
+        }
+
+        /* El precio del catálogo está en dólares por definición: la columna se
+           llama precio_estimado_usd. Se convierte para mostrarlo en la moneda
+           que se esté mirando, igual que todo lo demás. */
+        /* Un solo formato para toda la lista, elegido por el precio más chico:
+           mezclar $12,00 con $6,5000 en renglones consecutivos se lee como si
+           fueran magnitudes distintas cuando son la misma. */
+        $precios = array_map(fn($i) => motor_a_moneda_actual($pdo, $usuarioId, (float)$i['precio']), $items);
+        $menor   = min(array_filter($precios) ?: [1]);
+        $fmtP    = $menor < 10 ? 'dinero_fino' : 'dinero';
+
+        $lineas = []; $bajos = []; $vencidos = []; $conVenc = [];
+        $hoy = date('Y-m-d');
+        foreach ($items as $n => $i) {
+            $pr = $precios[$n];
+            if ($i['fecha_vencimiento']) $conVenc[] = $n;
+            $t  = '• ' . $i['nombre'] . ': ' . $cant($i['stock_actual']) . $unidad($i['unidad']);
+            if ($pr > 0) {
+                $t .= ' a ' . motor_formatear($pr, $fmtP)
+                    . ($i['unidad'] ? ' el ' . $i['unidad'] : '');
+                // Lo que hay en el galpón, valuado: es la pregunta que sigue.
+                $t .= ' (' . motor_formatear($pr * (float)$i['stock_actual'], 'dinero') . ' en total)';
+            }
+            if ($i['deposito']) $t .= ' — ' . $i['deposito'];
+            $lineas[] = $t;
+
+            if ($i['stock_minimo'] !== null && (float)$i['stock_actual'] < (float)$i['stock_minimo']) {
+                $bajos[] = $i['nombre'];
+            }
+            if ($i['fecha_vencimiento'] && $i['fecha_vencimiento'] < $hoy) {
+                $vencidos[] = $i['nombre'] . ' (venció el ' . date('d/m/Y', strtotime($i['fecha_vencimiento'])) . ')';
+            }
+        }
+
+        $valor = 0.0;
+        foreach ($items as $i) {
+            $valor += motor_a_moneda_actual($pdo, $usuarioId, (float)$i['precio']) * (float)$i['stock_actual'];
+        }
+
+        /* Si preguntó por vencimientos, la lista se recorta a los insumos que
+           tienen fecha: los demás no son parte de esa pregunta y sólo la tapan. */
+        $porVence = preg_match('/vencimiento|vencen|vence|por vencer|vencid/u', $texto);
+        if ($porVence && $conVenc) {
+            $lineas = array_values(array_intersect_key($lineas, array_flip($conVenc)));
+        }
+
+        $cierre = [];
+        // Con la pregunta puesta en los vencimientos, el encabezado ya los nombra.
+        if ($vencidos && !$porVence) $cierre[] = 'Ojo que ya venció: ' . implode(', ', $vencidos) . '.';
+        if ($bajos)    $cierre[] = 'Por debajo del mínimo que fijaste: ' . implode(', ', $bajos) . '.';
+        if (motor_dolar_estimado($pdo, $usuarioId)) {
+            $cierre[] = 'No tenés cotización del dólar cargada para este mes, '
+                      . 'así que el pasaje a dólares es aproximado.';
+        }
+
+        /* Si preguntó puntualmente por vencimientos, la respuesta arranca por
+           ahí. Listarle todo el catálogo y esconder el vencido en la última
+           línea es no contestar lo que preguntó. */
+        if ($porVence) {
+            $encabezado = $vencidos
+                ? 'Tenés vencido: ' . implode(', ', $vencidos) . '.'
+                : 'No tenés nada vencido en el catálogo.';
+        } elseif (count($items) === 1) {
+            $encabezado = 'Tenés ' . $cant($items[0]['stock_actual']) . $unidad($items[0]['unidad'])
+                        . ' de ' . $items[0]['nombre'] . '.';
+        } else {
+            $encabezado = 'Tenés ' . count($items) . ' insumos en el catálogo, '
+                        . motor_formatear($valor, 'dinero') . ' en total.';
+        }
+
+        return [
+            'ok' => true, 'tipo' => 'stock_insumos',
+            'respuesta' => $encabezado,
+            'detalle' => implode("\n", $lineas) . ($cierre ? "\n" . implode(' ', $cierre) : ''),
+            'valor' => $valor,
+            'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => null],
+            'link' => 'insumos.php',
+            'sugerencias' => ['¿Cuántos kg de semilla usé en cada lote?', '¿Qué está por vencer?', '¿En qué gasté más?'],
+        ];
+    }
+
     /* ── Resultado abierto por lote o por cultivo ────────────────────────────
        "¿cuánto gané por lote?", "¿cómo me fue en cada cultivo?". Va antes de
        los rankings porque es la lista completa y no la elección de un ganador,
@@ -3337,6 +3516,90 @@ function motor_dolar_estimado(PDO $pdo, int $uid): bool {
     return !empty(dolar_referencia($pdo, $uid)['estimado']);
 }
 
+/* =====================================================================
+   INSUMOS: STOCK, PRECIO Y CONSUMO
+
+   El catálogo de insumos existía desde el principio y el chat no lo miraba:
+   se puede cargar stock, precio y vencimiento, y no había forma de preguntar
+   nada de eso.
+
+   El consumo se calcula con la MISMA cuenta con la que la aplicación descuenta
+   y devuelve stock: cantidad por hectárea × hectáreas de la operación, con la
+   superficie del lote como respaldo cuando la operación no las declara. Si acá
+   se usara otra fórmula, "cuánto usé" no cerraría con lo que el stock bajó, y
+   ese descuadre es imposible de explicarle a nadie.
+   ===================================================================== */
+
+/** El pedazo de SQL que convierte un renglón de insumo en cantidad consumida. */
+function motor_sql_consumo(): string {
+    return 'oi.cantidad_ha * COALESCE(o.hectareas, l.superficie)';
+}
+
+/**
+ * Consumo de insumos abierto por lote.
+ *
+ * @param string|null $rubro   Filtra por insumos.tipo_insumo (semilla, etc.).
+ * @param int|null    $insumo  Filtra por un insumo puntual del catálogo.
+ */
+function motor_consumo_por_lote(PDO $pdo, int $uid, string $ciclo,
+                                ?string $rubro, ?int $insumo): array {
+    $c   = motor_sql_consumo();
+    $sql = "SELECT l.nombre AS lote, l.id AS lote_id,
+                   i.nombre AS insumo, i.unidad_medida AS unidad,
+                   SUM($c) AS cantidad
+              FROM operacion_insumos oi
+              JOIN operaciones o ON oi.operacion_id = o.id
+              JOIN lotes l       ON o.lote_id = l.id
+              JOIN insumos i     ON oi.insumo_id = i.id
+             WHERE o.usuario_id = ? AND o.campania_operacion = ?";
+    $p = [$uid, $ciclo];
+    if ($rubro)  { $sql .= " AND i.tipo_insumo = ?"; $p[] = $rubro; }
+    if ($insumo) { $sql .= " AND i.id = ?";          $p[] = $insumo; }
+    /* Se agrupa también por insumo: dos semillas distintas en el mismo lote no
+       se pueden sumar en un solo número sin decir cuáles son. */
+    $sql .= " GROUP BY l.id, i.id HAVING cantidad > 0 ORDER BY l.nombre, cantidad DESC";
+
+    $st = $pdo->prepare($sql);
+    $st->execute($p);
+    return $st->fetchAll();
+}
+
+/** El catálogo de insumos con stock y precio. */
+function motor_stock_insumos(PDO $pdo, int $uid, ?string $rubro, ?int $insumo): array {
+    $sql = "SELECT i.id, i.nombre, i.tipo_insumo, i.unidad_medida AS unidad,
+                   i.stock_actual, i.stock_minimo, i.precio_estimado_usd AS precio,
+                   i.fecha_vencimiento, d.nombre AS deposito
+              FROM insumos i
+              LEFT JOIN depositos d ON i.deposito_id = d.id
+             WHERE i.usuario_id = ? AND i.estado = 'activo'";
+    $p = [$uid];
+    if ($rubro)  { $sql .= " AND i.tipo_insumo = ?"; $p[] = $rubro; }
+    if ($insumo) { $sql .= " AND i.id = ?";          $p[] = $insumo; }
+    $sql .= " ORDER BY i.nombre";
+
+    $st = $pdo->prepare($sql);
+    $st->execute($p);
+    return $st->fetchAll();
+}
+
+/** El insumo del catálogo que la pregunta nombra, si hay alguno. */
+function motor_insumo_nombrado(PDO $pdo, int $uid, string $texto): ?array {
+    $st = $pdo->prepare("SELECT id, nombre, unidad_medida FROM insumos
+                          WHERE usuario_id = ? AND estado = 'activo'");
+    $st->execute([$uid]);
+    $mejor = null; $largo = 0;
+    foreach ($st->fetchAll() as $i) {
+        /* Se compara el nombre entero y no palabra por palabra: "Glifosato" y
+           "Glifosato Premium" son dos insumos distintos, y con el más largo que
+           coincida se acierta el que nombró. */
+        $n = motor_normalizar($i['nombre']);
+        if ($n !== '' && strpos($texto, $n) !== false && mb_strlen($n) > $largo) {
+            $mejor = $i; $largo = mb_strlen($n);
+        }
+    }
+    return $mejor;
+}
+
 /** Los cultivos de un lote, para imputar el alquiler igual que el formulario. */
 function motor_cultivos_del_lote(PDO $pdo, int $uid, int $loteId): array {
     $st = $pdo->prepare(
@@ -4170,7 +4433,7 @@ function motor_sin_entender($ctrl, string $motivo): array {
                    . 'Y desglosar el gasto por ' . motor_frase_categorias() . ', o por proveedor. '
                    . 'Cualquiera de esos números lo abro por lote o por cultivo. '
                    . 'También el clima y la lluvia de cada lote, el precio del grano, '
-                   . 'y el reporte o el Excel de cualquier recorte.',
+                   . 'el stock y el consumo de insumos, y el reporte o el Excel de cualquier recorte.',
         'valor' => null, 'filtros' => [], 'link' => null,
         'sugerencias' => $ejemplos,
     ];
