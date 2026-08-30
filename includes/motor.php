@@ -595,11 +595,20 @@ function motor_pide_comparar(string $texto): bool {
  */
 function motor_pide_desglose_dimension(string $t): ?string {
     foreach (['por lote','por cada lote','en cada lote','lote por lote',
-              'de cada lote','para cada lote','por los lotes'] as $p) {
+              'de cada lote','para cada lote','por los lotes',
+              /* "comparación de lotes" es esto y no la comparación entre
+                 campañas: pedir comparar los lotes es pedir verlos a todos con
+                 su número al lado. Comparar DOS lotes nombrados sigue yendo a la
+                 otra rama, que es la que sabe enfrentarlos de a pares. */
+              'comparacion de lotes','comparacion entre lotes','compara los lotes',
+              'comparar los lotes','comparar lotes','compara mis lotes',
+              'comparar mis lotes','comparame los lotes'] as $p) {
         if (strpos($t, $p) !== false) return 'lote';
     }
     foreach (['por cultivo','por cada cultivo','en cada cultivo','cultivo por cultivo',
-              'de cada cultivo','para cada cultivo','por especie','por los cultivos'] as $p) {
+              'de cada cultivo','para cada cultivo','por especie','por los cultivos',
+              'comparacion de cultivos','compara los cultivos','comparar los cultivos',
+              'comparar cultivos'] as $p) {
         if (strpos($t, $p) !== false) return 'cultivo';
     }
     return null;
@@ -621,7 +630,32 @@ function motor_pide_consumo(string $t): bool {
     foreach (['cuanto use','cuantos kilos use','cuantos kg use','cuanta use','cuantos use',
               'cuanto apliq','cuanto puse','cuanto lleva','cuanto llevo',
               'kg de semilla','kilos de semilla','cantidad de semilla',
-              'cuanto consumi','consumo de'] as $p) {
+              'cuanto consumi','consumo de',
+              // "tirar" es como se dice en el campo, y faltaba.
+              'tire','tiro de','tiraste','cuanto tire','apliqu','use de','usaste'] as $p) {
+        if (strpos($t, $p) !== false) return true;
+    }
+    return false;
+}
+
+/** ¿La pregunta pide una CANTIDAD y no plata? */
+function motor_pide_unidad(string $t): bool {
+    /* Una unidad de medida en la frase cambia lo que se está preguntando:
+       "cuánto gasté en semillas" quiere pesos, "cuántos kg de semilla" quiere
+       kilos. Sin esto la rama del gasto se quedaba con las dos y contestaba en
+       plata una pregunta hecha en kilos, que es contestar otra cosa. */
+    return (bool)preg_match(
+        '/(^|\s)(kg|kilo|kilos|kilogramo|kilogramos|lt|lts|litro|litros|'
+        . 'bolsa|bolsas|dosis|unidad|unidades|cantidad)(\s|$)/u', $t);
+}
+
+/** ¿Pregunta a qué PRECIO compró un insumo, no cuánto gastó en total? */
+function motor_pide_precio_insumo(string $t): bool {
+    foreach (['cuanto pague cada','cuanto pague el kg','cuanto pague el litro',
+              'a que precio pague','a que precio compre','a cuanto pague',
+              'a cuanto compre','precio que pague','precio unitario',
+              'cuanto me salio el kg','cuanto me salio el litro',
+              'a cuanto me salio'] as $p) {
         if (strpos($t, $p) !== false) return true;
     }
     return false;
@@ -1142,6 +1176,23 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
         ];
     }
 
+    /* ── Lo que no se puede contestar con datos ──────────────────────────────
+       Va temprano, antes de que cualquier otra rama se quede con la pregunta y
+       vuelva con un número de otra cosa. Decir qué falta y qué sí hay es más
+       útil que un "no entendí", y mucho más honesto que un número que parece
+       una respuesta. */
+    if ($fuera = motor_tema_sin_datos($texto)) {
+        return [
+            'ok' => false, 'tipo' => 'fuera_de_alcance',
+            'respuesta' => 'No te puedo decir ' . $fuera['tema'] . ': me falta un dato.',
+            'detalle' => $fuera['falta'] . ' ' . $fuera['puedo'],
+            'valor' => null,
+            'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => null],
+            'link' => motor_link($campania, $loteId, $cultivo),
+            'sugerencias' => ['¿A cuánto está el trigo?', '¿Cuánto gané por lote?', '¿En qué gasté más?'],
+        ];
+    }
+
     /* ── Análisis ────────────────────────────────────────────────────────────
        "¿Cómo viene la campaña?" — el motor mira los números y dice lo llamativo,
        ordenado por lo que se puede hacer al respecto. */
@@ -1642,7 +1693,11 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
        hay otra campaña con la que comparar, que no tiene nada que ver. */
     if ((motor_pide_comparar($texto) || $quiere_anterior || $otras
         || count($meses_nombrados) >= 2 || count($lotes_nombrados) >= 2)
-        && !motor_pide_stock($texto) && !motor_pide_consumo($texto)) {
+        && !motor_pide_stock($texto) && !motor_pide_consumo($texto)
+        /* "Compará los lotes" sin nombrar dos es pedir la lista de todos, no un
+           enfrentamiento entre campañas. Con dos lotes nombrados sigue entrando
+           acá, que es la rama que sabe ponerlos frente a frente. */
+        && !(motor_pide_desglose_dimension($texto) !== null && count($lotes_nombrados) < 2)) {
 
         $mk  = $metrica ?? ($contexto['metrica'] ?? 'margen_neto');
         $sug = ['¿Y el costo por hectárea?', '¿En qué gasté más?', '¿Cuál es mi mejor lote?'];
@@ -1702,18 +1757,120 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
     /* ── Mejor / peor lote ───────────────────────────────────────────────────
        Se ordena por margen POR HECTÁREA y no por margen total: si no, gana
        siempre el lote más grande y la respuesta no dice nada útil. */
+    /* ── Qué porcentaje representa el alquiler ───────────────────────────────
+       "¿Qué porcentaje fue de alquiler?" devolvía el monto pagado: el número
+       correcto de otra pregunta. Los desgloses por etapa y por rubro ya dan su
+       porcentaje en el detalle, pero el alquiler no es una etapa —es un costo
+       aparte— y quedaba sin puerta. */
+    if (preg_match('/(porcentaje|por ciento|%|que parte|cuanta parte)/u', $texto)
+        && preg_match('/(alquiler|alquileres|arrendamiento|renta)/u', $texto)) {
+        $s     = $ctrl->getGlobalStats($campania, $loteId, $cultivo);
+        $alq   = (float)$s['costos_alquiler'];
+        $lab   = (float)$s['costos_directos'];
+        $total = $alq + $lab;
+
+        if ($total <= 0) {
+            return [
+                'ok' => false, 'tipo' => 'sin_datos',
+                'respuesta' => 'Todavía no hay costos cargados en ' . $campania . '.',
+                'detalle' => 'Con alquileres y labores registrados te digo cuánto pesa cada uno.',
+                'valor' => null,
+                'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => 'costos_alquiler'],
+                'link' => motor_link($campania, $loteId, $cultivo), 'sugerencias' => [],
+            ];
+        }
+
+        $pct  = $alq / $total * 100;
+        $ing  = (float)$s['ingresos'];
+        $extra = $ing > 0
+            ? ' Y ' . number_format($alq / $ing * 100, 1, ',', '.') . '% de tus ingresos.'
+            : '';
+
+        return [
+            'ok' => true, 'tipo' => 'porcentaje',
+            'respuesta' => 'En ' . $campania . ', el alquiler fue el '
+                         . number_format($pct, 1, ',', '.') . '% de tus costos.',
+            'detalle' => motor_formatear($alq, 'dinero') . ' de alquiler sobre '
+                       . motor_formatear($total, 'dinero') . ' de costo total ('
+                       . motor_formatear($lab, 'dinero') . ' de laboreo).' . $extra,
+            'valor' => $pct,
+            'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => 'costos_alquiler'],
+            'link' => 'alquileres.php',
+            'sugerencias' => ['¿Cuánto gané por lote?', '¿En qué gasté más?', '¿Cuál es mi mejor lote?'],
+        ];
+    }
+
     /* ── Insumos: cuánto usé, cuánto queda, a qué precio ─────────────────────
        Va antes del desglose por dimensión y de la métrica: "cuántos kg de
        semilla usé en cada lote" nombra un lote y un rubro, y sin esto lo
        atendería el desglose de plata devolviendo pesos donde se pidieron kilos. */
-    if (motor_pide_consumo($texto) || motor_pide_stock($texto)) {
-        $rubro  = motor_detectar_dimension($texto, motor_tipos_insumo());
+    $rubroTxt = motor_detectar_dimension($texto, motor_tipos_insumo());
+    /* Nombrar una unidad junto a un rubro también es preguntar por la cantidad:
+       "cuántos kg de semilla tiré" no lleva ninguno de los verbos de la lista,
+       y sin esta puerta caía en la rama del gasto y devolvía pesos. */
+    $pideCantidad = motor_pide_consumo($texto)
+                 || (motor_pide_unidad($texto) && $rubroTxt !== null);
+
+    if ($pideCantidad || motor_pide_stock($texto) || motor_pide_precio_insumo($texto)) {
+        $rubro  = $rubroTxt;
         $unIns  = motor_insumo_nombrado($pdo, $usuarioId, $texto);
         $unidad = fn($u) => $u ? ' ' . $u : '';
         $cant   = fn($v) => number_format((float)$v, 2, ',', '.');
 
+        // ── A qué precio se compró, que no es lo mismo que cuánto se gastó ───
+        if (motor_pide_precio_insumo($texto)) {
+            $filas = motor_precio_pagado_insumo($pdo, $usuarioId, $campania,
+                                                $rubro['clave'] ?? null, $unIns['id'] ?? null);
+            if (!$filas) {
+                return [
+                    'ok' => false, 'tipo' => 'sin_datos',
+                    'respuesta' => 'No tengo precios cargados de '
+                                 . ($unIns['nombre'] ?? ($rubro['etiqueta'] ?? 'insumos'))
+                                 . ' en ' . $campania . '.',
+                    'detalle' => 'El precio sale de lo que se escribió al registrar cada compra, '
+                               . 'así que sólo lo tengo de los insumos elegidos del catálogo.',
+                    'valor' => null,
+                    'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => null],
+                    'link' => 'insumos.php', 'sugerencias' => [],
+                ];
+            }
+            $lineas = [];
+            foreach ($filas as $f) {
+                $prom = (float)$f['cantidad'] > 0 ? (float)$f['gastado'] / (float)$f['cantidad'] : 0;
+                $t = '• ' . $f['insumo'] . ': ' . motor_formatear($prom, $prom < 10 ? 'dinero_fino' : 'dinero')
+                   . ($f['unidad'] ? ' el ' . $f['unidad'] : '');
+                // El rango sólo se dice si hay rango: repetirlo igual es ruido.
+                if ((float)$f['minimo'] != (float)$f['maximo']) {
+                    $t .= ' (entre ' . motor_formatear((float)$f['minimo'], 'dinero')
+                        . ' y ' . motor_formatear((float)$f['maximo'], 'dinero')
+                        . ' en ' . $f['compras'] . ' compras)';
+                }
+                $t .= ' — ' . $cant($f['cantidad']) . $unidad($f['unidad'])
+                    . ' por ' . motor_formatear((float)$f['gastado'], 'dinero');
+                $lineas[] = $t;
+            }
+            $unaSola = count($filas) === 1;
+            $pr0 = (float)$filas[0]['cantidad'] > 0
+                 ? (float)$filas[0]['gastado'] / (float)$filas[0]['cantidad'] : 0;
+            return [
+                'ok' => true, 'tipo' => 'precio_insumo',
+                'respuesta' => $unaSola
+                    ? 'Pagaste ' . motor_formatear($pr0, $pr0 < 10 ? 'dinero_fino' : 'dinero')
+                      . ($filas[0]['unidad'] ? ' el ' . $filas[0]['unidad'] : '')
+                      . ' de ' . $filas[0]['insumo'] . ' en ' . $campania . '.'
+                    : 'Lo que pagaste por unidad en ' . $campania . ':',
+                'detalle' => implode("\n", $lineas)
+                           . "\nEs el promedio ponderado por cantidad de lo que escribiste al "
+                           . 'registrar cada compra, no el precio de referencia del catálogo.',
+                'valor' => $pr0,
+                'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => null],
+                'link' => 'insumos.php',
+                'sugerencias' => ['¿Cuántos kg de semilla usé?', '¿Qué tengo en stock?', '¿En qué gasté más?'],
+            ];
+        }
+
         // ── Consumo: cuánto se aplicó, abierto por lote ──────────────────────
-        if (motor_pide_consumo($texto)) {
+        if ($pideCantidad) {
             $filas = motor_consumo_por_lote($pdo, $usuarioId, $campania,
                                             $rubro['clave'] ?? null, $unIns['id'] ?? null);
             if (!$filas) {
@@ -1729,10 +1886,23 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
                 ];
             }
 
+            /* La superficie de cada lote, para poder decir la dosis además del
+               total: un insumo se piensa en kg por hectárea, y "12.000 kg" no
+               dice nada si no se sabe sobre cuántas hectáreas fueron. */
+            $sup = [];
+            foreach (motor_lotes_del_usuario($pdo, $usuarioId) as $l) {
+                $sup[$l['nombre']] = (float)$l['superficie'];
+            }
+
             $porLote = [];
             $total   = 0.0; $uni = null;
             foreach ($filas as $f) {
-                $porLote[$f['lote']][] = $f['insumo'] . ' ' . $cant($f['cantidad']) . $unidad($f['unidad']);
+                $t = $f['insumo'] . ' ' . $cant($f['cantidad']) . $unidad($f['unidad']);
+                $ha = $sup[$f['lote']] ?? 0;
+                if ($ha > 0) {
+                    $t .= ' (' . $cant((float)$f['cantidad'] / $ha) . $unidad($f['unidad']) . '/ha)';
+                }
+                $porLote[$f['lote']][] = $t;
                 $total += (float)$f['cantidad'];
                 $uni = $uni ?? $f['unidad'];
             }
@@ -2424,6 +2594,9 @@ function motor_pide_alta(string $t): bool {
     // "cuánto gasté" es una consulta aunque tenga la palabra gasté: la pregunta
     // gana siempre, porque equivocarse para el lado de consultar no rompe nada.
     if (preg_match('/^\s*(cuanto|cuantos|cuantas|cual|que|como)\b/u', $t)) return false;
+
+    // Pedir una opinión tampoco es cargar, y esas frases no llevan interrogativo.
+    if (motor_es_consulta_de_consejo($t)) return false;
 
     // Órdenes: no tienen otra lectura posible. "anotá", "cargá", "registrá".
     foreach (['carga','cargar','carg','anota','anotar','registra','registrar',
@@ -3574,6 +3747,43 @@ function motor_consumo_por_lote(PDO $pdo, int $uid, string $ciclo,
     return $st->fetchAll();
 }
 
+/**
+ * El precio que se PAGÓ de verdad por cada insumo, de los renglones.
+ *
+ * No es el del catálogo: ése es una referencia que se carga a mano y queda
+ * vieja. Éste sale de operacion_insumos.precio_unitario, o sea de lo que se
+ * escribió al registrar cada compra.
+ *
+ * Se devuelve el promedio ponderado por cantidad —no el promedio simple— porque
+ * comprar mil kilos a un precio y diez a otro no son dos precios que valgan lo
+ * mismo. Y van también el mínimo y el máximo: si compró al doble en dos
+ * momentos del año, el promedio solo lo escondería.
+ */
+function motor_precio_pagado_insumo(PDO $pdo, int $uid, string $ciclo,
+                                    ?string $rubro, ?int $insumo): array {
+    $c   = motor_sql_consumo();
+    $sql = "SELECT i.nombre AS insumo, i.unidad_medida AS unidad,
+                   SUM($c) AS cantidad,
+                   SUM($c * oi.precio_unitario) AS gastado,
+                   MIN(oi.precio_unitario) AS minimo,
+                   MAX(oi.precio_unitario) AS maximo,
+                   COUNT(*) AS compras
+              FROM operacion_insumos oi
+              JOIN operaciones o ON oi.operacion_id = o.id
+              JOIN lotes l       ON o.lote_id = l.id
+              JOIN insumos i     ON oi.insumo_id = i.id
+             WHERE o.usuario_id = ? AND o.campania_operacion = ?
+               AND oi.precio_unitario > 0";
+    $p = [$uid, $ciclo];
+    if ($rubro)  { $sql .= " AND i.tipo_insumo = ?"; $p[] = $rubro; }
+    if ($insumo) { $sql .= " AND i.id = ?";          $p[] = $insumo; }
+    $sql .= " GROUP BY i.id HAVING cantidad > 0 ORDER BY gastado DESC";
+
+    $st = $pdo->prepare($sql);
+    $st->execute($p);
+    return $st->fetchAll();
+}
+
 /** El catálogo de insumos con stock y precio. */
 function motor_stock_insumos(PDO $pdo, int $uid, ?string $rubro, ?int $insumo): array {
     $sql = "SELECT i.id, i.nombre, i.tipo_insumo, i.unidad_medida AS unidad,
@@ -3804,7 +4014,84 @@ function motor_alta_siguiente(array $slots, array $lotes, string $aviso = '', ar
  * original, porque la normalización parte "15.000" en "15 000" y el paso a paso
  * arrancaría igual para alguien que ya dijo todo de una.
  */
+/**
+ * ¿Es una pregunta de consejo y no una orden de cargar?
+ *
+ * "Pagué el alquiler" carga; "¿conviene pagar el alquiler mensual?" pregunta, y
+ * las dos llevan "pagar" y "alquiler". El guardia de las altas miraba sólo las
+ * palabras interrogativas —cuánto, cuál, qué— y estas frases no llevan ninguna,
+ * así que arrancaban a cargar un alquiler. Empezar a escribir en la base cuando
+ * alguien pidió una opinión es el peor error posible de esta función.
+ */
+function motor_es_consulta_de_consejo(string $t): bool {
+    foreach (['conviene','convendria','convendría','me conviene','deberia','debería',
+              'es mejor','sera mejor','será mejor','vale la pena','que me recomendas',
+              'que me recomiendas','esta bien pagar','está bien pagar',
+              'que te parece','esta bien el','está bien el'] as $p) {
+        if (strpos($t, $p) !== false) return true;
+    }
+    return false;
+}
+
+/**
+ * Temas sobre los que el sistema no tiene con qué opinar.
+ *
+ * Devuelve qué se preguntó y qué haría falta para poder contestarlo. Existe
+ * porque el mal menor no es "no entendí": es que la pregunta caiga en otra rama
+ * y vuelva con un número correcto de otra cosa. "¿Conviene pagar el alquiler a
+ * porcentaje?" devolvía el porcentaje que el alquiler representa hoy sobre los
+ * costos, que es un dato real y una respuesta equivocada.
+ */
+function motor_tema_sin_datos(string $t): ?array {
+    if (preg_match('/(mensual|semestral|anual|adelantado|a porcentaje|porcentaje de produccion|quintal|quintales)/u', $t)
+        && preg_match('/(alquiler|arrendamiento|renta|contrato|pagar|pago)/u', $t)) {
+        return [
+            'tema'  => 'cómo conviene pactar el alquiler',
+            'falta' => 'Haría falta la tasa a la que podés colocar la plata, la inflación '
+                     . 'esperada y cómo viene tu caja mes a mes. Nada de eso está cargado, y '
+                     . 'sin eso cualquier respuesta sería una opinión disfrazada de cuenta.',
+            'puedo' => 'Sí te puedo decir cuánto pagaste, qué porcentaje de tus costos '
+                     . 'representa y cuánto deja por hectárea cada lote alquilado.',
+        ];
+    }
+    if (preg_match('/(flete|fletes|acarreo|camion|camiones)/u', $t)) {
+        return [
+            'tema'  => 'el precio del flete',
+            'falta' => 'El flete no se carga en ningún lado: las etapas de gasto son siembra, '
+                     . 'cosecha, pulverización, fertilización y otros, así que un flete termina '
+                     . 'mezclado dentro de "otros" y no hay forma de separarlo.',
+            'puedo' => 'Si querés, se puede agregar el flete como etapa propia y ahí sí te digo '
+                     . 'cuánto pagaste, cuánto pesa y cuánto te sale por tonelada.',
+        ];
+    }
+    if (preg_match('/(embolsar|silo bolsa|silobolsa|acopio|almacenar|guardar el grano|almacenaje)/u', $t)) {
+        return [
+            'tema'  => 'si conviene guardar el grano o entregarlo',
+            'falta' => 'Haría falta el costo de embolsado, el de acopio y la capacidad de silo '
+                     . 'que tenés. Nada de eso se carga hoy.',
+            'puedo' => 'Lo que sí te digo es a cuánto está el grano en la pizarra y cuánto te '
+                     . 'deja la hectárea a ese precio, que es la mitad de esa cuenta.',
+        ];
+    }
+    /* Se acepta lo que haya entre "cuándo"/"momento" y "vender": la gente dice
+       "en qué momento conviene vender", "cuándo me conviene vender", y una lista
+       de frases cerradas nunca las cubre todas. */
+    if (preg_match('/(cuando|momento).{0,25}vend/u', $t)) {
+        return [
+            'tema'  => 'cuándo conviene vender',
+            'falta' => 'Haría falta el precio a futuro y el costo de esperar. El sistema tiene '
+                     . 'la pizarra de hoy, no la de dentro de tres meses, y adivinarla sería '
+                     . 'inventar un número.',
+            'puedo' => 'Te digo a cuánto está hoy, cuánto te deja la hectárea a ese precio y a '
+                     . 'cuánto vendiste lo que ya entregaste.',
+        ];
+    }
+    return null;
+}
+
 function motor_pide_alta_guiada(string $t, string $original = ''): ?string {
+    // Una pregunta de consejo nunca es una orden de cargar.
+    if (motor_es_consulta_de_consejo($t)) return null;
     /* La venta, el alquiler y el insumo se miran PRIMERO. "cargar un insumo"
        contiene "cargar", así que con el orden al revés todas esas altas arrancaban
        como si fueran un gasto. */
