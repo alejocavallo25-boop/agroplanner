@@ -966,6 +966,14 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
     if (is_array($enCurso) || $arranca !== null) {
         $slots = is_array($enCurso) ? $enCurso : [];
 
+        /* Para CARGAR se usan todos los lotes del productor, no los de la
+           campaña. Un lote entra en la lista de la campaña recién cuando ya
+           tiene algo cargado, así que al registrar el primer gasto del ciclo
+           "todos" devolvía sólo los que ya habían recibido algo —muchas veces
+           uno— y nombrar un lote todavía vacío no lo encontraba. El formulario
+           de Costos y Labores siempre ofreció todos; acá faltaba. */
+        $lotes = motor_lotes_del_usuario($pdo, $usuarioId) ?: $lotes;
+
         if (motor_alta_cancelada($texto)) {
             return [
                 'ok' => true, 'tipo' => 'alta_cancelada',
@@ -1108,6 +1116,8 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
        Devuelve una PROPUESTA, nunca escribe. El guardado lo hace api/registrar.php
        por POST, con los campos ya confirmados. */
     if (motor_pide_alta($texto)) {
+        // Misma razón que en el alta guiada: para cargar valen todos los lotes.
+        $lotes = motor_lotes_del_usuario($pdo, $usuarioId) ?: $lotes;
         $slots = motor_interpretar_alta($texto, $pregunta, $lotes, $lote);
 
         /* Lo que la frase no traiga lo pregunta el paso a paso desde donde quedó,
@@ -3598,6 +3608,27 @@ function motor_insumo_nombrado(PDO $pdo, int $uid, string $texto): ?array {
         }
     }
     return $mejor;
+}
+
+/**
+ * Todos los lotes del productor, sin filtrar por campaña.
+ *
+ * La CARGA usa ésta y no getLotesDelCiclo(). Un lote entra en la lista de una
+ * campaña sólo si ya tiene un cultivo, una operación o una venta de ese ciclo
+ * —o si su ficha lo declara—, y eso está bien para consultar: se pregunta por
+ * lo que hay. Pero para cargar está al revés. Cuando alguien registra el primer
+ * gasto de la campaña, sus lotes todavía no tienen nada, así que decir "todos"
+ * devolvía únicamente los que ya habían recibido algo, muchas veces uno solo, y
+ * nombrar un lote sin actividad no lo encontraba.
+ *
+ * El formulario de Costos y Labores siempre ofreció todos los lotes; el chat era
+ * el que quedaba corto.
+ */
+function motor_lotes_del_usuario(PDO $pdo, int $uid): array {
+    $st = $pdo->prepare("SELECT id, nombre, superficie FROM lotes
+                          WHERE usuario_id = ? ORDER BY nombre");
+    $st->execute([$uid]);
+    return $st->fetchAll();
 }
 
 /** Los cultivos de un lote, para imputar el alquiler igual que el formulario. */
