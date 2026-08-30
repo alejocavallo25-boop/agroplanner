@@ -1346,8 +1346,18 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
     /* ── Precio de pizarra y qué deja la hectárea ────────────────────────────
        La cotización sola es un dato de diario. Cruzada con el rinde y el costo
        del productor pasa a ser su número. */
-    if (motor_pide_precio($texto)) {
-        $especie = motor_cultivo_cotizable($pdo, $texto);
+    /* Dos formas de entrar. La lista de frases cubre lo genérico ("a cuánto
+       está", "si vendo"); la segunda cubre lo que la lista no puede prever:
+       cualquier frase con palabra de precio que además nombre un grano con
+       pizarra. Salió de motor_consultas_fallidas — "precio de la soja hoy" era
+       una pregunta real que no entraba por ninguna frase de la lista. La
+       consulta al catálogo va segunda a propósito: sólo corre si ya apareció
+       una palabra de precio, así no se pega a la base en cada mensaje. */
+    $mencionaGrano = preg_match('/precio|cotiza|vale|valen|pagan|pagando/u', $texto)
+                   ? motor_cultivo_cotizable($pdo, $texto) : null;
+
+    if (motor_pide_precio($texto) || $mencionaGrano !== null) {
+        $especie = $mencionaGrano ?? motor_cultivo_cotizable($pdo, $texto);
 
         /* Si no nombró el grano, se usa el de la campaña. Con más de uno se
            pregunta: valuar la producción entera al precio de un solo cultivo
@@ -3608,6 +3618,14 @@ function motor_pide_clima(string $t): bool {
               'esta lloviendo','está lloviendo','viento','helada','heladas',
               'humedad','hace frio','hace frío','hace calor','grados'] as $p) {
         if (strpos($t, $p) !== false) return true;
+    }
+    /* Éstas se buscan como palabra entera y no por substring: "sol" vive dentro
+       de "solo", "sólo" y "consolidado", y con strpos cualquier frase con esas
+       palabras se iría a pedirle el clima a un servicio de afuera.
+       Salieron de motor_consultas_fallidas: "hay sol en la rubia?" es una
+       pregunta real que quedó sin contestar. */
+    foreach (['sol','nublado','despejado','tormenta','granizo','niebla','llueve'] as $p) {
+        if (preg_match('/(^|[^a-záéíóúñ])' . $p . '([^a-záéíóúñ]|$)/u', $t)) return true;
     }
     return false;
 }
