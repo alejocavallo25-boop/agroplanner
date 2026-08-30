@@ -398,7 +398,26 @@
                              + 'border-radius:10px; padding:0 16px; min-height:44px; cursor:pointer; font-size:0.86rem;';
             no.textContent = 'Cancelar';
 
+            /* Corregir un dato sin rehacer todo. La confirmación cierra el
+               formulario —alta_pendiente viene en null— así que acá se devuelve
+               la propuesta como estado y el motor vacía el casillero y lo vuelve
+               a preguntar. La lógica vive allá: escribir "cambiá el monto" hace
+               exactamente lo mismo que tocar el botón. */
+            const editar = document.createElement('button');
+            editar.type = 'button';
+            editar.style.cssText = 'background:var(--n-0); border:1px solid var(--border);'
+                                 + 'color:var(--text-primary); border-radius:10px; padding:0 16px;'
+                                 + 'min-height:44px; cursor:pointer; font-size:0.86rem; font-weight:600;';
+            editar.innerHTML = '<i class="fas fa-pen"></i> Corregir';
+
             ok.addEventListener('click', () => { confirmacionPendiente = false; guardarAlta(r.alta, acciones); });
+            editar.addEventListener('click', () => {
+                confirmacionPendiente = false;
+                altaPendiente = r.alta;
+                acciones.remove();
+                // preguntar() es la función; 'enviar' es el botón de mandar.
+                preguntar('corregir');
+            });
             no.addEventListener('click', () => {
                 confirmacionPendiente = false;
                 acciones.remove();
@@ -407,6 +426,7 @@
             });
 
             acciones.appendChild(ok);
+            acciones.appendChild(editar);
             acciones.appendChild(no);
             d.appendChild(acciones);
         }

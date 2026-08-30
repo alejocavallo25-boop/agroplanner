@@ -1046,6 +1046,45 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
            de insumo no dice por sí solo qué formulario se está llenando. */
         $slots['que'] = $slots['que'] ?? ($arranca ?? 'gasto');
 
+        /* Corregir un casillero. Va antes del reparto por tipo de alta para que
+           valga en los cuatro formularios: se vacía el casillero y el paso a
+           paso lo vuelve a preguntar solo, sin tocar el resto de lo cargado. */
+        $corregir = motor_alta_pide_correccion($texto, $slots['que']);
+        if ($corregir !== null) {
+            $campos = motor_alta_campos($slots['que']);
+            if ($corregir === '') {
+                /* Dijo que algo está mal pero no dijo qué: se pregunta, con la
+                   lista de lo que se puede tocar. Sólo los casilleros que ESTE
+                   formulario usa: ofrecer "corregir el insumo" en un gasto de
+                   mano de obra manda a un paso que ni siquiera se preguntó. */
+                $pasosC = motor_alta_pasos($slots['que']);
+                $ofrecer = [];
+                foreach ($campos as $campo => $d) {
+                    if (!array_key_exists($campo, $slots)) continue;
+                    if (isset($pasosC[$campo]) && !motor_alta_paso_aplica($pasosC[$campo], $slots)) continue;
+                    $ofrecer[] = 'Corregir ' . $d['etiqueta'];
+                }
+                return [
+                    'ok' => true, 'tipo' => 'alta_paso',
+                    'respuesta' => '¿Qué querés corregir?',
+                    'detalle' => 'Tocá el dato que está mal y te lo vuelvo a preguntar. '
+                               . 'El resto queda como está.',
+                    'valor' => null,
+                    'alta_pendiente' => $slots,
+                    'filtros' => [], 'link' => null,
+                    'sugerencias' => $ofrecer,
+                ];
+            }
+            unset($slots[$corregir]);
+            /* El reparto depende del monto y de cuántos lotes hay: si se corrige
+               alguno de esos, el que había deja de tener sentido. */
+            if (in_array($corregir, ['costo_total', 'lotes'], true)) unset($slots['reparto']);
+            // Y el insumo arrastra su cantidad y su vínculo con el catálogo.
+            if ($corregir === 'insumo_nombre') {
+                unset($slots['insumo_id'], $slots['insumo_cantidad'], $slots['insumo_unidad']);
+            }
+        }
+
         if ($slots['que'] === 'insumo') {
             return motor_alta_insumo($pdo, $usuarioId, $slots, $texto, $pregunta, is_array($enCurso));
         }
@@ -2857,6 +2896,78 @@ function motor_interpretar_alta(string $texto, string $original, array $lotes, ?
  * Hay dos altas distintas y comparten toda la maquinaria: un gasto en una
  * operación, y un insumo en el catálogo. Lo único que cambia es esta lista.
  */
+/**
+ * Los casilleros que se pueden corregir, con cómo los nombra la gente.
+ *
+ * Hasta acá la confirmación era todo o nada: si un dato salía mal había que
+ * cancelar y rehacer los seis pasos por uno. Con esto se puede volver sobre uno
+ * solo, y el resto queda como estaba.
+ */
+function motor_alta_campos(string $que = 'gasto'): array {
+    $fecha = ['etiqueta' => 'la fecha', 'sinonimos' => ['fecha', 'dia', 'día', 'cuando']];
+    if ($que === 'insumo') {
+        return [
+            'nombre'              => ['etiqueta' => 'el nombre',   'sinonimos' => ['nombre','se llama']],
+            'tipo_insumo'         => ['etiqueta' => 'el tipo',     'sinonimos' => ['tipo','rubro']],
+            'unidad_medida'       => ['etiqueta' => 'la unidad',   'sinonimos' => ['unidad','medida']],
+            'precio_estimado_usd' => ['etiqueta' => 'el precio',   'sinonimos' => ['precio','valor']],
+            'stock_actual'        => ['etiqueta' => 'el stock',    'sinonimos' => ['stock','cantidad']],
+        ];
+    }
+    if ($que === 'alquiler') {
+        return [
+            'nivel_imputacion' => ['etiqueta' => 'la imputación', 'sinonimos' => ['imputacion','imputación','nivel']],
+            'lote_id'          => ['etiqueta' => 'el lote',       'sinonimos' => ['lote','campo']],
+            'cultivo_id'       => ['etiqueta' => 'el cultivo',    'sinonimos' => ['cultivo','especie']],
+            'monto_pagado'     => ['etiqueta' => 'el monto',      'sinonimos' => ['monto','importe','plata','valor','precio']],
+            'fecha_pago'       => $fecha,
+        ];
+    }
+    if ($que === 'venta') {
+        return [
+            'lote_id'     => ['etiqueta' => 'el lote',      'sinonimos' => ['lote','campo']],
+            'cultivo_id'  => ['etiqueta' => 'el cultivo',   'sinonimos' => ['cultivo','especie']],
+            'kg'          => ['etiqueta' => 'los kilos',    'sinonimos' => ['kilos','kg','cantidad']],
+            'precio_kg'   => ['etiqueta' => 'el precio',    'sinonimos' => ['precio']],
+            'fecha_venta' => $fecha,
+        ];
+    }
+    return [
+        'grupo_gasto'      => ['etiqueta' => 'la etapa',    'sinonimos' => ['etapa','grupo','en que gaste','labor']],
+        'tipo_componente'  => ['etiqueta' => 'el tipo',     'sinonimos' => ['tipo','componente']],
+        'insumo_nombre'    => ['etiqueta' => 'el insumo',   'sinonimos' => ['insumo','producto']],
+        'insumo_cantidad'  => ['etiqueta' => 'la cantidad', 'sinonimos' => ['cantidad','cuanto use']],
+        'lotes'            => ['etiqueta' => 'el lote',     'sinonimos' => ['lote','lotes','campo']],
+        'costo_total'      => ['etiqueta' => 'el monto',    'sinonimos' => ['monto','importe','plata','costo','valor','precio']],
+        'reparto'          => ['etiqueta' => 'el reparto',  'sinonimos' => ['reparto','repartir','por hectarea','por hectárea']],
+        'fecha'            => $fecha,
+    ];
+}
+
+/**
+ * ¿Está pidiendo corregir un casillero? Devuelve cuál, o '' si no dijo cuál.
+ *
+ * Pide las dos cosas: el verbo de corregir Y el nombre del campo. Con sólo el
+ * nombre no alcanza —contestar "el monto" a "¿cuánto fue?" es una respuesta, no
+ * una corrección— y con sólo el verbo no se sabe qué tocar, así que se pregunta.
+ */
+function motor_alta_pide_correccion(string $t, string $que = 'gasto'): ?string {
+    if (!preg_match('/(corregir|corregi|corrig|cambiar|cambia|cambi|modific|editar|edita|'
+                  . 'esta mal|está mal|me equivoque|equivoque|no era|volver a)/u', $t)) {
+        return null;
+    }
+    $mejor = null; $largo = 0;
+    foreach (motor_alta_campos($que) as $campo => $d) {
+        foreach ($d['sinonimos'] as $s) {
+            $n = motor_normalizar($s);
+            if (strpos($t, $n) !== false && mb_strlen($n) > $largo) {
+                $mejor = $campo; $largo = mb_strlen($n);
+            }
+        }
+    }
+    return $mejor ?? '';   // dijo que está mal, pero no dijo qué
+}
+
 function motor_alta_pasos(string $que = 'gasto'): array {
     if ($que === 'insumo')   return motor_alta_pasos_insumo();
     if ($que === 'alquiler') return motor_alta_pasos_alquiler();
@@ -4160,8 +4271,12 @@ function motor_alta_siguiente(array $slots, array $lotes, string $aviso = '', ar
         $hechos = [];
         if (isset($slots['grupo_gasto']))     $hechos[] = motor_grupos()[$slots['grupo_gasto']]['etiqueta'];
         if (isset($slots['tipo_componente'])) $hechos[] = $slots['tipo_componente'] === 'insumo' ? 'insumo' : 'mano de obra';
-        if (isset($slots['insumo_nombre']))   $hechos[] = $slots['insumo_nombre'];
-        if (isset($slots['insumo_cantidad'])) {
+        /* No alcanza con isset: en un gasto de mano de obra estos dos casilleros
+           se llenan vacíos —nombre '' y cantidad 0— y aparecían en el resumen
+           como un renglón en blanco y un "0,00" sueltos. Se nota al volver sobre
+           un paso, que es cuando el resumen se arma con todo ya cargado. */
+        if (!empty($slots['insumo_nombre']))   $hechos[] = $slots['insumo_nombre'];
+        if (!empty($slots['insumo_cantidad'])) {
             $u = isset($slots['insumo_unidad']) ? ' ' . (motor_unidades()[$slots['insumo_unidad']] ?? '') : '';
             $hechos[] = number_format($slots['insumo_cantidad'], 2, ',', '.') . $u;
         }
