@@ -40,6 +40,11 @@ if (!empty($_GET['lote']))    $contexto['lote']    = (int)$_GET['lote'];
 if (!empty($_GET['cultivo'])) $contexto['cultivo'] = (string)$_GET['cultivo'];
 // De qué número veníamos hablando, para que "¿y en total?" retome el mismo.
 if (!empty($_GET['metrica'])) $contexto['metrica'] = (string)$_GET['metrica'];
+/* La pregunta anterior, para poder rehacerla en la otra moneda cuando lo único
+   que se escribe es "¿y en dólares?". Es texto que vuelve del cliente, así que
+   lleva el mismo techo que la pregunta y pasa por el mismo motor: en el peor
+   caso se contesta otra pregunta del propio usuario, contra sus propios datos. */
+if (!empty($_GET['previa'])) $contexto['previa'] = mb_substr((string)$_GET['previa'], 0, 300);
 
 /* La moneda en que está mirando el panel. El chat contesta en la misma: si el
    panel dice US$583 y el chat dice $845.000, son dos números para lo mismo y el
@@ -117,6 +122,13 @@ if (!empty($_GET['alta'])) {
 
 try {
     $r = motor_responder($pdo, $usuario_id, $pregunta, $contexto);
+
+    /* En qué moneda quedó contestando. La frase la puede haber cambiado ("¿y en
+       dólares?"), así que se lee DESPUÉS del motor y no antes. El cliente la
+       guarda y la vuelve a mandar: si no, la siguiente pregunta volvería a pesos
+       sola y el productor vería dos monedas seguidas sin haber tocado nada. */
+    $r['filtros'] = is_array($r['filtros'] ?? null) ? $r['filtros'] : [];
+    $r['filtros']['moneda'] = motor_moneda();
 
     // Lo que no supo contestar se anota, para saber qué agregar después con
     // datos en vez de con intuición. No afecta la respuesta que ya se calculó.

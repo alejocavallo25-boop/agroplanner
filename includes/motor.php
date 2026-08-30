@@ -829,11 +829,34 @@ function motor_pide_definicion(string $texto): bool {
  */
 function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $contexto = []): array {
     require_once __DIR__ . '/../controllers/DashboardController.php';
+    $texto = motor_normalizar($pregunta);
+
+    /* ── En qué moneda quiere leerlo ─────────────────────────────────────────
+       Antes que nada, porque decide en qué moneda se calcula TODO lo que sigue:
+       el controlador y las consultas de este archivo se arman con ella.
+
+       No se toca cuando hay una carga a medias ni cuando la frase es un alta: en
+       "cargá un gasto en dólares", el "en dólares" es la moneda con la que se
+       pagó —un dato que se guarda— y no cómo se quiere leer un total. Confundir
+       las dos cosas escribiría un gasto en la moneda equivocada, que es mucho
+       peor que no entender la pregunta. */
+    if (empty($contexto['alta']) && !motor_pide_alta($texto)) {
+        [$resto, $pedida] = motor_separar_moneda($texto);
+        if ($pedida !== null) {
+            motor_moneda($pedida);
+            // Sola, la frase es "lo mismo pero en dólares": se rehace la anterior.
+            if ($resto === '' || motor_resto_es_relleno($resto)) {
+                return motor_misma_pregunta_en($pdo, $usuarioId, $contexto, $pedida);
+            }
+            // Con pregunta propia, sigue de largo ya sin la moneda adentro.
+            $texto = $resto;
+        }
+    }
+
     $ctrl  = new DashboardController($pdo, $usuarioId);
     // Todo lo que se calcule por el controlador sale en la misma moneda que el
     // panel, igual que las consultas directas de este archivo.
     $ctrl->setMoneda(motor_moneda());
-    $texto = motor_normalizar($pregunta);
 
     if ($texto === '') {
         return motor_sin_entender($ctrl, 'Escribí una pregunta sobre tus números.');
@@ -1548,7 +1571,19 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
             $que = 'el panel';
         }
 
-        $url = ($excel ? 'api/reporte_excel.php?' : 'api/reporte_pdf.php?') . http_build_query($q);
+        /* El reporte sale en la moneda en la que se viene hablando. Si Cafrita
+           acaba de contestar en dólares y el archivo llega en pesos, son dos
+           números distintos para lo mismo sin nada que lo explique. */
+        if (motor_moneda() === 'USD') $q['moneda'] = 'USD';
+
+        /* Los dos formatos van siempre, con el que pidió adelante. Los dos
+           endpoints leen los mismos parámetros, así que es el mismo recorte visto
+           de dos maneras: el PDF para mirarlo o imprimirlo, el Excel para sacarle
+           cuentas. Antes, pedir "el reporte" daba sólo el PDF y había que saber
+           que existía la palabra "excel" para conseguir el otro. */
+        $urlPdf   = 'api/reporte_pdf.php?'   . http_build_query($q);
+        $urlExcel = 'api/reporte_excel.php?' . http_build_query($q);
+        $url      = $excel ? $urlExcel : $urlPdf;
 
         // Qué recorte quedó, dicho con las mismas palabras con que se pidió.
         $recorte = [];
@@ -1579,6 +1614,9 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
         $det[] = $excel
             ? 'Se abre con Excel o con cualquier planilla de cálculo.'
             : 'Se abre en el navegador y desde ahí lo podés imprimir o guardar como PDF.';
+        $det[] = $excel
+            ? 'Si lo querés para mirar o imprimir, tenés el reporte acá abajo.'
+            : 'Y si preferís hacerle cuentas, abajo lo tenés en Excel.';
 
         return [
             'ok' => true, 'tipo' => 'reporte',
@@ -1589,6 +1627,9 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
             'link' => $url,
             'link_texto' => $excel ? 'Descargar el Excel' : 'Abrir el reporte',
             'link_icono' => $excel ? 'fa-file-excel' : 'fa-file-lines',
+            'link_alt' => $excel ? $urlPdf : $urlExcel,
+            'link_alt_texto' => $excel ? 'Verlo como reporte' : 'Descargarlo en Excel',
+            'link_alt_icono' => $excel ? 'fa-file-lines' : 'fa-file-excel',
             'sugerencias' => ['Pasame el excel de siembra', 'Reporte de la campaña', '¿En qué gasté más?'],
         ];
     }
@@ -3931,6 +3972,118 @@ function motor_cultivo_cotizable(PDO $pdo, string $t): ?string {
         if ($base !== '' && strpos($t, $base) !== false) return $base;
     }
     return null;
+}
+
+/* =====================================================================
+   "¿Y ESO EN DÓLARES?"
+
+   El productor mira un número y quiere el mismo número en la otra moneda. Es
+   una pregunta que aparece sola en la charla, sin repetir de qué se hablaba.
+
+   LA CUENTA NO SE HACE SOBRE EL NÚMERO QUE YA SE MOSTRÓ. Convertir lo que está
+   en pantalla obligaría a dividir todo por una sola cotización, y el panel no
+   hace eso: cada movimiento se pasa con el dólar de SU mes —un gasto de marzo a
+   1.200 y uno de agosto a 1.500 no se pueden aplanar con el mismo número sin
+   borrar justo lo que uno quiere ver mirando en dólares—. Así que lo que se
+   hace es REHACER la consulta anterior en la otra moneda: la cuenta la vuelve a
+   hacer la base, movimiento por movimiento, y el resultado coincide con el
+   panel al peso. Si dividiéramos acá, el chat y el panel mostrarían dos números
+   distintos para lo mismo, que es el error que este archivo viene evitando
+   desde el principio.
+   ===================================================================== */
+
+/**
+ * Saca de la frase en qué moneda la quiere leer.
+ *
+ * Devuelve [lo que queda de la frase, 'USD'|'ARS'|null]. Se separa en vez de
+ * sólo detectar porque el resto tiene que seguir su camino: "cuánto gasté en
+ * dólares" es la pregunta del gasto, y con el "en dólares" adentro la rama del
+ * desglose buscaba una categoría de gasto llamada "dolares" y contestaba que no
+ * la tenía.
+ *
+ * El "en"/"a" adelante es obligatorio a propósito: sin eso, "¿a cuánto está el
+ * dólar?" —que es una pregunta sobre la cotización, no sobre cómo leer un
+ * total— entraría acá y saldría convertida.
+ */
+function motor_separar_moneda(string $t): array {
+    $monedas = [
+        'USD' => 'dolares|dolar|usd|u\$s|u\$d|verdes',
+        // "pesos" en plural nada más: "en peso" en el campo puede ser peso seco.
+        'ARS' => 'pesos|ars|moneda nacional',
+    ];
+    foreach ($monedas as $codigo => $alternativas) {
+        // Sola, sin nada más: el productor escribe "dólares" y listo.
+        if (preg_match('/^(?:' . $alternativas . ')$/u', $t)) return ['', $codigo];
+
+        $re = '/\b(?:en|a|al)\s+(?:' . $alternativas . ')\b/u';
+        if (preg_match($re, $t)) {
+            $resto = preg_replace('/\s+/u', ' ', preg_replace($re, ' ', $t));
+            return [trim($resto), $codigo];
+        }
+    }
+    return [$t, null];
+}
+
+/**
+ * Sacada la moneda, ¿quedó una pregunta o no quedó nada?
+ *
+ * "¿y eso en dólares?" deja "y eso", que no es una consulta: es pedir lo mismo
+ * de recién. "cuánto gasté en dólares" deja "cuánto gasté", que sí lo es. La
+ * diferencia decide entre rehacer la anterior y seguir de largo con la nueva.
+ */
+function motor_resto_es_relleno(string $t): bool {
+    $relleno = 'y|e|o|eso|esto|ese|esa|numero|cifra|monto|lo|la|el|los|las|un|una'
+             . '|mismo|misma|cuanto|cuanta|cuantos|es|seria|serian|son|da|daria'
+             . '|pasa|pasalo|pasala|pasamelo|pasame|convertilo|convertila|converti'
+             . '|ponelo|poneme|mostramelo|mostrame|mostra|dame|decime|deci|quiero'
+             . '|verlo|ver|me|te|se|de|del|en|a|por|favor|porfa|dale|ahora|tambien';
+    $sobra = preg_replace('/\b(?:' . $relleno . ')\b/u', ' ', $t);
+    return trim(preg_replace('/\s+/u', ' ', $sobra)) === '';
+}
+
+/**
+ * Rehace la consulta anterior en la moneda pedida.
+ *
+ * La pregunta previa la manda el cliente: el motor no guarda estado entre
+ * llamadas y no tiene por qué, igual que con el resto del contexto de la charla.
+ * Se la saca al contexto antes de volver a entrar para que dos cambios de moneda
+ * seguidos no puedan quedar dando vueltas.
+ */
+function motor_misma_pregunta_en(PDO $pdo, int $uid, array $contexto, string $moneda): array {
+    $previa = trim((string)($contexto['previa'] ?? ''));
+    $nombre = $moneda === 'USD' ? 'dólares' : 'pesos';
+
+    if ($previa === '') {
+        return [
+            'ok' => false, 'tipo' => 'sin_entender',
+            'respuesta' => 'Todavía no te di ningún número para pasar a ' . $nombre . '.',
+            'detalle' => 'Preguntame algo primero —"¿cuánto gasté?", "¿cuál es mi margen?"— y '
+                       . 'después decime "y en ' . $nombre . '" y te lo paso.',
+            'valor' => null,
+            'filtros' => ['ciclo' => null, 'lote' => null, 'cultivo' => null, 'metrica' => null],
+            'link' => null,
+            'sugerencias' => ['¿Cuánto gasté?', '¿Cuál es mi margen neto?', '¿Cuál fue el costo por hectárea?'],
+        ];
+    }
+
+    $ctx = $contexto;
+    unset($ctx['previa']);
+    $r = motor_responder($pdo, $uid, $previa, $ctx);
+
+    /* De dónde sale el número convertido. Sin esto es un importe nuevo que
+       apareció solo, y el productor no tiene forma de saber si se usó el dólar
+       de hoy o el de cada movimiento. */
+    $nota = $moneda === 'USD'
+        ? 'Es el mismo número en dólares: cada movimiento va con la cotización de su mes, igual que el panel.'
+        : 'Es el mismo número en pesos, con la cotización del mes de cada movimiento.';
+    if (motor_dolar_estimado($pdo, $uid)) {
+        $nota .= ' Ojo que no tenés ninguna cotización cargada, así que va con una estimada.';
+    }
+    $r['detalle'] = trim(($r['detalle'] ?? '') . ' ' . $nota);
+
+    // Para que la próxima ("y en pesos") sepa qué rehacer, y no rehaga esto.
+    $r['previa'] = $previa;
+    return $r;
 }
 
 /** Pasa un importe en pesos a la moneda que se está mirando en el panel. */

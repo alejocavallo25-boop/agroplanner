@@ -157,6 +157,10 @@
     font-size: 0.84rem; font-weight: 600; color: var(--accent); text-decoration: none;
 }
 .mc-msg-motor a.mc-ver:hover { text-decoration: underline; }
+/* El mismo reporte en el otro formato: presente pero en segundo plano, para que
+   se lea primero el que se pidió. --text-muted da 4,9:1 sobre el fondo, así que
+   apagarlo no lo vuelve ilegible. */
+.mc-msg-motor a.mc-ver-alt { margin-left: 16px; color: var(--text-muted); font-weight: 500; }
 .mc-msg-aviso { background: var(--warning-soft); border-color: oklch(0.470 0.120 70 / 0.35); }
 
 /* Los tres puntitos mientras piensa. Es lo que hace que se lea como una charla
@@ -321,6 +325,14 @@
         if (contexto.cicloNombre)   partes.push('Campaña ' + contexto.cicloNombre);
         if (contexto.loteNombre)    partes.push(contexto.loteNombre);
         if (contexto.cultivoNombre) partes.push(contexto.cultivoNombre);
+        /* La moneda sólo cuando el chat quedó en una distinta de la que muestra
+           el panel. Si son la misma, ya se ve en la pantalla y repetirla acá es
+           ruido; si son distintas, no decirlo sería dejar dos números para lo
+           mismo sin explicar cuál es cuál. */
+        const monedaPanel = new URL(window.location.href).searchParams.get('moneda') === 'USD' ? 'USD' : 'ARS';
+        if (contexto.moneda && contexto.moneda !== monedaPanel) {
+            partes.push(contexto.moneda === 'USD' ? 'en dólares' : 'en pesos');
+        }
         if (partes.length) {
             ctxTxt.textContent = partes.join(' · ');
             ctxCaja.classList.add('visible');
@@ -376,6 +388,13 @@
             const li = r.link_icono || 'fa-table-columns';
             html += '<a class="mc-ver" href="' + esc(r.link) + '">'
                   + '<i class="fas ' + esc(li) + '" aria-hidden="true"></i> ' + esc(lt) + '</a>';
+            /* El mismo reporte en el otro formato. Va más apagado porque no es lo
+               que pidió: es el atajo para no tener que volver a preguntar. */
+            if (r.link_alt) {
+                html += '<a class="mc-ver mc-ver-alt" href="' + esc(r.link_alt) + '">'
+                      + '<i class="fas ' + esc(r.link_alt_icono || 'fa-file-lines') + '" aria-hidden="true"></i> '
+                      + esc(r.link_alt_texto || 'Verlo en el otro formato') + '</a>';
+            }
         }
         d.innerHTML = html;
 
@@ -565,11 +584,16 @@
         if (contexto.lote)    p.set('lote', contexto.lote);
         if (contexto.cultivo) p.set('cultivo', contexto.cultivo);
         if (contexto.metrica) p.set('metrica', contexto.metrica);
-        /* La moneda que está mirando el panel, para que el chat conteste en la
-           misma. Se lee de la URL y no de una variable propia porque el toggle ya
-           la deja ahí, y así no hay dos fuentes que se puedan desincronizar. */
+        /* La pregunta anterior, para que "¿y en dólares?" sepa qué rehacer. */
+        if (contexto.previa) p.set('previa', contexto.previa);
+        /* La moneda. Arranca en la que está mirando el panel —el toggle ya la deja
+           en la URL, así que no hay una segunda fuente que se desincronice—, y si
+           en la charla se pidió la otra ("pasámelo a dólares") manda esa hasta que
+           se quite el contexto. Queda a la vista en el chip de arriba: no puede
+           haber una moneda activa que no se vea. */
         const monedaPanel = new URL(window.location.href).searchParams.get('moneda');
-        if (monedaPanel === 'USD') p.set('moneda', 'USD');
+        const moneda = contexto.moneda || monedaPanel;
+        if (moneda === 'USD') p.set('moneda', 'USD');
         // Carga guiada a medio llenar: vuelve para que el motor sepa qué preguntó.
         if (altaPendiente)    p.set('alta', JSON.stringify(altaPendiente));
 
@@ -594,12 +618,19 @@
             altaPendiente = r.alta_pendiente;
         }
 
+        /* Qué pregunta rehacer si lo próximo es "¿y en dólares?". Cuando ESTA ya
+           fue un cambio de moneda, el motor devuelve cuál contestó de verdad: si
+           guardáramos "en dólares", el siguiente "en pesos" no tendría nada que
+           rehacer. */
+        contexto.previa = r.previa || q;
+
         // La respuesta define el contexto de la próxima pregunta.
         if (r.filtros) {
             contexto.ciclo   = r.filtros.ciclo   || null;
             contexto.lote    = r.filtros.lote    || null;
             contexto.cultivo = r.filtros.cultivo || null;
             contexto.metrica = r.filtros.metrica || null;
+            contexto.moneda  = r.filtros.moneda  || null;
             contexto.cicloNombre   = r.filtros.ciclo || null;
             contexto.cultivoNombre = r.filtros.cultivo || null;
             // El nombre del lote se toma de la frase, que es donde el motor ya lo resolvió.

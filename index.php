@@ -501,6 +501,8 @@ require_once 'includes/header.php';
         'ciclo'   => $ciclo_sel,
         'lote'    => $lote_sel,
         'cultivo' => $cultivo_sel,
+        // Y en la moneda que se está mirando: se exporta lo que está en pantalla.
+        'moneda'  => moneda_actual() === 'USD' ? 'USD' : null,
     ], fn($v) => $v !== null && $v !== ''));
     ?>
     <!-- Barra de acciones del panel general -->

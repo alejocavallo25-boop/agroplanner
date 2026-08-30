@@ -296,43 +296,91 @@ if ($tipo === 'operaciones') {
     $cultivo_sel = !empty($_GET['cultivo']) ? trim($_GET['cultivo']) : null;
 
     $controller = new DashboardController($pdo, $usuario_id);
+
+    /* La misma moneda que el PDF y que el panel: la convierte el controlador,
+       movimiento por movimiento con el dólar de su mes. Sin esto la planilla
+       salía siempre en pesos aunque se la pidiera desde un panel en dólares. */
+    $moneda_sel = (($_GET['moneda'] ?? 'ARS') === 'USD') ? 'USD' : 'ARS';
+    $controller->setMoneda($moneda_sel);
+    $sim = $moneda_sel === 'USD' ? 'US$' : '$';
+
     if (!$ciclo_sel) {
         $ciclos = $controller->getCiclos();
         $ciclo_sel = $ciclos[0] ?? null;
     }
 
-    $titulo = 'Panel General Agrícola' . ($ciclo_sel ? " - Campaña $ciclo_sel" : '');
+    $titulo = 'Panel General Agrícola' . ($ciclo_sel ? " - Campaña $ciclo_sel" : '')
+            . ($moneda_sel === 'USD' ? ' - en dólares' : '');
     $stats    = $controller->getGlobalStats($ciclo_sel, $lote_sel, $cultivo_sel);
     $cultivos = $controller->getCultivosData($ciclo_sel, $lote_sel, $cultivo_sel);
 
+    /* Las mismas columnas que las fichas del PDF, abiertas en renglones. El PDF
+       muestra el panel; acá va lo mismo en tabla, que es lo que sirve para
+       ordenar, filtrar y sacar cuentas propias. Sin esto los dos reportes del
+       mismo panel decían cosas distintas: el PDF abría labores contra insumos y
+       el Excel los daba sumados. */
     $columnas = [
         ['t' => 'Cultivo'], ['t' => 'Lote'], ['t' => 'Sup. (ha)', 'a' => 'd'],
-        ['t' => 'Ingreso', 'a' => 'd'], ['t' => 'Costo directo', 'a' => 'd'], ['t' => 'Alquiler', 'a' => 'd'],
+        ['t' => 'Ingreso', 'a' => 'd'],
+        ['t' => 'Labores', 'a' => 'd'], ['t' => 'Insumos', 'a' => 'd'],
+        ['t' => 'Costo directo', 'a' => 'd'], ['t' => 'Alquiler', 'a' => 'd'],
         ['t' => 'Margen', 'a' => 'd'],
-        ['t' => 'Ingreso/ha', 'a' => 'd'], ['t' => 'Costo/ha', 'a' => 'd'], ['t' => 'Margen/ha', 'a' => 'd'],
+        ['t' => 'Ingreso/ha', 'a' => 'd'],
+        ['t' => 'Labores/ha', 'a' => 'd'], ['t' => 'Insumos/ha', 'a' => 'd'],
+        ['t' => 'Alquiler/ha', 'a' => 'd'], ['t' => 'Costo/ha', 'a' => 'd'],
+        ['t' => 'Margen/ha', 'a' => 'd'], ['t' => 'Retorno (%)', 'a' => 'd'],
+        ['t' => 'Kg cosechados', 'a' => 'd'],
         ['t' => 'Rinde indif. (kg/ha)', 'a' => 'd'],
     ];
+    $tot_labores = 0.0; $tot_insumos = 0.0;
+    $indiferencias = [];
     foreach ($cultivos as $especie => $d) {
         foreach ($d['lotes'] as $l) {
             // Misma función que usa el PDF: una sola cuenta, un solo resultado.
             $c = rentabilidad_lote($l);
+            $labores = (float)($l['labores'] ?? 0);
+            $insumos = (float)($l['insumos'] ?? 0);
+            $tot_labores += $labores;
+            $tot_insumos += $insumos;
+            $porHa = fn(float $v): float => $c['sup'] > 0 ? $v / $c['sup'] : 0.0;
+            // Retorno: cuánto deja el margen sobre lo que costó ponerlo.
+            $roi = $c['costo_total'] > 0 ? $c['margen_total'] / $c['costo_total'] * 100 : 0.0;
+            if ($c['rinde_indiferencia_ha'] > 0) $indiferencias[] = $c['rinde_indiferencia_ha'];
             $filas[] = [
                 xls_txt($especie), xls_txt($l['nombre']), xls_num($c['sup'], 1),
-                xls_num($c['ingreso']), xls_num($c['costo_directo']), xls_num($c['alquiler']),
+                xls_num($c['ingreso']),
+                xls_num($labores), xls_num($insumos),
+                xls_num($c['costo_directo']), xls_num($c['alquiler']),
                 xls_num($c['margen_total']),
-                xls_num($c['ingreso_ha']), xls_num($c['costo_ha']), xls_num($c['margen_ha']),
+                xls_num($c['ingreso_ha']),
+                xls_num($porHa($labores)), xls_num($porHa($insumos)),
+                xls_num($c['alquiler_ha']), xls_num($c['costo_ha']),
+                xls_num($c['margen_ha']), xls_num($roi, 1),
+                xls_num($c['kgs'], 0),
                 xls_num($c['rinde_indiferencia_ha'], 0),
             ];
         }
     }
     $resumen = [
-        'Ingresos'        => '$' . xls_num($stats['ingresos'] ?? 0),
-        'Costos directos' => '$' . xls_num($stats['costos_directos'] ?? 0),
-        'Alquileres'      => '$' . xls_num($stats['costos_alquiler'] ?? 0),
-        'Margen neto'     => '$' . xls_num($stats['margen_neto'] ?? 0),
+        'Ingresos'        => $sim . xls_num($stats['ingresos'] ?? 0),
+        'Labores'         => $sim . xls_num($tot_labores),
+        'Insumos'         => $sim . xls_num($tot_insumos),
+        'Costos directos' => $sim . xls_num($stats['costos_directos'] ?? 0),
+        'Alquileres'      => $sim . xls_num($stats['costos_alquiler'] ?? 0),
+        'Margen neto'     => $sim . xls_num($stats['margen_neto'] ?? 0),
         'Hectáreas'       => xls_num($stats['hectareas'] ?? 0, 1),
+        'Rinde promedio'  => xls_num($stats['rendimiento_ha'] ?? 0, 0) . ' kg/ha',
+        'Costo por ha'    => $sim . xls_num($stats['costo_por_ha'] ?? 0),
         'Lotes'           => count($filas),
     ];
+    /* El rinde de indiferencia va como rango y no como promedio, igual que el
+       panel y que el PDF: un promedio entre un lote que necesita 440 kg/ha y
+       otro que necesita 1.500 no describe a ninguno de los dos. */
+    if ($indiferencias) {
+        $resumen['Rinde de indiferencia'] = count($indiferencias) > 1
+            ? xls_num(min($indiferencias), 0) . ' a ' . xls_num(max($indiferencias), 0) . ' kg/ha'
+            : xls_num($indiferencias[0], 0) . ' kg/ha';
+    }
 
 } else {
     header('Content-Type: text/plain; charset=utf-8');

@@ -119,6 +119,17 @@ if ($tipo === 'operaciones') {
 
     $controller = new DashboardController($pdo, $usuario_id);
 
+    /* En qué moneda sale el reporte. Antes salía siempre en pesos, aunque se
+       hubiera pedido desde un panel puesto en dólares o desde el chat hablando en
+       dólares: el productor terminaba con dos números para lo mismo y ninguna
+       pista de cuál era cuál. La conversión la hace el controlador, movimiento
+       por movimiento con el dólar de su mes, igual que el panel. */
+    $moneda_sel = (($_GET['moneda'] ?? 'ARS') === 'USD') ? 'USD' : 'ARS';
+    $controller->setMoneda($moneda_sel);
+    $sim = $moneda_sel === 'USD' ? 'US$' : '$';
+    /** Plata en la moneda del reporte. */
+    $plata = fn($v, int $dec = 2): string => $sim . number_format((float)$v, $dec, ',', '.');
+
     // Si no se pasó campaña, usar la más reciente (igual que el dashboard).
     if (!$ciclo_sel) {
         $ciclos_disp = $controller->getCiclos();
@@ -847,19 +858,19 @@ $fechaGen = date('d/m/Y H:i');
             <div class="summary-row">
                 <div class="summary-box">
                     <div class="label">Ingresos</div>
-                    <div class="value success">$<?= number_format($dash_stats['ingresos'], 2, ',', '.') ?></div>
+                    <div class="value success"><?= $plata($dash_stats['ingresos'], 2) ?></div>
                 </div>
                 <div class="summary-box">
                     <div class="label">Costos Directos</div>
-                    <div class="value danger">$<?= number_format($dash_stats['costos_directos'], 2, ',', '.') ?></div>
+                    <div class="value danger"><?= $plata($dash_stats['costos_directos'], 2) ?></div>
                 </div>
                 <div class="summary-box">
                     <div class="label">Alquileres</div>
-                    <div class="value danger">$<?= number_format($dash_stats['costos_alquiler'], 2, ',', '.') ?></div>
+                    <div class="value danger"><?= $plata($dash_stats['costos_alquiler'], 2) ?></div>
                 </div>
                 <div class="summary-box">
                     <div class="label">Margen Neto</div>
-                    <div class="value <?= $margen_pos ? 'success' : 'danger' ?>">$<?= number_format($dash_stats['margen_neto'], 2, ',', '.') ?></div>
+                    <div class="value <?= $margen_pos ? 'success' : 'danger' ?>"><?= $plata($dash_stats['margen_neto'], 2) ?></div>
                 </div>
             </div>
             <div class="summary-row">
@@ -873,7 +884,7 @@ $fechaGen = date('d/m/Y H:i');
                 </div>
                 <div class="summary-box">
                     <div class="label">Costo / Ha</div>
-                    <div class="value danger">$<?= number_format($dash_stats['costo_por_ha'], 0, ',', '.') ?></div>
+                    <div class="value danger"><?= $plata($dash_stats['costo_por_ha'], 0) ?></div>
                 </div>
                 <div class="summary-box">
                     <div class="label">Rinde Indiferencia</div>
@@ -911,9 +922,9 @@ $fechaGen = date('d/m/Y H:i');
                     <div class="grafico-titulo">Composición del costo</div>
                     <?= $dona ?>
                     <div class="leyenda">
-                        <span><i style="background:#348f4f"></i>Labores $<?= number_format($dash_labores, 0, ',', '.') ?></span>
-                        <span><i style="background:#3284d0"></i>Insumos $<?= number_format($dash_insumos, 0, ',', '.') ?></span>
-                        <span><i style="background:#b13b92"></i>Alquiler $<?= number_format($dash_stats['costos_alquiler'], 0, ',', '.') ?></span>
+                        <span><i style="background:#348f4f"></i>Labores <?= $plata($dash_labores, 0) ?></span>
+                        <span><i style="background:#3284d0"></i>Insumos <?= $plata($dash_insumos, 0) ?></span>
+                        <span><i style="background:#b13b92"></i>Alquiler <?= $plata($dash_stats['costos_alquiler'], 0) ?></span>
                     </div>
                 </div>
                 <?php endif; ?>
@@ -935,15 +946,15 @@ $fechaGen = date('d/m/Y H:i');
             <div class="summary-row">
                 <div class="summary-box">
                     <div class="label">Labores (Mano de Obra)</div>
-                    <div class="value danger">$<?= number_format($dash_labores, 2, ',', '.') ?></div>
+                    <div class="value danger"><?= $plata($dash_labores, 2) ?></div>
                 </div>
                 <div class="summary-box">
                     <div class="label">Insumos</div>
-                    <div class="value danger">$<?= number_format($dash_insumos, 2, ',', '.') ?></div>
+                    <div class="value danger"><?= $plata($dash_insumos, 2) ?></div>
                 </div>
                 <div class="summary-box">
                     <div class="label">Alquileres</div>
-                    <div class="value danger">$<?= number_format($dash_stats['costos_alquiler'], 2, ',', '.') ?></div>
+                    <div class="value danger"><?= $plata($dash_stats['costos_alquiler'], 2) ?></div>
                 </div>
             </div>
 
@@ -961,13 +972,13 @@ $fechaGen = date('d/m/Y H:i');
                         <span><?= number_format($sup, 1, ',', '.') ?> ha</span>
                     </div>
                     <div class="lote-pdf-margen <?= $f['margen'] >= 0 ? 'success' : 'danger' ?>">
-                        $<?= number_format($mha, 0, ',', '.') ?> <span>/ha de margen</span>
+                        <?= $plata($mha, 0) ?> <span>/ha de margen</span>
                     </div>
                     <table class="lote-pdf-det">
-                        <tr><td>Ingresos</td><td>$<?= number_format($sup > 0 ? $f['ingreso'] / $sup : 0, 0, ',', '.') ?> /ha</td></tr>
-                        <tr><td>Labores</td><td>$<?= number_format($sup > 0 ? $f['labores'] / $sup : 0, 0, ',', '.') ?> /ha</td></tr>
-                        <tr><td>Insumos</td><td>$<?= number_format($sup > 0 ? $f['insumos'] / $sup : 0, 0, ',', '.') ?> /ha</td></tr>
-                        <tr><td>Alquiler</td><td>$<?= number_format($sup > 0 ? $f['alquiler'] / $sup : 0, 0, ',', '.') ?> /ha</td></tr>
+                        <tr><td>Ingresos</td><td><?= $plata($sup > 0 ? $f['ingreso'] / $sup : 0, 0) ?> /ha</td></tr>
+                        <tr><td>Labores</td><td><?= $plata($sup > 0 ? $f['labores'] / $sup : 0, 0) ?> /ha</td></tr>
+                        <tr><td>Insumos</td><td><?= $plata($sup > 0 ? $f['insumos'] / $sup : 0, 0) ?> /ha</td></tr>
+                        <tr><td>Alquiler</td><td><?= $plata($sup > 0 ? $f['alquiler'] / $sup : 0, 0) ?> /ha</td></tr>
                         <tr><td>Retorno</td><td><?= number_format($roi, 1, ',', '.') ?>%</td></tr>
                         <?php if (isset($dash_pe[$nombre])): ?>
                         <tr><td>Indiferencia</td><td><?= number_format($dash_pe[$nombre], 0, ',', '.') ?> kg/ha</td></tr>
@@ -1010,10 +1021,10 @@ $fechaGen = date('d/m/Y H:i');
                             <td><span class="badge badge-green"><?= htmlspecialchars($especie) ?></span></td>
                             <td style="font-weight:600;"><?= htmlspecialchars($l['nombre']) ?></td>
                             <td><?= number_format($sup, 1, ',', '.') ?></td>
-                            <td style="color:#10b981; font-weight:600;">$<?= number_format($ingreso_ha, 0, ',', '.') ?></td>
-                            <td style="color:#dc2626;">-$<?= number_format($costo_ha, 0, ',', '.') ?></td>
-                            <td style="color:#dc2626;">-$<?= number_format($alquiler_ha, 0, ',', '.') ?></td>
-                            <td style="font-weight:700; color:<?= $margen_ha >= 0 ? '#10b981' : '#dc2626' ?>;">$<?= number_format($margen_ha, 0, ',', '.') ?></td>
+                            <td style="color:#10b981; font-weight:600;"><?= $plata($ingreso_ha, 0) ?></td>
+                            <td style="color:#dc2626;">-<?= $plata($costo_ha, 0) ?></td>
+                            <td style="color:#dc2626;">-<?= $plata($alquiler_ha, 0) ?></td>
+                            <td style="font-weight:700; color:<?= $margen_ha >= 0 ? '#10b981' : '#dc2626' ?>;"><?= $plata($margen_ha, 0) ?></td>
                             <td style="color:#d97706;"><?= number_format($pe_kg_ha, 0, ',', '.') ?> kg/ha</td>
                         </tr>
                         <?php endforeach; ?>
