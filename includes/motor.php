@@ -769,7 +769,9 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
                        . '. Y desglosar el gasto por etapa, por tipo de insumo o por proveedor, '
                        . 'filtrar por lote, cultivo o mes, y comparar campañas, lotes o meses entre sí. '
                        . 'También te digo el clima y la lluvia de cada lote, y a cuánto está el grano '
-                       . 'en la pizarra: con eso te saco cuánto te deja la hectárea a ese precio.',
+                       . 'en la pizarra: con eso te saco cuánto te deja la hectárea a ese precio. '
+                       . 'Y te armo el reporte o el Excel de lo que quieras: toda la campaña, un lote, '
+                       . 'un cultivo, o sólo una etapa como siembra o fertilización.',
             'valor' => null, 'filtros' => [], 'link' => null,
             'sugerencias' => ['¿En qué gasté más?', '¿Cómo está el clima?', '¿Cuánto gasté en agosto?'],
         ];
@@ -1340,6 +1342,80 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
             'filtros' => ['ciclo' => $campania, 'lote' => (int)$lt['id'], 'cultivo' => $cultivo, 'metrica' => null],
             'link' => 'clima_historico.php?id=' . (int)$lt['id'],
             'sugerencias' => ['¿Cuánto llovió en enero?', '¿Cuál es mi mejor lote?', '¿En qué gasté más?'],
+        ];
+    }
+
+    /* ── Reportes ────────────────────────────────────────────────────────────
+       Va antes que precio y que gasto-por-etapa: "el excel de los costos de
+       siembra" nombra una etapa, y sin esto lo atendería la rama del gasto
+       devolviendo un número en vez del archivo que se pidió. */
+    if (motor_pide_reporte($texto)) {
+        $excel = motor_reporte_es_excel($texto);
+        $grupo = motor_detectar_dimension($texto, motor_grupos());
+
+        /* Dos reportes distintos. El de costos es el renglón por renglón de las
+           operaciones; el del panel es el resumen por cultivo y lote con
+           márgenes. Se elige por lo que nombró: si habla de costos, o de una
+           etapa, quiere el detalle. */
+        $deCostos = $grupo !== null
+                 || preg_match('/costo|gasto|labor|operacion|insumo/u', $texto);
+
+        if ($deCostos) {
+            $q = ['tipo' => 'operaciones', 'campania' => $campania];
+            // motor_detectar_dimension devuelve ['clave','etiqueta'], no un string.
+            if ($grupo)   $q['grupo']   = $grupo['clave'];
+            if ($loteId)  $q['lote_id'] = $loteId;
+            if ($cultivo) $q['cultivo'] = $cultivo;
+            $que = 'los costos';
+        } else {
+            $q = ['tipo' => 'dashboard', 'ciclo' => $campania];
+            if ($loteId)  $q['lote']    = $loteId;
+            if ($cultivo) $q['cultivo'] = $cultivo;
+            $que = 'el panel';
+        }
+
+        $url = ($excel ? 'api/reporte_excel.php?' : 'api/reporte_pdf.php?') . http_build_query($q);
+
+        // Qué recorte quedó, dicho con las mismas palabras con que se pidió.
+        $recorte = [];
+        if ($grupo) $recorte[] = 'sólo ' . $grupo['etiqueta'];
+        if ($loteId) {
+            $ln = null;
+            foreach ($ctrl->getLotesDelCiclo($campania) as $l) {
+                if ((int)$l['id'] === (int)$loteId) { $ln = $l['nombre']; break; }
+            }
+            if ($ln) $recorte[] = 'del lote ' . $ln;
+        }
+        if ($cultivo) $recorte[] = 'de ' . $cultivo;
+
+        $cab = ($excel ? 'Te armo el Excel con ' : 'Te armo el reporte con ') . $que
+             . ' de la campaña ' . $campania
+             . ($recorte ? ', ' . implode(', ', $recorte) : '') . '.';
+
+        /* El total va en la respuesta y no sólo en el archivo: si el recorte
+           salió mal se nota acá, antes de abrir nada. */
+        $det = [];
+        if ($deCostos) {
+            $extra = $grupo ? ['col' => 'grupo_gasto', 'val' => $grupo['clave']] : null;
+            $suma  = motor_gasto($pdo, $usuarioId, $campania, $loteId, $cultivo, $extra);
+            $det[] = $suma > 0
+                ? 'Suma ' . motor_formatear($suma, 'dinero') . '.'
+                : 'Ojo que ese recorte no tiene nada cargado: el archivo va a salir vacío.';
+        }
+        $det[] = $excel
+            ? 'Se abre con Excel o con cualquier planilla de cálculo.'
+            : 'Se abre en el navegador y desde ahí lo podés imprimir o guardar como PDF.';
+
+        return [
+            'ok' => true, 'tipo' => 'reporte',
+            'respuesta' => $cab,
+            'detalle' => implode(' ', $det),
+            'valor' => null,
+            'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => null],
+            'link' => $url,
+            'link_texto' => $excel ? 'Descargar el Excel' : 'Abrir el reporte',
+            'link_icono' => $excel ? 'fa-file-excel' : 'fa-file-lines',
+            'sugerencias' => ['Pasame el excel de siembra', 'Reporte de la campaña', '¿En qué gasté más?'],
         ];
     }
 
@@ -3061,6 +3137,34 @@ function motor_precio_referencia(PDO $pdo, string $cultivo): ?array {
    cuenta a la vista la decisión la toma él.
    ===================================================================== */
 
+/* =====================================================================
+   REPORTES
+
+   Los dos endpoints de exportación ya existían y ya aceptaban campaña, etapa y
+   lote; lo único que faltaba era que Cafrita supiera armar el link. Estaba
+   anotado en motor_consultas_fallidas como "dame el reporte de la campaña".
+
+   La respuesta dice qué trae el archivo y cuánto suma ANTES de descargarlo: si
+   el recorte salió mal, se ve en el número y no después de abrir la planilla.
+   ===================================================================== */
+
+function motor_pide_reporte(string $t): bool {
+    foreach (['reporte','reportes','informe','informes','excel','planilla',
+              'exportar','exportame','descargar','descargame','bajar el',
+              'pasame el', 'pasame la', 'en pdf', 'un pdf', 'xls'] as $p) {
+        if (strpos($t, $p) !== false) return true;
+    }
+    return false;
+}
+
+/** Excel si lo pidió; si no, PDF, que es lo que uno espera de "un reporte". */
+function motor_reporte_es_excel(string $t): bool {
+    foreach (['excel','planilla','xls','hoja de calculo','csv'] as $p) {
+        if (strpos($t, $p) !== false) return true;
+    }
+    return false;
+}
+
 function motor_pide_precio(string $t): bool {
     /* Pide lenguaje de mercado a propósito. "cuánto gano" a secas es sinónimo
        de margen neto y lo tiene que seguir atendiendo la rama de métricas; acá
@@ -3964,7 +4068,8 @@ function motor_sin_entender($ctrl, string $motivo): array {
         'respuesta' => $motivo,
         'detalle' => 'Puedo darte: ' . implode(', ', array_map(fn($m) => $m['etiqueta'], $cat)) . '. '
                    . 'Y desglosar el gasto por ' . motor_frase_categorias() . ', o por proveedor. '
-                   . 'También el clima y la lluvia de cada lote, y el precio del grano.',
+                   . 'También el clima y la lluvia de cada lote, el precio del grano, '
+                   . 'y el reporte o el Excel de cualquier recorte.',
         'valor' => null, 'filtros' => [], 'link' => null,
         'sugerencias' => $ejemplos,
     ];

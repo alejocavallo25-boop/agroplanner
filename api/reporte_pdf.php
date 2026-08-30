@@ -12,6 +12,7 @@ $tipo = $_GET['tipo'] ?? 'operaciones';
 $campania = !empty($_GET['campania']) ? trim($_GET['campania']) : null;
 $grupo    = !empty($_GET['grupo'])    ? trim($_GET['grupo'])    : null;
 $lote_id  = !empty($_GET['lote_id'])  ? (int)$_GET['lote_id']   : null;
+$cultivo  = !empty($_GET['cultivo'])  ? trim($_GET['cultivo'])  : null;
 $dep_id   = !empty($_GET['dep_id'])   ? (int)$_GET['dep_id']    : null;
 $t_insumo = !empty($_GET['t_insumo']) ? trim($_GET['t_insumo']) : null;
 
@@ -29,12 +30,20 @@ if ($tipo === 'operaciones') {
               FROM operaciones o
               JOIN lotes l ON o.lote_id = l.id
               LEFT JOIN insumos i ON o.insumo_id = i.id
+              LEFT JOIN cultivos c ON o.cultivo_id = c.id
               WHERE o.usuario_id = ?";
     $params = [$usuario_id];
 
     if ($campania) { $query .= " AND o.campania_operacion = ?"; $params[] = $campania; }
     if ($grupo && $grupo !== 'todos') { $query .= " AND o.grupo_gasto = ?"; $params[] = $grupo; }
     if ($lote_id)  { $query .= " AND o.lote_id = ?"; $params[] = $lote_id; }
+    /* Calcado de getGlobalStats(): el recorte tiene que ser idéntico al del
+       panel o el reporte trae filas que el tablero no cuenta. */
+    if ($cultivo) {
+        $query .= " AND COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), 'Sin Especificar')"
+                . " COLLATE utf8mb4_unicode_ci = ?";
+        $params[] = $cultivo;
+    }
 
     $query .= " ORDER BY o.fecha DESC";
     $stmt = $pdo->prepare($query);

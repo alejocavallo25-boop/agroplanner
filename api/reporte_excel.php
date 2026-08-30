@@ -26,6 +26,7 @@ $tipo     = $_GET['tipo'] ?? 'operaciones';
 $campania = !empty($_GET['campania']) ? trim($_GET['campania']) : null;
 $grupo    = !empty($_GET['grupo'])    ? trim($_GET['grupo'])    : null;
 $lote_id  = !empty($_GET['lote_id'])  ? (int)$_GET['lote_id']   : null;
+$cultivo  = !empty($_GET['cultivo'])  ? trim($_GET['cultivo'])  : null;
 $t_insumo = !empty($_GET['t_insumo']) ? trim($_GET['t_insumo']) : null;
 $dep_id   = isset($_GET['dep_id']) && $_GET['dep_id'] !== '' ? (int)$_GET['dep_id'] : null;
 
@@ -70,6 +71,9 @@ $resumen  = [];   // ['etiqueta' => valor] que se imprime arriba de la tabla
 if ($tipo === 'operaciones') {
     $titulo = 'Reporte de Costos y Labores' . ($campania ? " - Campaña $campania" : '');
 
+    /* El LEFT JOIN a cultivos existe para poder filtrar por especie: el cultivo
+       de una operación puede estar en la ficha del cultivo o escrito en la
+       propia operación, y hay que mirar los dos. */
     $query = "SELECT o.fecha, o.grupo_gasto, o.grupo_descripcion, o.tipo_componente,
                      l.nombre AS lote, o.campania_operacion, o.cultivo_operacion,
                      i.nombre AS insumo, o.proveedor_servicio,
@@ -77,11 +81,19 @@ if ($tipo === 'operaciones') {
               FROM operaciones o
               JOIN lotes l ON o.lote_id = l.id
               LEFT JOIN insumos i ON o.insumo_id = i.id
+              LEFT JOIN cultivos c ON o.cultivo_id = c.id
               WHERE o.usuario_id = ?";
     $params = [$usuario_id];
     if ($campania)                     { $query .= " AND o.campania_operacion = ?"; $params[] = $campania; }
     if ($grupo && $grupo !== 'todos')  { $query .= " AND o.grupo_gasto = ?";        $params[] = $grupo; }
     if ($lote_id)                      { $query .= " AND o.lote_id = ?";            $params[] = $lote_id; }
+    /* Calcado de getGlobalStats(): si el recorte no fuera idéntico, el Excel
+       traería filas que el panel no cuenta y los totales no cerrarían. */
+    if ($cultivo) {
+        $query .= " AND COALESCE(NULLIF(c.nombre, ''), NULLIF(o.cultivo_operacion, ''), 'Sin Especificar')"
+                . " COLLATE utf8mb4_unicode_ci = ?";
+        $params[] = $cultivo;
+    }
     $query .= " ORDER BY o.fecha DESC";
 
     $stmt = $pdo->prepare($query);

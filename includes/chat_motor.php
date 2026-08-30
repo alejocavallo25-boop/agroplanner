@@ -368,8 +368,14 @@
         let html = '<div>' + esc(r.respuesta) + '</div>';
         if (r.detalle) html += '<div class="mc-detalle">' + esc(r.detalle) + '</div>';
         if (r.link) {
+            /* El texto y el ícono vienen del motor cuando el link no lleva al
+               panel: un reporte se descarga, no se "ve en el panel". Con los
+               valores de siempre por defecto, así las respuestas viejas no
+               cambian. */
+            const lt = r.link_texto || 'Ver en el panel';
+            const li = r.link_icono || 'fa-table-columns';
             html += '<a class="mc-ver" href="' + esc(r.link) + '">'
-                  + '<i class="fas fa-table-columns" aria-hidden="true"></i> Ver en el panel</a>';
+                  + '<i class="fas ' + esc(li) + '" aria-hidden="true"></i> ' + esc(lt) + '</a>';
         }
         d.innerHTML = html;
 
