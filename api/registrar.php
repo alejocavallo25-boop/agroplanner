@@ -60,12 +60,18 @@ $campania = (string)($_POST['campania'] ?? '');
    calcular, con la cotización del mes: es lo mismo que hace el formulario. */
 $moneda   = (($_POST['moneda'] ?? 'ARS') === 'USD') ? 'USD' : 'ARS';
 
-/* El número propio de esta carga, generado en el teléfono ANTES de mandarla.
+/* Un número propio de la carga, generado por quien la manda ANTES de mandarla.
    Sirve para el caso del medio: la carga llegó y se guardó, pero la respuesta se
-   perdió. El teléfono no puede distinguir eso de "no llegó", así que reintenta;
-   con este número, el reintento reconoce que ya estaba en vez de duplicar el
-   gasto. Es opcional: el chat y el formulario, que mandan y esperan la respuesta
-   en el momento, siguen andando sin él. */
+   perdió en el camino. Quien la mandó no puede distinguir eso de "no llegó", así
+   que reintenta; con este número, el reintento reconoce que ya estaba en vez de
+   duplicar el gasto.
+
+   HOY NADIE LO MANDA. Se agregó para una pantalla que cargaba sin señal y que
+   después se sacó. Queda porque es opcional —todo lo que entra sin él sigue
+   funcionando igual— y porque la columna ya está creada en la base: quitarla
+   costaría otra migración para no ganar nada. Si alguna vez hay que blindar el
+   botón de Confirmar del chat contra un doble toque en una conexión lenta, esto
+   ya está hecho y sólo hay que mandarle un número. */
 $idem = trim((string)($_POST['idempotencia'] ?? ''));
 if ($idem !== '' && !preg_match('/^[0-9a-f-]{8,36}$/i', $idem)) $idem = '';
 

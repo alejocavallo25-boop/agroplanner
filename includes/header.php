@@ -33,31 +33,33 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
     <link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png?v=6">
     
     <script>
-      /* SE LLAMA sw-campo.js Y NO sw.js POR UNA RAZÓN MEDIDA
+      /* NO SE LLAMA sw.js, Y ES A PROPÓSITO
          El servidor guarda una copia comprimida de cada archivo y, cuando el
          archivo cambia, no siempre la regenera: verificado en producción, el
          navegador seguía recibiendo el sw.js anterior —2.667 caracteres, con su
          nombre de caché viejo— mientras que pedido sin compresión llegaba el
-         nuevo. O sea que le llegaba viejo a todos los navegadores, que son los
-         que piden comprimido, y no había forma de forzarlo desde acá: ni con un
-         parámetro en la dirección, ni con encabezados.
+         nuevo. Le llegaba viejo a todos los navegadores, que son los que piden
+         comprimido, y no había forma de forzarlo desde acá: no alcanzó ni con
+         encabezados ni agregando un parámetro a la dirección.
 
-         Una ruta nueva no tiene copia vieja. Es la única salida que depende de
-         nosotros y no de cuándo se le ocurra al servidor regenerarla.
+         Una ruta nueva no tiene copia vieja. Es lo único que depende de nosotros
+         y no de cuándo se le ocurra al servidor regenerarla. Si algún día hay que
+         corregir este archivo y la corrección no llega, es esto: cambiarle el
+         nombre lo resuelve.
 
          Registrar otra dirección para el mismo alcance REEMPLAZA el registro
-         anterior, así que quien tenga el sw.js viejo instalado pasa al nuevo
-         solo, la próxima vez que abra una página.
+         anterior, así que quien tenga uno viejo instalado pasa al nuevo solo, la
+         próxima vez que abra una página.
 
-         Y va sin ?v=: campo.html registra el mismo archivo, y dos direcciones
-         distintas para el mismo alcance se pisan entre sí —cada página deshace
-         el registro de la otra y queda reinstalándose sin parar—. Probado.
+         La dirección va SIN ?v=. Se probó y trae un problema peor: si otra página
+         registra el mismo archivo sin esa versión, las dos direcciones se pisan
+         entre sí y el service worker queda reinstalándose sin parar.
 
          updateViaCache 'none' es para la caché del propio navegador; el .htaccess
          es para la del servidor. Cada uno tapa un agujero distinto. */
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', function() {
-          navigator.serviceWorker.register('sw-campo.js', { updateViaCache: 'none' })
+          navigator.serviceWorker.register('sw-estaticos.js', { updateViaCache: 'none' })
             .then(function(registration) {
               console.log('ServiceWorker registration successful with scope: ', registration.scope);
             }, function(err) {

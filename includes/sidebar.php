@@ -32,10 +32,6 @@ function is_active($page, $current_page) {
                 <a href="alquileres.php"   class="nav-link <?= is_active('alquileres.php', $current_page) ?>"><i class="fas fa-file-contract"></i> <span class="nav-txt">Alquileres</span></a>
                 <a href="insumos.php"      class="nav-link <?= is_active('insumos.php', $current_page) ?>"><i class="fas fa-warehouse"></i> <span class="nav-txt">Insumos (Stock)</span></a>
                 <a href="produccion.php"   class="nav-link <?= is_active('produccion.php', $current_page) ?>"><i class="fas fa-seedling"></i> <span class="nav-txt">Producción y Ventas</span></a>
-                <?php /* La única pantalla que anda sin señal. Va en el menú y no
-                         escondida: hay que poder abrirla ANTES de salir al campo,
-                         que es cuando quedan guardados los lotes en el teléfono. */ ?>
-                <a href="campo.html"       class="nav-link <?= is_active('campo.html', $current_page) ?>"><i class="fas fa-tower-broadcast"></i> <span class="nav-txt">Modo campo</span></a>
             </div>
         </div>
         <?php endif; ?>
