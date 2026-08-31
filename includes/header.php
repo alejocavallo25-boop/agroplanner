@@ -5,15 +5,26 @@ header("X-Content-Type-Options: nosniff");
 header("Referrer-Policy: strict-origin-when-cross-origin");
 header("Strict-Transport-Security: max-age=31536000; includeSubDomains");
 
-/* blob: en img-src es para la foto del remito en el importador de insumos.
-   URL.createObjectURL() crea una dirección blob: y sin permitirla el navegador
-   bloquea la imagen: la foto que el productor acaba de elegir no se muestra, y
-   el aviso que sale es "no pude abrir esa imagen", que manda a buscar el
-   problema donde no está. Detectado probando en el navegador.
-
-   No abre ninguna puerta: un blob: lo crea la propia página, con datos que ya
-   tiene en memoria, y no puede traer nada de afuera. */
-header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://ui-avatars.com https://*.tile.openstreetmap.org https://server.arcgisonline.com https://unpkg.com https://tilecache.rainviewer.com; connect-src 'self' https://dolarapi.com https://api.open-meteo.com https://nominatim.openstreetmap.org https://api.rainviewer.com;");
+/* TRES PERMISOS QUE EXISTEN POR EL LECTOR DE REMITOS, Y NADA MÁS:
+ *
+ *   img-src blob:   — la foto que el productor acaba de elegir. La dirección la
+ *     crea URL.createObjectURL(); sin esto el navegador la bloquea y la imagen
+ *     no se muestra, con un aviso ("no pude abrir esa imagen") que manda a
+ *     buscar el problema donde no está. Detectado probando en el navegador.
+ *
+ *   script-src 'wasm-unsafe-eval' — el lector de texto es WebAssembly y sin
+ *     esto el navegador no lo deja compilar. Es MUCHO más acotado que
+ *     'unsafe-eval': permite compilar WebAssembly y nada más; no habilita
+ *     evaluar cadenas de JavaScript.
+ *
+ *   worker-src 'self' blob: — el lector corre en un hilo aparte para no
+ *     congelar la pantalla los veinte segundos que tarda, y ese hilo se crea
+ *     desde un blob. Sin declararlo cae en default-src, que no incluye blob:.
+ *
+ * Todo lo que carga el lector sale de este mismo servidor (assets/vendor), así
+ * que no hace falta abrir connect-src a ningún dominio nuevo: la imagen nunca
+ * sale del teléfono y no hay servicio de terceros de por medio. */
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://ui-avatars.com https://*.tile.openstreetmap.org https://server.arcgisonline.com https://unpkg.com https://tilecache.rainviewer.com; connect-src 'self' https://dolarapi.com https://api.open-meteo.com https://nominatim.openstreetmap.org https://api.rainviewer.com;");
 ?>
 <!DOCTYPE html>
 <html lang="es">

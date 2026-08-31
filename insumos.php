@@ -1085,6 +1085,41 @@ function tipoBadge($tipo) {
     background: var(--input-bg); color: var(--text-primary); resize: vertical;
 }
 .imp-foto-lado p { font-size: 0.83rem; color: var(--text-muted); margin: 0 0 8px; }
+
+/* El lector */
+.imp-leer { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.imp-leer-nota { font-size: 0.76rem; color: var(--text-muted); flex: 1 1 160px; line-height: 1.35; }
+.imp-leer-estado {
+    padding: 10px 13px; border-radius: 10px; margin-bottom: 10px;
+    font-size: 0.85rem; border: 1px solid; line-height: 1.45;
+}
+.imp-leer-estado b { display: block; margin-bottom: 3px; }
+.imp-leer-estado.trabajando { background: var(--surface-sunk); border-color: var(--border); color: var(--text-muted); }
+.imp-leer-estado.bien       { background: var(--accent-soft);  border-color: var(--accent);  color: var(--accent); }
+.imp-leer-estado.dudoso     { background: var(--warning-soft); border-color: var(--warning); color: var(--warning); }
+.imp-leer-estado.falla      { background: var(--danger-soft);  border-color: var(--danger);  color: var(--danger); }
+
+.imp-barra-progreso {
+    height: 5px; border-radius: 3px; background: var(--border);
+    overflow: hidden; margin-top: 7px;
+}
+.imp-barra-progreso i {
+    display: block; height: 100%; width: 0; background: var(--accent);
+    transition: width 0.25s ease;
+}
+
+/* Dónde dudó el lector. Es lo que dirige la mirada al revisar: sin esto, la
+   revisión es "leer todo de nuevo", que no la hace nadie. */
+.imp-dudas {
+    font-size: 0.8rem; color: var(--text-muted); margin-bottom: 10px;
+    line-height: 1.5;
+}
+.imp-dudas b { color: var(--warning); }
+.imp-dudas mark {
+    background: var(--warning-soft); color: var(--warning);
+    padding: 1px 5px; border-radius: 4px; font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
 </style>
 
 <!-- ===== MODAL: Importar (subida + análisis) ===== -->
@@ -1150,6 +1185,15 @@ function tipoBadge($tipo) {
                     <div class="imp-medidas" id="impMedidas"></div>
                 </div>
                 <div class="imp-foto-lado">
+                    <div class="imp-leer">
+                        <button type="button" class="btn btn-primary" id="impLeerBtn" onclick="impLeerFoto()">
+                            <i class="fas fa-eye"></i> Intentar leerla
+                        </button>
+                        <span class="imp-leer-nota">Se lee en tu teléfono, la foto no sale de acá. Tarda unos segundos.</span>
+                    </div>
+                    <div id="impLeerEstado" class="imp-leer-estado" hidden></div>
+                    <div id="impDudas" class="imp-dudas" hidden></div>
+
                     <p>Escribí los renglones mirando la foto: <strong>cantidad, descripción y precio</strong>.
                        Si el remito trae total, ponelo al final — con eso verifico que la suma cierre.</p>
                     <textarea id="impTextoFoto" rows="9"
@@ -1372,6 +1416,7 @@ const IMP = {
     cotizacion: 0,      // para poder mostrarlos en la otra
     paso: 'origen',     // dónde estaba, para que "Volver" no borre lo escrito
     fotoUrl: null,      // la imagen en memoria, hasta que se la suelte
+    fotoCanvas: null,   // la copia grande, para el lector
 };
 
 /* Cuánto se puede apartar el precio del comprobante del que ya le conocíamos al
@@ -1405,6 +1450,11 @@ function impAbrir() {
 
 /** La imagen ocupa memoria hasta que se la suelta explícitamente. */
 function impSoltarFoto() {
+    IMP.fotoCanvas = null;
+    const caja = document.getElementById('impLeerEstado');
+    if (caja) caja.hidden = true;
+    const dudas = document.getElementById('impDudas');
+    if (dudas) dudas.hidden = true;
     if (!IMP.fotoUrl) return;
     URL.revokeObjectURL(IMP.fotoUrl);
     IMP.fotoUrl = null;
@@ -1534,7 +1584,18 @@ function impAnalizarTexto(cual) {
    WhatsApp: la misma foto daría números distintos según con qué se sacó.
    ═════════════════════════════════════════════════════════════════════════════ */
 
-const IMP_FOTO_LADO = 1600;   // tamaño de trabajo; todas las medidas son a esta escala
+const IMP_FOTO_LADO = 1600;   // tamaño de medición; los umbrales valen a esta escala
+const IMP_OCR_LADO  = 2200;   // tamaño para leer; más resolución, sin volverlo lento
+
+/** Una copia de la imagen con el lado mayor en `lado`, sin agrandar de más. */
+function impEscalar(img, lado) {
+    const escala = Math.min(1, lado / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width  = Math.max(1, Math.round(img.width  * escala));
+    c.height = Math.max(1, Math.round(img.height * escala));
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return c;
+}
 
 /** Los umbrales. Salen de imágenes de prueba y habría que afinarlos con fotos reales. */
 const IMP_FOTO_MIN = {
@@ -1552,11 +1613,18 @@ function impFoto(archivo) {
     const img = new Image();
 
     img.onload = () => {
-        const escala = Math.min(1, IMP_FOTO_LADO / Math.max(img.width, img.height));
-        const c = document.createElement('canvas');
-        c.width  = Math.max(1, Math.round(img.width  * escala));
-        c.height = Math.max(1, Math.round(img.height * escala));
-        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        /* Dos copias con propósitos distintos.
+         *
+         * La de MEDIR va siempre al mismo tamaño, porque si no las mediciones no
+         * se pueden comparar: la misma foto daría números distintos sacada con un
+         * teléfono de 12 megapíxeles o con uno viejo, y los umbrales no
+         * significarían nada.
+         *
+         * La de LEER va más grande, porque al lector le sirve toda la resolución
+         * que se le pueda dar sin volverlo lento. Mandarle la de medir sería
+         * tirar detalle justo donde hace falta. */
+        const c = impEscalar(img, IMP_FOTO_LADO);
+        IMP.fotoCanvas = impEscalar(img, IMP_OCR_LADO);
 
         let m;
         try {
@@ -1577,6 +1645,209 @@ function impFoto(archivo) {
         impMostrarError('No pude abrir esa imagen. Puede estar incompleta o en un formato que el navegador no lee.');
     };
     img.src = url;
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════
+   LEER LA FOTO
+
+   Corre ENTERO en el dispositivo del productor: la imagen no sale de ahí, no
+   hay servicio de terceros y no cuesta nada por uso. Todo lo que carga —el
+   programa y los datos del castellano— sale de este mismo servidor, así que
+   tampoco depende de que un CDN siga existiendo.
+
+   LO QUE ESTO NO ES
+   No es exacto y no puede serlo: reconocer un carácter es siempre una
+   estimación. Por eso el resultado NO va derecho al importador — se escribe en
+   el mismo cuadro de texto donde se escribiría a mano. Queda a la vista, se
+   corrige, y recién ahí se analiza. Todo lo que viene después ya existía y ya
+   estaba probado: el mismo parser, la misma verificación de suma contra el
+   total y la misma alerta de precio fuera de rango.
+
+   Ese es el punto: el lector adelanta trabajo, pero no decide nada. Los
+   números los sigue confirmando una persona, y si se le escapa algo, la suma
+   no cierra y salta.
+   ═════════════════════════════════════════════════════════════════════════════ */
+
+const IMP_OCR = {
+    base: 'assets/vendor/tesseract/',
+    cargando: null,     // promesa de la carga, para no bajarlo dos veces
+    worker: null,
+    corriendo: false,
+};
+
+/** Trae tesseract una sola vez y deja el lector listo. */
+function impCargarLector(alProgreso) {
+    if (IMP_OCR.worker) return Promise.resolve(IMP_OCR.worker);
+    if (IMP_OCR.cargando) return IMP_OCR.cargando;
+
+    IMP_OCR.cargando = new Promise((ok, mal) => {
+        const s = document.createElement('script');
+        s.src = IMP_OCR.base + 'tesseract.min.js';
+        s.onload = () => ok();
+        s.onerror = () => mal(new Error('No pude cargar el lector desde el servidor.'));
+        document.head.appendChild(s);
+    }).then(() => {
+        // Las rutas van explícitas: sin esto tesseract se las busca en un CDN,
+        // y la idea es justamente no depender de nadie.
+        return Tesseract.createWorker('spa', 1, {
+            workerPath: IMP_OCR.base + 'worker.min.js',
+            corePath:   IMP_OCR.base,
+            langPath:   IMP_OCR.base + 'lang',
+            gzip:       true,
+            logger:     m => alProgreso && alProgreso(m),
+        });
+    }).then(w => {
+        IMP_OCR.worker = w;
+        return w;
+    }).catch(e => {
+        IMP_OCR.cargando = null;   // que se pueda reintentar
+        throw e;
+    });
+
+    return IMP_OCR.cargando;
+}
+
+function impLeerEstado(clase, titulo, detalle, progreso) {
+    const caja = document.getElementById('impLeerEstado');
+    caja.hidden = false;
+    caja.className = 'imp-leer-estado ' + clase;
+    caja.textContent = '';
+    const b = document.createElement('b');
+    b.textContent = titulo;
+    caja.appendChild(b);
+    if (detalle) caja.appendChild(document.createTextNode(detalle));
+    if (progreso !== undefined) {
+        const barra = document.createElement('div');
+        barra.className = 'imp-barra-progreso';
+        const i = document.createElement('i');
+        i.style.width = Math.round(progreso * 100) + '%';
+        barra.appendChild(i);
+        caja.appendChild(barra);
+    }
+}
+
+async function impLeerFoto() {
+    if (IMP_OCR.corriendo || !IMP.fotoCanvas) return;
+    IMP_OCR.corriendo = true;
+    const boton = document.getElementById('impLeerBtn');
+    boton.disabled = true;
+    document.getElementById('impDudas').hidden = true;
+
+    try {
+        impLeerEstado('trabajando', 'Preparando el lector…',
+                      'La primera vez baja unos megas; después queda guardado.', 0);
+
+        const worker = await impCargarLector(m => {
+            if (m.status === 'recognizing text') {
+                impLeerEstado('trabajando', 'Leyendo la foto…',
+                              'Puede tardar unos segundos.', m.progress);
+            } else if (m.progress !== undefined) {
+                impLeerEstado('trabajando', 'Preparando el lector…',
+                              'La primera vez baja unos megas; después queda guardado.', m.progress);
+            }
+        });
+
+        impLeerEstado('trabajando', 'Leyendo la foto…', 'Puede tardar unos segundos.', 0);
+        /* El tercer argumento pide los bloques. Sin eso, la versión 7 devuelve
+           el texto y una confianza global, pero no la confianza POR PALABRA —y
+           esa es la que permite decir en qué números dudó, que es lo único que
+           hace revisable una lectura de veinte renglones. */
+        const { data } = await worker.recognize(IMP.fotoCanvas, {}, { text: true, blocks: true });
+        impMostrarLectura(data);
+
+    } catch (e) {
+        impLeerEstado('falla', 'No pude leer la foto.',
+            (e && e.message ? e.message + ' ' : '') +
+            'Podés escribir los renglones a mano mirándola, que es lo que estaba antes.');
+    } finally {
+        IMP_OCR.corriendo = false;
+        boton.disabled = false;
+    }
+}
+
+/**
+ * Qué tan en serio hay que tomar lo que salió.
+ *
+ * El lector devuelve una confianza por palabra. Un promedio bajo, o mucha
+ * basura de símbolos, quiere decir que leyó cualquier cosa — y decirlo es más
+ * útil que entregar cinco renglones inventados con cara de datos.
+ */
+function impMostrarLectura(data) {
+    const texto = (data.text || '').replace(/\n{3,}/g, '\n\n').trim();
+
+    if (!texto) {
+        impLeerEstado('falla', 'No encontré texto en la foto.',
+            'Puede estar muy movida, muy oscura, o no ser un remito. Probá con otra, o escribí a mano.');
+        return;
+    }
+
+    // Las palabras vienen anidadas en bloques → párrafos → renglones. Se las
+    // aplana para poder mirar la confianza de cada una.
+    const palabras = [];
+    (data.blocks || []).forEach(bl => (bl.paragraphs || []).forEach(
+        pa => (pa.lines || []).forEach(
+            li => (li.words || []).forEach(p => { if ((p.text || '').trim()) palabras.push(p); }))));
+
+    // Si no hubo bloques, queda la confianza global, que el lector siempre da.
+    const confianza = palabras.length
+        ? palabras.reduce((a, p) => a + (p.confidence || 0), 0) / palabras.length
+        : (data.confidence || 0);
+    // Basura: lo que no es letra, número ni puntuación de las que aparecen en un
+    // remito. Cuando el lector se pierde, escupe ~ | ¬ { » y esas cosas.
+    const basura = (texto.match(/[^\wáéíóúüñÁÉÍÓÚÜÑ\s.,:;%$()\/\-+°ºª]/g) || []).length;
+    const proporcionBasura = basura / Math.max(1, texto.length);
+
+    // Cuántos renglones se parecen a un renglón de remito: algo con un número
+    // adelante y palabras después. Es la señal más directa de si sirve.
+    const utiles = texto.split('\n').filter(l =>
+        /^\s*\d[\d.,]*\s*[a-zA-Záéíóúñ]*\s+.*\p{L}{3,}/u.test(l)).length;
+
+    document.getElementById('impTextoFoto').value = texto;
+
+    if (confianza >= 75 && proporcionBasura < 0.05 && utiles >= 1) {
+        impLeerEstado('bien', 'Leí ' + utiles + (utiles === 1 ? ' renglón.' : ' renglones.'),
+            'Está escrito abajo. REVISÁ LOS NÚMEROS antes de analizar: el lector se equivoca ' +
+            'sin avisar, y un dígito cambiado no se nota. Si el remito trae total, la suma lo verifica.');
+    } else if (utiles >= 1) {
+        impLeerEstado('dudoso', 'Leí algo, pero con dudas.',
+            'Confianza ' + Math.round(confianza) + ' sobre 100. Revisá renglón por renglón contra la ' +
+            'foto, o borrá todo y escribilo a mano, que va a ser más rápido que corregirlo.');
+    } else {
+        impLeerEstado('dudoso', 'Leí texto, pero ningún renglón de insumo.',
+            'Lo que salió está abajo por si sirve de algo. Suele pasar cuando la foto está torcida ' +
+            'o el remito es manuscrito. Escribir a mano va a ser más rápido.');
+    }
+
+    impMostrarDudas(palabras);
+}
+
+/** Las palabras donde el lector dudó, sobre todo las que tienen números. */
+function impMostrarDudas(palabras) {
+    const caja = document.getElementById('impDudas');
+    caja.textContent = '';
+
+    /* Se muestran sólo las que tienen dígitos. Un nombre de insumo mal leído se
+       ve a simple vista —"Ur3a" salta—, pero un precio mal leído se lee como un
+       precio y no se nota. La atención tiene que ir a los números. */
+    const dudosas = palabras
+        .filter(p => (p.confidence || 100) < 80 && /\d/.test(p.text || ''))
+        .map(p => p.text.trim())
+        .filter((v, i, a) => v && a.indexOf(v) === i)
+        .slice(0, 12);
+
+    if (!dudosas.length) { caja.hidden = true; return; }
+
+    caja.hidden = false;
+    const b = document.createElement('b');
+    b.textContent = 'Dudé en estos números: ';
+    caja.appendChild(b);
+    dudosas.forEach((d, i) => {
+        if (i) caja.appendChild(document.createTextNode(' '));
+        const m = document.createElement('mark');
+        m.textContent = d;
+        caja.appendChild(m);
+    });
+    caja.appendChild(document.createTextNode(' — comparalos con la foto antes de seguir.'));
 }
 
 function impMedirFoto(canvas) {
@@ -1667,11 +1938,20 @@ function impMedirFoto(canvas) {
     // La mediana y no el promedio: un título grande o una línea de la tabla
     // corren el promedio, la mediana describe al renglón típico.
     bandas.sort((a, b) => a - b);
-    const altoLetra = bandas.length ? bandas[Math.floor(bandas.length / 2)] : 0;
+    let altoLetra = bandas.length ? bandas[Math.floor(bandas.length / 2)] : 0;
+
+    /* Una banda que se come más del 15% del alto no es un renglón: es que la
+       binarización dio "todo tinta". Pasa con mucho ruido de sensor o con una
+       foto muy pareja, y devolvía cosas como "alto de letra: 584 px", que además
+       de ser mentira hacía pasar el control de tamaño. Cuando la medida no es
+       creíble se dice que no se pudo medir, en vez de inventar un número. */
+    const letraConfiable = altoLetra > 0 && altoLetra < h * 0.15;
+    if (!letraConfiable) altoLetra = 0;
 
     return {
         nitidez: nitidez, papel: p95, tinta: p5, contraste: p95 - p5,
-        altoLetra: altoLetra, renglones: bandas.length, ancho: w, alto: h,
+        altoLetra: altoLetra, letraConfiable: letraConfiable,
+        renglones: bandas.length, ancho: w, alto: h,
     };
 }
 
@@ -1716,11 +1996,10 @@ function impPintarVeredicto(m, archivo, img) {
             ? 'El reflejo se comió la tinta. Evitá el flash y la luz directa sobre el papel: mejor a la sombra.'
             : 'La tinta casi no se separa del papel. Suele pasar con remitos térmicos despintados; probá con más luz de costado.');
     }
-    if (m.altoLetra < IMP_FOTO_MIN.altoLetra) {
+    if (!m.letraConfiable) {
+        problemas.push('No pude distinguir los renglones: la foto tiene mucho ruido o el papel y la tinta se mezclan. Probá con más luz y sin mover.');
+    } else if (m.altoLetra < IMP_FOTO_MIN.altoLetra) {
         problemas.push('La letra sale muy chica. Acercate, o sacá el remito por partes en vez de entero.');
-    }
-    if (!m.renglones) {
-        problemas.push('No encontré renglones de texto. ¿Seguro que es la foto del remito?');
     }
 
     const b = document.createElement('b');
@@ -1754,8 +2033,9 @@ function impPintarVeredicto(m, archivo, img) {
     // Los números crudos, para poder discutir el veredicto en vez de creerle.
     [['Nitidez', Math.round(m.nitidez), IMP_FOTO_MIN.nitidez, 'mín.'],
      ['Contraste', m.contraste, IMP_FOTO_MIN.contraste, 'mín.'],
-     ['Alto de letra', m.altoLetra + ' px', IMP_FOTO_MIN.altoLetra + ' px', 'mín.'],
-     ['Renglones detectados', m.renglones, null, null],
+     ['Alto de letra', m.letraConfiable ? m.altoLetra + ' px' : 'no se pudo medir',
+      m.letraConfiable ? IMP_FOTO_MIN.altoLetra + ' px' : null, 'mín.'],
+     ['Renglones detectados', m.letraConfiable ? m.renglones : '—', null, null],
     ].forEach(([etiqueta, valor, minimo, nota]) => {
         const s = document.createElement('span');
         const strong = document.createElement('b');
