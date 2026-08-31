@@ -258,7 +258,7 @@ input:focus, select:focus, button:focus-visible {
    antes por el panel, alguien la agregaría al inicio y descubriría recién en el
    campo, sin señal, que no anda. */
 if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+    navigator.serviceWorker.register('sw-campo.js', { updateViaCache: 'none' })
         .catch(function () { /* sin service worker la pantalla sigue andando con señal */ });
 }
 </script>

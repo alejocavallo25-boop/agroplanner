@@ -33,21 +33,31 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
     <link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png?v=6">
     
     <script>
-      /* updateViaCache 'none': que el navegador no use su propia caché para este
-         archivo. El servidor manda los estáticos con siete días, y el sw.js es
-         justamente lo que actualiza todo lo demás, así que cachearlo una semana
-         significa que una corrección tarda una semana en llegar. Pasó de verdad
-         en producción: el archivo nuevo estaba subido y el navegador seguía
-         usando el anterior. Del lado del servidor lo tapa el .htaccess.
+      /* SE LLAMA sw-campo.js Y NO sw.js POR UNA RAZÓN MEDIDA
+         El servidor guarda una copia comprimida de cada archivo y, cuando el
+         archivo cambia, no siempre la regenera: verificado en producción, el
+         navegador seguía recibiendo el sw.js anterior —2.667 caracteres, con su
+         nombre de caché viejo— mientras que pedido sin compresión llegaba el
+         nuevo. O sea que le llegaba viejo a todos los navegadores, que son los
+         que piden comprimido, y no había forma de forzarlo desde acá: ni con un
+         parámetro en la dirección, ni con encabezados.
 
-         La dirección va SIN versión a propósito. Se probó con ?v= y trae un
-         problema peor: campo.html registra el mismo archivo, y dos direcciones
+         Una ruta nueva no tiene copia vieja. Es la única salida que depende de
+         nosotros y no de cuándo se le ocurra al servidor regenerarla.
+
+         Registrar otra dirección para el mismo alcance REEMPLAZA el registro
+         anterior, así que quien tenga el sw.js viejo instalado pasa al nuevo
+         solo, la próxima vez que abra una página.
+
+         Y va sin ?v=: campo.html registra el mismo archivo, y dos direcciones
          distintas para el mismo alcance se pisan entre sí —cada página deshace
-         el registro de la otra y el service worker queda reinstalándose—. Tiene
-         que ser la misma cadena en los dos lados. */
+         el registro de la otra y queda reinstalándose sin parar—. Probado.
+
+         updateViaCache 'none' es para la caché del propio navegador; el .htaccess
+         es para la del servidor. Cada uno tapa un agujero distinto. */
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', function() {
-          navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+          navigator.serviceWorker.register('sw-campo.js', { updateViaCache: 'none' })
             .then(function(registration) {
               console.log('ServiceWorker registration successful with scope: ', registration.scope);
             }, function(err) {
@@ -56,7 +66,11 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
         });
       }
     </script>
-    <script src="assets/js/offline.js" defer></script>
+    <?php /* Mismo caso que el service worker: el archivo anterior seguía
+             llegando viejo, y ese traía el código que interceptaba TODOS los
+             formularios y borraba la cola con cualquier respuesta 200. Con la
+             ruta nueva, el que llega es el corregido. */ ?>
+    <script src="assets/js/estado-red.js" defer></script>
 </head>
 <body>
 <?php /* Salto al contenido. Sin esto, quien navega con teclado tiene que pasar
