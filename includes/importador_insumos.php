@@ -139,6 +139,88 @@ function imp_a_fecha($valor): ?string
 }
 
 /**
+ * Todos los números que aparecen en un texto, en orden.
+ *
+ * No sirve pasarle la línea entera a imp_a_numero(): esa función limpia todo lo
+ * que no sea dígito y devuelve UN número, así que "TOTAL 3 items 8.837.750,00"
+ * se convertiría en 38837750,00. Acá se extraen como piezas separadas.
+ */
+function imp_numeros_en(string $s): array
+{
+    preg_match_all('/-?\d{1,3}(?:\.\d{3})+(?:,\d+)?|-?\d+(?:,\d+)?|-?\d+(?:\.\d+)?/u', $s, $m);
+    $out = [];
+    foreach ($m[0] as $token) {
+        $n = imp_a_numero($token);
+        if ($n !== null) $out[] = $n;
+    }
+    return $out;
+}
+
+/**
+ * Los totales impresos en el comprobante.
+ *
+ * Existen para una sola cosa: poder comprobar que la suma de los renglones
+ * cargados da lo mismo que dice el papel. Es la única verificación del
+ * importador que no depende de que alguien mire — es aritmética.
+ *
+ * Se devuelven TODOS los que aparezcan y no sólo uno, porque un comprobante
+ * suele traer subtotal (neto), IVA y total, y los renglones pueden cerrar
+ * contra el neto o contra el total según cómo estén los precios. Elegir uno acá
+ * sería adivinar; con la lista, la comprobación prueba contra cada uno.
+ *
+ * De cada fila se toma el número más grande: en "TOTAL 21% 1.855.860,50" el
+ * porcentaje también es un número, y no es el que interesa.
+ *
+ * @return array Lista de ['etiqueta' => string, 'valor' => float]
+ */
+function imp_totales_documento(array $grid): array
+{
+    $etiquetas = [
+        'subtotal'      => 'Subtotal',
+        'sub total'     => 'Subtotal',
+        'neto gravado'  => 'Neto gravado',
+        'importe neto'  => 'Neto',
+        'total'         => 'Total',
+        'importe total' => 'Total',
+    ];
+
+    $out = [];
+    foreach ($grid as $fila) {
+        $linea = trim(implode(' ', array_map('strval', $fila)));
+        if ($linea === '') continue;
+        $n = imp_normalizar($linea);
+
+        $etiqueta = null;
+        foreach ($etiquetas as $clave => $texto) {
+            if (preg_match('/\b' . preg_quote($clave, '/') . '\b/', $n)) {
+                // Gana la etiqueta más específica: "subtotal" antes que "total".
+                if ($etiqueta === null || mb_strlen($clave) > 5) $etiqueta = $texto;
+            }
+        }
+        if ($etiqueta === null) continue;
+
+        // "TOTAL A PAGAR EN 3 CUOTAS" no trae un importe: son cantidades sueltas.
+        $numeros = array_filter(imp_numeros_en($linea), fn($v) => $v > 0);
+        if (!$numeros) continue;
+
+        $out[] = ['etiqueta' => $etiqueta, 'valor' => max($numeros)];
+        if (count($out) >= 6) break;
+    }
+
+    // Sin duplicados y de mayor a menor: el total suele estar abajo de todo.
+    $vistos = [];
+    $limpio = [];
+    foreach ($out as $t) {
+        $clave = $t['etiqueta'] . '|' . round($t['valor'], 2);
+        if (isset($vistos[$clave])) continue;
+        $vistos[$clave] = true;
+        $limpio[] = $t;
+    }
+    usort($limpio, fn($a, $b) => $b['valor'] <=> $a['valor']);
+    return $limpio;
+}
+
+/**
  * Adivina el tipo de insumo por el nombre. Es una ayuda, no un veredicto: el
  * usuario lo corrige en un select antes de guardar.
  */
@@ -213,6 +295,32 @@ function imp_detectar_separador(string $texto): ?string
 
     $mejor = null; $mejorPunt = 0;
     foreach ($prioridad as $sep => $bonus) {
+        /* La coma, antes que nada: ¿está separando columnas o es el decimal?
+         *
+         * La consistencia sola no alcanza. Un remito corto pegado a mano tiene
+         * UNA coma por renglón —la de los centavos— y eso es perfectamente
+         * consistente, así que la coma ganaba y partía cada línea al medio:
+         * "2.500 kg Urea granulada 1.200" por un lado y "00" por el otro. El
+         * nombre del insumo quedaba siendo el renglón entero y el precio, cero.
+         *
+         * El tell es justamente ese "00": si al cortar por coma el último
+         * pedazo son uno o dos dígitos y lo que viene antes termina en dígito,
+         * eso no es una columna, son los centavos. */
+        if ($sep === ',') {
+            $centavos = 0; $conComa = 0;
+            foreach ($lineas as $l) {
+                if (strpos($l, ',') === false) continue;
+                $conComa++;
+                $partes = explode(',', $l);
+                $ultima = trim(array_pop($partes));
+                $anterior = trim((string)array_pop($partes));
+                if (preg_match('/^\d{1,2}$/', $ultima) && preg_match('/\d$/', $anterior)) {
+                    $centavos++;
+                }
+            }
+            if ($conComa > 0 && $centavos >= $conComa * 0.7) continue;
+        }
+
         $conteos = [];
         foreach ($lineas as $l) {
             $n = substr_count($l, $sep);
@@ -897,12 +1005,22 @@ function imp_buscar_coincidencias(array $items, array $inventario): array
 {
     $normalizado = [];
     foreach ($inventario as $ins) {
-        $normalizado[] = ['id' => (int)$ins['id'], 'nombre' => $ins['nombre'], 'norm' => imp_normalizar($ins['nombre'])];
+        $normalizado[] = [
+            'id'     => (int)$ins['id'],
+            'nombre' => $ins['nombre'],
+            'norm'   => imp_normalizar($ins['nombre']),
+            // El último precio que se le conoce, EN DÓLARES, que es como lo guarda
+            // el catálogo. Viaja para poder avisar cuando el precio leído del
+            // comprobante se aparta demasiado del que ya venía: un dígito mal
+            // tipeado (o mal leído) salta ahí y en ningún otro lado.
+            'precio' => isset($ins['precio_estimado_usd']) ? (float)$ins['precio_estimado_usd'] : null,
+        ];
     }
 
     foreach ($items as &$it) {
-        $it['match_id']     = null;
-        $it['match_nombre'] = null;
+        $it['match_id']         = null;
+        $it['match_nombre']     = null;
+        $it['match_precio_usd'] = null;
 
         $objetivo = imp_normalizar($it['nombre']);
         if ($objetivo === '') continue;
@@ -924,8 +1042,9 @@ function imp_buscar_coincidencias(array $items, array $inventario): array
         }
 
         if ($mejor !== null && $mejorPunt >= 0.86) {
-            $it['match_id']     = $mejor['id'];
-            $it['match_nombre'] = $mejor['nombre'];
+            $it['match_id']         = $mejor['id'];
+            $it['match_nombre']     = $mejor['nombre'];
+            $it['match_precio_usd'] = $mejor['precio'];
         }
     }
     unset($it);
@@ -1005,5 +1124,7 @@ function imp_procesar(string $tipo, string $ruta, array $inventario): array
         'hoja'       => $hoja,
         'items'      => array_values($items),
         'aviso'      => $aviso,
+        // Para poder comprobar que los renglones suman lo que dice el papel.
+        'totales'    => imp_totales_documento($grid),
     ];
 }

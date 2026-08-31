@@ -45,10 +45,16 @@ $usuario_id = $_SESSION['usuario_id'];
 $origen     = $_POST['origen'] ?? 'archivo';
 $MAX_BYTES  = 8 * 1024 * 1024;   // 8 MB: de sobra para un remito o una lista de precios
 
-/** Inventario actual: permite proponer "sumar al stock" en vez de duplicar. */
+/**
+ * Inventario actual: permite proponer "sumar al stock" en vez de duplicar, y
+ * comparar el precio del comprobante contra el que ya se le conocía al insumo.
+ */
 function imp_inventario(PDO $pdo, int $usuario_id): array
 {
-    $stmt = $pdo->prepare("SELECT id, nombre FROM insumos WHERE usuario_id = ? AND estado = 'activo' ORDER BY nombre");
+    $stmt = $pdo->prepare(
+        "SELECT id, nombre, precio_estimado_usd
+           FROM insumos WHERE usuario_id = ? AND estado = 'activo' ORDER BY nombre"
+    );
     $stmt->execute([$usuario_id]);
     return $stmt->fetchAll();
 }
@@ -202,6 +208,13 @@ try {
     imp_error('No se pudo procesar el archivo. Quedó el detalle en el log del servidor.', 500);
 }
 
+/* La cotización con la que la pantalla va a mostrar el precio en la otra moneda.
+   Sale del mismo lugar que el resto de la aplicación, así que lo que se ve acá y
+   lo que se ve en la lista de insumos hablan del mismo dólar. */
+require_once __DIR__ . '/../includes/dolar.php';
+dolar_asegurar_tabla($pdo);
+$ref = dolar_referencia($pdo, $usuario_id);
+
 echo json_encode([
     'ok'         => true,
     'archivo'    => $etiqueta,
@@ -212,4 +225,7 @@ echo json_encode([
     'grid'       => $resultado['grid'],
     'items'      => $resultado['items'],
     'aviso'      => $resultado['aviso'],
+    'totales'    => $resultado['totales'],
+    'cotizacion' => (float)$ref['valor'],
+    'dolar_estimado' => !empty($ref['estimado']),
 ], JSON_UNESCAPED_UNICODE);

@@ -102,6 +102,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $unidadesOk = ['kg', 'lt', 'dosis', 'bolsa'];
         $creados = 0; $sumados = 0; $omitidos = 0;
 
+        /* ── En qué moneda venían los precios del comprobante ──────────────────
+         *
+         * ESTO ARREGLA UN ERROR DE MIL VECES. La columna del catálogo es
+         * precio_estimado_usd y toda la aplicación la trata como dólares: la
+         * lista de insumos la muestra con moneda_convertir(..., 'USD') y la
+         * valuación del depósito multiplica el stock por ese número. Pero acá se
+         * guardaba tal cual lo que decía el remito, que viene en pesos.
+         *
+         * Una urea a $1.245,50 quedaba guardada como US$1.245,50 y la pantalla
+         * la mostraba a más de un millón setecientos mil el kilo, con el
+         * depósito entero inflado en la misma proporción.
+         *
+         * Ahora el comprobante declara su moneda —el productor la elige en la
+         * pantalla de revisión, en pesos por defecto— y si viene en pesos se
+         * convierte una sola vez, acá, antes de guardar. Se convierte al
+         * escribir y no al leer porque la columna es dólares por contrato: no
+         * hay dónde anotar que esta fila vino en otra moneda. */
+        $moneda_doc = (($_POST['moneda'] ?? 'ARS') === 'USD') ? 'USD' : 'ARS';
+        $cotizacion = 0.0;
+        if ($moneda_doc === 'ARS') {
+            require_once 'includes/dolar.php';
+            dolar_asegurar_tabla($pdo);
+            $cotizacion = (float)dolar_referencia($pdo, $usuario_id)['valor'];
+            if ($cotizacion <= 0) {
+                set_flash('error', 'No hay ninguna cotización del dólar cargada, y los precios del '
+                                 . 'comprobante están en pesos. Cargá el tipo de cambio y volvé a importar.');
+                header("Location: insumos.php"); exit;
+            }
+        }
+        /** El precio como lo guarda el catálogo: siempre en dólares. */
+        $aDolares = fn(float $p): float => $moneda_doc === 'USD' ? $p : $p / $cotizacion;
+
         try {
             $pdo->beginTransaction();
 
@@ -131,6 +163,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $precio   = (float)($f['precio'] ?? 0);
                 if ($cantidad < 0) $cantidad = 0;
                 if ($precio   < 0) $precio   = 0;
+                // Del papel a la moneda del catálogo, una sola vez y en un solo lugar.
+                $precio = $precio > 0 ? round($aDolares($precio), 4) : 0.0;
 
                 $venc = trim((string)($f['vencimiento'] ?? ''));
                 if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $venc)
@@ -960,6 +994,34 @@ function tipoBadge($tipo) {
 }
 .imp-tabla td { padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 .imp-tabla tr.excluida { opacity: 0.35; }
+
+/* El cuadre contra el total del comprobante. Verde no quiere decir "está bien
+   cargado": quiere decir "los números cierran entre sí", que es lo único que una
+   máquina puede afirmar. */
+.imp-cuadre {
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    padding: 11px 14px; border-radius: 10px; margin: 4px 0 12px;
+    font-size: 0.88rem; border: 1px solid;
+}
+.imp-cuadre b { font-weight: 700; }
+.imp-cuadre small { color: var(--text-muted); font-size: 0.82rem; }
+.imp-cuadre.cierra    { background: var(--accent-soft);  border-color: var(--accent);  color: var(--accent); }
+.imp-cuadre.no-cierra { background: var(--warning-soft); border-color: var(--warning); color: var(--warning); }
+.imp-cuadre.sin-total { background: var(--surface-sunk); border-color: var(--border); color: var(--text-muted); }
+
+/* Un precio que se despegó del que ya le conocíamos al insumo. No se bloquea
+   nada: los precios suben, y el que sabe si es real es el productor. */
+.imp-tabla input.sospechoso {
+    border-color: var(--warning);
+    background: var(--warning-soft);
+}
+.imp-alerta-precio {
+    display: block; font-size: 0.74rem; color: var(--warning);
+    margin-top: 3px; line-height: 1.35;
+}
+/* La columna del precio se ensancha cuando hay un aviso: apretada, el texto
+   caía en cinco renglones de dos palabras y se leía peor que el número. */
+.imp-tabla td:has(.imp-alerta-precio:not(:empty)) { min-width: 190px; }
 .imp-tabla input[type=text], .imp-tabla input[type=number], .imp-tabla input[type=date], .imp-tabla select {
     padding: 6px 8px !important; font-size: 0.82rem !important; border-radius: 6px !important; width: 100%;
 }
@@ -1043,6 +1105,18 @@ function tipoBadge($tipo) {
 
         <div class="imp-barra">
             <div id="impRemap" style="display:flex; flex-wrap:wrap; gap:12px;"></div>
+            <?php /* En qué moneda están los precios del PAPEL. El catálogo guarda
+                     siempre en dólares, así que si el comprobante viene en pesos hay
+                     que convertirlo al guardar. Antes no se preguntaba y se guardaba
+                     el peso como si fuera dólar: un error de mil veces sobre cada
+                     precio y sobre la valuación del depósito. */ ?>
+            <label for="impMoneda" class="imp-campo">
+                <span>Los precios del comprobante están en</span>
+                <select id="impMoneda" onchange="impCambiarMoneda(this.value)">
+                    <option value="ARS">$ pesos</option>
+                    <option value="USD">US$ dólares</option>
+                </select>
+            </label>
             <label for="impDepGlobal" class="imp-campo">
                 <span>Depósito para todos</span>
                 <select id="impDepGlobal" onchange="impAplicarDeposito(this.value)">
@@ -1054,6 +1128,11 @@ function tipoBadge($tipo) {
             </label>
         </div>
 
+        <?php /* La comprobación que no depende de que nadie mire: la suma de los
+                 renglones contra el total impreso en el comprobante. Es aritmética,
+                 así que un dígito mal tipeado —o mal leído— salta solo. */ ?>
+        <div id="impCuadre" class="imp-cuadre" hidden></div>
+
         <div class="imp-tabla-wrap">
             <table class="imp-tabla">
                 <thead>
@@ -1064,7 +1143,7 @@ function tipoBadge($tipo) {
                         <th>Tipo</th>
                         <th class="imp-col-num">Cantidad</th>
                         <th>Unidad</th>
-                        <th class="imp-col-num">Precio USD</th>
+                        <th class="imp-col-num" id="impThPrecio">Precio</th>
                         <th class="imp-col-fecha">Vence</th>
                     </tr>
                 </thead>
@@ -1084,6 +1163,10 @@ function tipoBadge($tipo) {
             <?php csrf_field(); ?>
             <input type="hidden" name="action" value="import_guardar">
             <input type="hidden" name="items" id="impItemsJson">
+            <?php /* La moneda del comprobante. Sin esto el servidor no sabe si el
+                     precio que llega son pesos o dólares, y el catálogo guarda
+                     siempre dólares. */ ?>
+            <input type="hidden" name="moneda" id="impMonedaJson" value="ARS">
         </form>
     </div>
 </div>
@@ -1197,7 +1280,16 @@ const IMP = {
     datos: null,
     items: [],
     animacion: null,
+    moneda: 'ARS',      // en qué moneda están los precios del comprobante
+    cotizacion: 0,      // para poder mostrarlos en la otra
 };
+
+/* Cuánto se puede apartar el precio del comprobante del que ya le conocíamos al
+   insumo antes de marcarlo. No es un límite de inflación: es un detector de
+   dígitos. Un 1 leído o tipeado como 7 multiplica por 7; un dígito de más, por
+   10. Una suba real, aunque sea fuerte, rara vez llega al triple entre dos
+   compras. Por eso el umbral va en 3: separa el error del aumento. */
+const IMP_SALTO_PRECIO = 3;
 
 const IMP_TIPOS = [
     ['semilla', '🌱 Semilla'], ['fertilizante', '💧 Fertilizante'], ['agroquimico', '🧪 Agroquímico'],
@@ -1364,6 +1456,13 @@ function impMostrarResultado(resp) {
     }
 
     IMP.datos = resp;
+    IMP.cotizacion = Number(resp.cotizacion) || 0;
+    IMP.moneda = 'ARS';
+    document.getElementById('impMoneda').value = 'ARS';
+    // El encabezado tiene que decir la moneda desde el arranque, no recién
+    // cuando alguien toca el selector: es el dato que evita cargar pesos
+    // creyendo que son dólares.
+    document.getElementById('impThPrecio').textContent = 'Precio $';
     IMP.items = resp.items.map(it => Object.assign({}, it, {
         incluir: true,
         // Si se parece a algo que ya está en el inventario, la propuesta por
@@ -1539,6 +1638,124 @@ function impRenderTabla() {
     tbody.textContent = '';
     IMP.items.forEach(it => tbody.appendChild(impFila(it)));
     impContar();
+    impCuadrar();
+}
+
+// ── Las dos comprobaciones que no dependen de que nadie mire ─────────────────
+
+/** Plata con separadores de acá. */
+function impPlata(n, moneda) {
+    return (moneda === 'USD' ? 'US$' : '$') +
+           Number(n || 0).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+
+function impCambiarMoneda(valor) {
+    IMP.moneda = (valor === 'USD') ? 'USD' : 'ARS';
+    document.getElementById('impThPrecio').textContent =
+        'Precio ' + (IMP.moneda === 'USD' ? 'US$' : '$');
+    impRenderTabla();
+}
+
+/**
+ * ¿El precio de esta fila se despegó del que ya le conocíamos al insumo?
+ *
+ * La comparación se hace SIEMPRE en dólares, que es como guarda el catálogo. Si
+ * el comprobante viene en pesos hay que convertirlo antes: comparar un peso
+ * contra un dólar da mil veces de diferencia y marcaría absolutamente todo,
+ * que es lo mismo que no marcar nada.
+ */
+function impAlertaPrecio(it) {
+    if (!it.match_id || !it.match_precio_usd) return null;
+    const precio = impNumero(it.precio);
+    if (!(precio > 0)) return null;
+
+    let enUsd = precio;
+    if (IMP.moneda === 'ARS') {
+        if (!(IMP.cotizacion > 0)) return null;   // sin cotización no se puede comparar
+        enUsd = precio / IMP.cotizacion;
+    }
+
+    const anterior = Number(it.match_precio_usd);
+    const razon = enUsd / anterior;
+    if (razon <= IMP_SALTO_PRECIO && razon >= 1 / IMP_SALTO_PRECIO) return null;
+
+    const veces = razon > 1 ? razon : 1 / razon;
+    return (razon > 1 ? 'Es ' : 'Es ') + veces.toFixed(1).replace('.', ',') +
+           (razon > 1 ? ' veces más caro' : ' veces más barato') +
+           ' que la última vez (US$' +
+           anterior.toLocaleString('es-AR', {maximumFractionDigits: 2}) + '). Revisalo.';
+}
+
+/**
+ * La suma de los renglones contra el total impreso.
+ *
+ * Se prueba contra CADA total que traiga el comprobante y también contra el
+ * neto más IVA: los renglones suelen estar sin IVA y el total con, así que
+ * exigir que dé exacto contra el único número grande del papel marcaría como
+ * error algo que está bien. Si cierra contra alguno, cierra.
+ */
+function impCuadrar() {
+    const caja = document.getElementById('impCuadre');
+    const totales = (IMP.datos && IMP.datos.totales) || [];
+
+    let suma = 0;
+    IMP.items.forEach(it => {
+        if (!it.incluir) return;
+        suma += impNumero(it.cantidad) * impNumero(it.precio);
+    });
+
+    if (!totales.length) {
+        // Sin total impreso no hay contra qué comparar, y decirlo es más honesto
+        // que mostrar un tilde verde que no verificó nada.
+        caja.hidden = false;
+        caja.className = 'imp-cuadre sin-total';
+        caja.textContent = '';
+        const s = document.createElement('span');
+        s.textContent = 'Los renglones suman ' + impPlata(suma, IMP.moneda) + '.';
+        const t = document.createElement('small');
+        t.textContent = ' El comprobante no trae un total impreso, así que no puedo verificar la suma: la revisión queda en vos.';
+        caja.appendChild(s); caja.appendChild(t);
+        return;
+    }
+
+    // Tolerancia: un peso, o el 0,5% para comprobantes grandes. Los centavos se
+    // van en los redondeos de cada renglón y no son un error.
+    let mejor = null;
+    totales.forEach(tt => {
+        [['', 1], [' + IVA 21%', 1.21], [' + IVA 10,5%', 1.105]].forEach(([nota, factor]) => {
+            const esperado = tt.valor;
+            const dif = Math.abs(suma * factor - esperado);
+            if (mejor === null || dif < mejor.dif) {
+                mejor = {dif: dif, etiqueta: tt.etiqueta, valor: esperado, nota: nota, factor: factor};
+            }
+        });
+    });
+
+    const tolerancia = Math.max(1, mejor.valor * 0.005);
+    const cierra = mejor.dif <= tolerancia;
+
+    caja.hidden = false;
+    caja.className = 'imp-cuadre ' + (cierra ? 'cierra' : 'no-cierra');
+    caja.textContent = '';
+
+    const b = document.createElement('b');
+    const detalle = document.createElement('small');
+
+    if (cierra) {
+        b.textContent = '✓ Cierra con el ' + mejor.etiqueta.toLowerCase() + ' del comprobante.';
+        detalle.textContent = 'Los renglones suman ' + impPlata(suma, IMP.moneda) + mejor.nota +
+            ' contra ' + impPlata(mejor.valor, IMP.moneda) + ' impresos.';
+    } else {
+        b.textContent = '⚠ No cierra: falta ' +
+            impPlata(Math.abs(mejor.valor - suma * mejor.factor), IMP.moneda) + '.';
+        detalle.textContent = 'Los renglones suman ' + impPlata(suma, IMP.moneda) +
+            ' y el ' + mejor.etiqueta.toLowerCase() + ' del comprobante dice ' +
+            impPlata(mejor.valor, IMP.moneda) + '. ' +
+            'Puede faltar un renglón, sobrar uno, o haber un número mal leído. ' +
+            'Podés cargarlo igual, pero conviene mirar antes.';
+    }
+    caja.appendChild(b);
+    caja.appendChild(detalle);
 }
 
 function impFila(it) {
@@ -1560,6 +1777,7 @@ function impFila(it) {
         it.incluir = chk.checked;
         tr.classList.toggle('excluida', !chk.checked);
         impContar();
+        impCuadrar();   // sacar una fila cambia la suma
     });
     celda().appendChild(chk);
 
@@ -1604,9 +1822,9 @@ function impFila(it) {
     tr._campos.tipo = impCrearSelect(IMP_TIPOS, it.tipo || 'otro', v => { it.tipo = v; });
     celda().appendChild(tr._campos.tipo);
 
-    // Cantidad
+    // Cantidad. Cambiarla mueve la suma, así que se recalcula el cuadre.
     celda('imp-col-num').appendChild(
-        impCrearInput('text', impTexto(it.cantidad), v => { it.cantidad = v; },
+        impCrearInput('text', impTexto(it.cantidad), v => { it.cantidad = v; impCuadrar(); },
                       { inputMode: 'decimal', autocomplete: 'off' })
     );
 
@@ -1614,11 +1832,25 @@ function impFila(it) {
     tr._campos.unidad = impCrearSelect(IMP_UNIDADES, it.unidad_medida || 'kg', v => { it.unidad_medida = v; });
     celda().appendChild(tr._campos.unidad);
 
-    // Precio
-    celda('imp-col-num').appendChild(
-        impCrearInput('text', impTexto(it.precio), v => { it.precio = v; },
-                      { inputMode: 'decimal', autocomplete: 'off' })
-    );
+    // Precio, con el aviso cuando se despega del que ya le conocíamos al insumo.
+    const cPrecio = celda('imp-col-num');
+    const avisoPrecio = document.createElement('span');
+    avisoPrecio.className = 'imp-alerta-precio';
+    const inputPrecio = impCrearInput('text', impTexto(it.precio), v => {
+        it.precio = v;
+        repintarAviso();
+        impCuadrar();
+    }, { inputMode: 'decimal', autocomplete: 'off' });
+
+    function repintarAviso() {
+        const texto = impAlertaPrecio(it);
+        avisoPrecio.textContent = texto || '';
+        inputPrecio.classList.toggle('sospechoso', !!texto);
+    }
+    repintarAviso();
+
+    cPrecio.appendChild(inputPrecio);
+    cPrecio.appendChild(avisoPrecio);
 
     // Vencimiento
     celda('imp-col-fecha').appendChild(
@@ -1671,7 +1903,17 @@ function impConfirmar() {
         return;
     }
 
+    /* Sin cotización no se puede pasar un precio en pesos a la moneda del
+       catálogo, y guardarlo igual sería repetir el error que esto viene a
+       arreglar. Se avisa acá y no después de guardar. */
+    if (IMP.moneda === 'ARS' && !(IMP.cotizacion > 0) && payload.some(p => p.precio > 0)) {
+        alert('No tenés ninguna cotización del dólar cargada, y el catálogo guarda los precios '
+            + 'en dólares. Cargá el tipo de cambio, o poné los precios en cero y completalos después.');
+        return;
+    }
+
     document.getElementById('impItemsJson').value = JSON.stringify(payload);
+    document.getElementById('impMonedaJson').value = IMP.moneda;
     document.getElementById('impForm').submit();
 }
 </script>
