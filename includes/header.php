@@ -4,7 +4,16 @@ header("X-Frame-Options: DENY");
 header("X-Content-Type-Options: nosniff");
 header("Referrer-Policy: strict-origin-when-cross-origin");
 header("Strict-Transport-Security: max-age=31536000; includeSubDomains");
-header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: https://ui-avatars.com https://*.tile.openstreetmap.org https://server.arcgisonline.com https://unpkg.com https://tilecache.rainviewer.com; connect-src 'self' https://dolarapi.com https://api.open-meteo.com https://nominatim.openstreetmap.org https://api.rainviewer.com;");
+
+/* blob: en img-src es para la foto del remito en el importador de insumos.
+   URL.createObjectURL() crea una dirección blob: y sin permitirla el navegador
+   bloquea la imagen: la foto que el productor acaba de elegir no se muestra, y
+   el aviso que sale es "no pude abrir esa imagen", que manda a buscar el
+   problema donde no está. Detectado probando en el navegador.
+
+   No abre ninguna puerta: un blob: lo crea la propia página, con datos que ya
+   tiene en memoria, y no puede traer nada de afuera. */
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://ui-avatars.com https://*.tile.openstreetmap.org https://server.arcgisonline.com https://unpkg.com https://tilecache.rainviewer.com; connect-src 'self' https://dolarapi.com https://api.open-meteo.com https://nominatim.openstreetmap.org https://api.rainviewer.com;");
 ?>
 <!DOCTYPE html>
 <html lang="es">

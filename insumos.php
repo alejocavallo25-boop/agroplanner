@@ -1033,6 +1033,58 @@ function tipoBadge($tipo) {
 .imp-col-fecha  { width: 145px; }
 .imp-ref { display: block; font-size: 0.8rem; color: var(--text-muted); margin-top: 3px; }
 .imp-contador { margin-right: auto; font-size: 0.85rem; color: var(--text-muted); }
+
+/* ── La foto ───────────────────────────────────────────────────────────────
+   La imagen todavía no se lee sola, pero tenerla en pantalla mientras se
+   escribe convierte "acordarse del remito" en "copiar lo que se está viendo",
+   que es otra cosa. */
+.imp-foto-caja { display: grid; grid-template-columns: 1fr; gap: 16px; }
+@media (min-width: 900px) { .imp-foto-caja { grid-template-columns: 1.1fr 1fr; } }
+
+/* En el paso de la foto el panel se ensancha. En el ancho normal la imagen
+   quedaba del tamaño de una estampilla, y toda la idea es poder LEER el remito
+   mientras se escribe al lado. */
+#importModal .modal-panel:has(#impPasoFoto:not([hidden])) {
+    max-width: 1080px; max-height: calc(100vh - 70px); overflow-y: auto;
+}
+@media (max-width: 768px) {
+    #importModal .modal-panel:has(#impPasoFoto:not([hidden])) { max-width: 100%; }
+}
+
+.imp-foto-marco {
+    position: relative; background: var(--surface-sunk);
+    border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+    max-height: 460px; display: flex; align-items: center; justify-content: center;
+}
+.imp-foto-marco img {
+    max-width: 100%; max-height: 460px; display: block;
+    cursor: zoom-in; transition: transform 0.15s ease;
+}
+.imp-foto-marco img.ampliada { cursor: zoom-out; transform: scale(2); }
+
+/* El veredicto de la medición. Verde no dice "va a leerse perfecto": dice
+   "por nitidez, luz y tamaño, esta foto no tiene nada que la descalifique". */
+.imp-veredicto {
+    padding: 12px 14px; border-radius: 10px; margin-bottom: 12px;
+    font-size: 0.88rem; border: 1px solid; line-height: 1.5;
+}
+.imp-veredicto b { display: block; margin-bottom: 4px; }
+.imp-veredicto ul { margin: 6px 0 0; padding-left: 18px; }
+.imp-veredicto li { margin-bottom: 3px; }
+.imp-veredicto.sirve   { background: var(--accent-soft);  border-color: var(--accent);  color: var(--accent); }
+.imp-veredicto.no-sirve{ background: var(--warning-soft); border-color: var(--warning); color: var(--warning); }
+
+.imp-medidas {
+    display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px;
+    font-size: 0.76rem; color: var(--text-muted); font-variant-numeric: tabular-nums;
+}
+.imp-medidas span b { font-weight: 700; color: var(--text-primary); }
+.imp-foto-lado textarea {
+    width: 100%; min-height: 210px; font-family: ui-monospace, monospace; font-size: 0.84rem;
+    padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-color);
+    background: var(--input-bg); color: var(--text-primary); resize: vertical;
+}
+.imp-foto-lado p { font-size: 0.83rem; color: var(--text-muted); margin: 0 0 8px; }
 </style>
 
 <!-- ===== MODAL: Importar (subida + análisis) ===== -->
@@ -1050,9 +1102,13 @@ function tipoBadge($tipo) {
             <div id="impZona" class="imp-zona" tabindex="0" role="button" aria-label="Elegir archivo para importar">
                 <i class="fas fa-cloud-arrow-up" aria-hidden="true"></i>
                 <strong>Arrastrá el archivo o hacé clic para elegirlo</strong>
-                <span>Excel (.xlsx) · CSV · PDF digital — hasta 8 MB</span>
+                <span>Excel (.xlsx) · CSV · PDF digital · foto del remito — hasta 8 MB</span>
             </div>
-            <input type="file" id="impInput" aria-label="Elegir el archivo a importar" accept=".xlsx,.xlsm,.csv,.txt,.tsv,.pdf" hidden>
+            <?php /* capture="environment" abre la cámara de atrás en el teléfono en
+                     vez del carrete: si estás con el remito en la mano, es un toque
+                     menos. En la computadora el atributo se ignora. */ ?>
+            <input type="file" id="impInput" aria-label="Elegir el archivo a importar"
+                   accept=".xlsx,.xlsm,.csv,.txt,.tsv,.pdf,image/*" capture="environment" hidden>
 
             <details class="imp-pegar">
                 <summary><i class="fas fa-paste"></i> …o pegar la tabla a mano</summary>
@@ -1066,15 +1122,47 @@ function tipoBadge($tipo) {
             </details>
 
             <div class="imp-nota">
-                <strong>Una foto de un remito en papel no se puede leer acá.</strong>
-                Una foto son píxeles: para convertirlos en texto haría falta OCR, que este importador no incluye.
-                Sirven el Excel, el CSV y el PDF que genera un sistema. Si sólo tenés el papel, usá “pegar la tabla”.
+                <strong>La foto todavía no se lee sola.</strong>
+                Convertir píxeles en texto necesita OCR, que este importador no incluye por ahora.
+                Lo que sí hace: revisa si la foto es legible —enfoque, luz y tamaño de la letra— y
+                te la deja en pantalla para que cargues los renglones mirándola, sin ir y volver al papel.
             </div>
 
             <div id="impError" class="imp-error" hidden></div>
 
             <div class="imp-acciones">
                 <button type="button" class="btn" onclick="impCerrar()" style="background:rgba(255,255,255,0.1); color:var(--text-primary);">Cancelar</button>
+            </div>
+        </div>
+
+        <!-- Paso foto: la medición y la carga mirándola -->
+        <div id="impPasoFoto" hidden>
+            <h2 style="margin-bottom:6px;">La foto del remito</h2>
+            <p class="imp-sub" id="impFotoSub"></p>
+
+            <div id="impVeredicto" class="imp-veredicto"></div>
+
+            <div class="imp-foto-caja">
+                <div>
+                    <div class="imp-foto-marco">
+                        <img id="impFotoImg" alt="Foto del remito. Tocala para ampliar.">
+                    </div>
+                    <div class="imp-medidas" id="impMedidas"></div>
+                </div>
+                <div class="imp-foto-lado">
+                    <p>Escribí los renglones mirando la foto: <strong>cantidad, descripción y precio</strong>.
+                       Si el remito trae total, ponelo al final — con eso verifico que la suma cierre.</p>
+                    <textarea id="impTextoFoto" rows="9"
+                              aria-label="Escribí acá los renglones del remito"
+                              placeholder="2.500 kg  Urea granulada     1.200,00&#10;800 lt    Glifosato 62%      5.000,00&#10;TOTAL                        7.000.000,00"></textarea>
+                    <div class="imp-acciones">
+                        <button type="button" class="btn" onclick="impPaso('origen')"
+                                style="background:rgba(255,255,255,0.1); color:var(--text-primary);">Otra foto</button>
+                        <button type="button" class="btn btn-primary" onclick="impAnalizarTexto('impTextoFoto')">
+                            <i class="fas fa-wand-magic-sparkles"></i> Analizar lo escrito
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1282,6 +1370,8 @@ const IMP = {
     animacion: null,
     moneda: 'ARS',      // en qué moneda están los precios del comprobante
     cotizacion: 0,      // para poder mostrarlos en la otra
+    paso: 'origen',     // dónde estaba, para que "Volver" no borre lo escrito
+    fotoUrl: null,      // la imagen en memoria, hasta que se la suelte
 };
 
 /* Cuánto se puede apartar el precio del comprobante del que ya le conocíamos al
@@ -1303,29 +1393,53 @@ const IMP_CAMPOS = [
 
 // ── Apertura y cierre ────────────────────────────────────────────────────────
 function impAbrir() {
+    impSoltarFoto();
     impPaso('origen');
     impMostrarError('');
     document.getElementById('impInput').value = '';
     document.getElementById('impTexto').value = '';
+    document.getElementById('impTextoFoto').value = '';
     document.getElementById('importModal').style.display = 'block';
     document.body.classList.add('modal-open');
 }
 
+/** La imagen ocupa memoria hasta que se la suelta explícitamente. */
+function impSoltarFoto() {
+    if (!IMP.fotoUrl) return;
+    URL.revokeObjectURL(IMP.fotoUrl);
+    IMP.fotoUrl = null;
+    document.getElementById('impFotoImg').removeAttribute('src');
+    document.getElementById('impFotoImg').classList.remove('ampliada');
+}
+
 function impCerrar() {
     if (IMP.animacion) IMP.animacion.cancelar();
+    impSoltarFoto();
     document.getElementById('importModal').style.display = 'none';
     document.getElementById('importConfirmModal').style.display = 'none';
     document.body.classList.remove('modal-open');
 }
 
+/**
+ * Volver desde la revisión al paso del que se vino, SIN borrar nada.
+ *
+ * Antes esto llamaba a impAbrir(), que reinicia: quien había escrito diez
+ * renglones mirando la foto y volvía para corregir uno, se encontraba con la
+ * pantalla en blanco y la foto descartada. Se vuelve a donde estaba.
+ */
 function impVolver() {
     document.getElementById('importConfirmModal').style.display = 'none';
-    impAbrir();
+    impPaso(IMP.paso || 'origen');
+    document.getElementById('importModal').style.display = 'block';
+    document.body.classList.add('modal-open');
 }
 
 function impPaso(cual) {
     document.getElementById('impPasoOrigen').hidden   = (cual !== 'origen');
+    document.getElementById('impPasoFoto').hidden     = (cual !== 'foto');
     document.getElementById('impPasoAnalisis').hidden = (cual !== 'analisis');
+    // 'analisis' es de paso: volver ahí no tendría sentido.
+    if (cual !== 'analisis') IMP.paso = cual;
 }
 
 function impMostrarError(msg) {
@@ -1361,23 +1475,296 @@ function impMostrarError(msg) {
         if (e.key !== 'Escape') return;
         if (document.getElementById('importModal').style.display === 'block') impCerrar();
     });
+
+    /* Ampliar la foto tocándola. Un remito térmico entra entero en la pantalla y
+       después no se lee ni un renglón: sin poder acercar, la foto al lado no
+       sirve para copiar de ahí. */
+    const foto = document.getElementById('impFotoImg');
+    if (foto) {
+        foto.addEventListener('click', () => foto.classList.toggle('ampliada'));
+    }
 })();
 
 // ── Envío y animación ────────────────────────────────────────────────────────
 function impAnalizarArchivo(archivo) {
+    // Una foto no viaja al servidor: no hay nada que parsear todavía, y medirla
+    // acá es instantáneo. Subir ocho megas para que del otro lado digan "está
+    // movida" sería hacer esperar por una respuesta que se sabe antes de mandar.
+    if (archivo && /^image\//.test(archivo.type)) { impFoto(archivo); return; }
+
     const datos = new FormData();
     datos.append('origen', 'archivo');
     datos.append('archivo', archivo);
     impEnviar(datos, resp => impMostrarResultado(resp));
 }
 
-function impAnalizarTexto() {
-    const texto = document.getElementById('impTexto').value;
-    if (!texto.trim()) { impMostrarError('Pegá algún texto antes de analizar.'); return; }
+function impAnalizarTexto(cual) {
+    const caja = document.getElementById(cual || 'impTexto');
+    const texto = caja.value;
+    if (!texto.trim()) { impMostrarError('Escribí o pegá algo antes de analizar.'); return; }
     const datos = new FormData();
     datos.append('origen', 'texto');
     datos.append('texto', texto);
     impEnviar(datos, resp => impMostrarResultado(resp));
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════
+   ¿ESTA FOTO SIRVE?
+   ═════════════════════════════════════════════════════════════════════════════
+
+   Tres mediciones clásicas, sin nada entrenado y sin nada probabilístico. Cada
+   una detecta un problema distinto y contesta en milisegundos, así que el aviso
+   llega antes de que nadie espere nada:
+
+     · NITIDEZ — varianza del laplaciano, el detector de bordes de siempre. Una
+       foto movida no tiene bordes marcados. La diferencia entre una nítida y una
+       movida es de dos órdenes de magnitud: no es un umbral delicado.
+
+     · CONTRASTE — dónde cae el papel y dónde la tinta en el histograma. En un
+       documento el promedio no dice nada (es casi todo blanco); lo que importa
+       es cuánto se separan uno de otro.
+
+     · ALTURA DE LA LETRA — se proyectan los píxeles oscuros fila por fila. Los
+       renglones de texto aparecen como bandas y los espacios entre ellos como
+       valles; el alto de esas bandas es el alto de la letra. Abajo de cierto
+       tamaño no hay lectura posible, ni humana ni automática.
+
+   Todo se mide sobre la imagen llevada a un tamaño fijo, porque si no las
+   medidas no se pueden comparar entre una foto de 12 megapíxeles y una de
+   WhatsApp: la misma foto daría números distintos según con qué se sacó.
+   ═════════════════════════════════════════════════════════════════════════════ */
+
+const IMP_FOTO_LADO = 1600;   // tamaño de trabajo; todas las medidas son a esta escala
+
+/** Los umbrales. Salen de imágenes de prueba y habría que afinarlos con fotos reales. */
+const IMP_FOTO_MIN = {
+    nitidez:   120,   // abajo de esto está movida o fuera de foco
+    contraste:  60,   // menos que esto y la tinta se confunde con el papel
+    papel:      90,   // el papel tiene que verse como papel, no como sombra
+    altoLetra:  16,   // en píxeles, a la escala de trabajo
+};
+
+function impFoto(archivo) {
+    impMostrarError('');
+    impSoltarFoto();                       // si había otra, se libera
+    const url = URL.createObjectURL(archivo);
+    IMP.fotoUrl = url;
+    const img = new Image();
+
+    img.onload = () => {
+        const escala = Math.min(1, IMP_FOTO_LADO / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width  = Math.max(1, Math.round(img.width  * escala));
+        c.height = Math.max(1, Math.round(img.height * escala));
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+
+        let m;
+        try {
+            m = impMedirFoto(c);
+        } catch (e) {
+            // Un canvas "sucio" (por ejemplo, una imagen de otro origen) no se puede
+            // leer. No es motivo para no dejar cargar: se sigue sin veredicto.
+            m = null;
+        }
+
+        document.getElementById('impFotoImg').src = url;
+        impPintarVeredicto(m, archivo, img);
+        impPaso('foto');
+    };
+
+    img.onerror = () => {
+        impSoltarFoto();
+        impMostrarError('No pude abrir esa imagen. Puede estar incompleta o en un formato que el navegador no lee.');
+    };
+    img.src = url;
+}
+
+function impMedirFoto(canvas) {
+    const w = canvas.width, h = canvas.height;
+    const d = canvas.getContext('2d').getImageData(0, 0, w, h).data;
+
+    // A gris una sola vez: las tres mediciones trabajan sobre lo mismo.
+    const gris = new Float32Array(w * h);
+    for (let i = 0, n = w * h; i < n; i++) {
+        gris[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+    }
+
+    // ── Nitidez: varianza del laplaciano ──
+    let suma = 0, suma2 = 0, n = 0;
+    for (let y = 1; y < h - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+            const i = y * w + x;
+            const lap = 4 * gris[i] - gris[i - 1] - gris[i + 1] - gris[i - w] - gris[i + w];
+            suma += lap; suma2 += lap * lap; n++;
+        }
+    }
+    const media = n ? suma / n : 0;
+    const nitidez = n ? (suma2 / n - media * media) : 0;
+
+    /* ── Dónde cae el papel y dónde la tinta ──
+     *
+     * Por percentiles NO SE PUEDE, y es un error fácil de cometer: en un
+     * documento el texto es una minoría de los píxeles —un remito escrito es
+     * un 3% de tinta y un 97% de papel—, así que el percentil 5 sigue cayendo
+     * en el blanco y la cuenta da contraste cero sobre una foto perfecta.
+     * Verificado: una imagen impecable daba "está quemada".
+     *
+     * Otsu no tiene ese problema. Busca el corte que mejor parte el histograma
+     * en dos poblaciones, sin suponer nada sobre el tamaño de cada una, y de
+     * ahí salen el gris promedio de la tinta y el del papel. Es el método
+     * clásico de binarización de documentos, de 1979, y no tiene nada
+     * entrenado ni nada probabilístico. */
+    const total = w * h;
+    const hist = new Int32Array(256);
+    for (let i = 0; i < total; i++) hist[Math.round(gris[i])]++;
+
+    let sumaTotal = 0;
+    for (let g = 0; g < 256; g++) sumaTotal += g * hist[g];
+
+    let sumaOscuro = 0, pesoOscuro = 0, mejorVar = -1, corte = 128;
+    for (let g = 0; g < 256; g++) {
+        pesoOscuro += hist[g];
+        if (!pesoOscuro) continue;
+        const pesoClaro = total - pesoOscuro;
+        if (!pesoClaro) break;
+        sumaOscuro += g * hist[g];
+        const mediaOscuro = sumaOscuro / pesoOscuro;
+        const mediaClaro  = (sumaTotal - sumaOscuro) / pesoClaro;
+        const entre = pesoOscuro * pesoClaro * (mediaOscuro - mediaClaro) * (mediaOscuro - mediaClaro);
+        if (entre > mejorVar) { mejorVar = entre; corte = g; }
+    }
+
+    // El promedio de cada lado del corte: eso es la tinta y eso es el papel.
+    let sTinta = 0, nTinta = 0, sPapel = 0, nPapel = 0;
+    for (let g = 0; g < 256; g++) {
+        if (g <= corte) { sTinta += g * hist[g]; nTinta += hist[g]; }
+        else            { sPapel += g * hist[g]; nPapel += hist[g]; }
+    }
+    const p5  = nTinta ? Math.round(sTinta / nTinta) : 0;     // tinta
+    const p95 = nPapel ? Math.round(sPapel / nPapel) : 255;   // papel
+
+    // ── Alto de la letra por proyección horizontal ──
+    // Con el corte de Otsu se marca qué es tinta y se cuenta, fila por fila,
+    // cuánto hay. Un renglón de texto es una banda de filas con tinta; el
+    // espacio entre renglones, un valle. El alto típico de esas bandas es el
+    // alto de la letra.
+    const minOscuros = Math.max(3, w * 0.02);   // menos que esto es suciedad, no un renglón
+    const bandas = [];
+    let corrida = 0;
+    for (let y = 0; y < h; y++) {
+        let oscuros = 0;
+        const fila = y * w;
+        for (let x = 0; x < w; x++) if (gris[fila + x] < corte) oscuros++;
+        if (oscuros >= minOscuros) {
+            corrida++;
+        } else if (corrida) {
+            if (corrida > 1) bandas.push(corrida);   // una fila suelta es ruido
+            corrida = 0;
+        }
+    }
+    if (corrida > 1) bandas.push(corrida);
+
+    // La mediana y no el promedio: un título grande o una línea de la tabla
+    // corren el promedio, la mediana describe al renglón típico.
+    bandas.sort((a, b) => a - b);
+    const altoLetra = bandas.length ? bandas[Math.floor(bandas.length / 2)] : 0;
+
+    return {
+        nitidez: nitidez, papel: p95, tinta: p5, contraste: p95 - p5,
+        altoLetra: altoLetra, renglones: bandas.length, ancho: w, alto: h,
+    };
+}
+
+/**
+ * El veredicto, en el idioma del que sacó la foto.
+ *
+ * Cada medición que falla se traduce a lo que hay que hacer distinto, no al
+ * nombre del problema: "apoyá el codo" sirve, "varianza del laplaciano baja" no.
+ * Y nunca bloquea: se puede cargar a mano igual, mirando una foto regular.
+ */
+function impPintarVeredicto(m, archivo, img) {
+    const caja = document.getElementById('impVeredicto');
+    const medidas = document.getElementById('impMedidas');
+    caja.textContent = '';
+    medidas.textContent = '';
+
+    document.getElementById('impFotoSub').textContent =
+        archivo.name + ' · ' + img.width + '×' + img.height + ' px';
+
+    if (!m) {
+        caja.className = 'imp-veredicto sirve';
+        const b = document.createElement('b');
+        b.textContent = 'No pude medir esta foto, pero podés usarla igual.';
+        caja.appendChild(b);
+        return;
+    }
+
+    const problemas = [];
+    if (m.nitidez < IMP_FOTO_MIN.nitidez) {
+        problemas.push('Está movida o fuera de foco. Apoyá el codo o el teléfono en algo firme y sacala de nuevo.');
+    }
+    if (m.papel < IMP_FOTO_MIN.papel) {
+        problemas.push('Está oscura: el papel se ve gris en vez de blanco. Buscá más luz o acercate a una ventana.');
+    }
+    if (m.contraste < IMP_FOTO_MIN.contraste) {
+        /* Poco contraste tiene dos causas y dos remedios opuestos: si además el
+           papel salió muy brillante, fue el reflejo el que se comió la tinta y
+           hay que sacarle luz; si no, es el remito el que ya venía despintado y
+           hay que agregarle. Decir "poco contraste" y nada más mandaría a la
+           mitad de la gente a hacer justo lo contrario de lo que necesita. */
+        problemas.push(m.papel > 235
+            ? 'El reflejo se comió la tinta. Evitá el flash y la luz directa sobre el papel: mejor a la sombra.'
+            : 'La tinta casi no se separa del papel. Suele pasar con remitos térmicos despintados; probá con más luz de costado.');
+    }
+    if (m.altoLetra < IMP_FOTO_MIN.altoLetra) {
+        problemas.push('La letra sale muy chica. Acercate, o sacá el remito por partes en vez de entero.');
+    }
+    if (!m.renglones) {
+        problemas.push('No encontré renglones de texto. ¿Seguro que es la foto del remito?');
+    }
+
+    const b = document.createElement('b');
+    if (!problemas.length) {
+        caja.className = 'imp-veredicto sirve';
+        b.textContent = '✓ La foto se lee bien.';
+        caja.appendChild(b);
+        const t = document.createTextNode(
+            'Enfoque, luz y tamaño de letra están dentro de lo razonable. ' +
+            'Escribí los renglones al lado mirándola.');
+        caja.appendChild(t);
+    } else {
+        caja.className = 'imp-veredicto no-sirve';
+        b.textContent = problemas.length === 1
+            ? '⚠ Hay un problema con esta foto.'
+            : '⚠ Hay ' + problemas.length + ' problemas con esta foto.';
+        caja.appendChild(b);
+        const ul = document.createElement('ul');
+        problemas.forEach(p => {
+            const li = document.createElement('li');
+            li.textContent = p;
+            ul.appendChild(li);
+        });
+        caja.appendChild(ul);
+        const t = document.createElement('div');
+        t.style.marginTop = '8px';
+        t.textContent = 'Podés usarla igual si se entiende a ojo: ampliala tocándola y escribí al lado.';
+        caja.appendChild(t);
+    }
+
+    // Los números crudos, para poder discutir el veredicto en vez de creerle.
+    [['Nitidez', Math.round(m.nitidez), IMP_FOTO_MIN.nitidez, 'mín.'],
+     ['Contraste', m.contraste, IMP_FOTO_MIN.contraste, 'mín.'],
+     ['Alto de letra', m.altoLetra + ' px', IMP_FOTO_MIN.altoLetra + ' px', 'mín.'],
+     ['Renglones detectados', m.renglones, null, null],
+    ].forEach(([etiqueta, valor, minimo, nota]) => {
+        const s = document.createElement('span');
+        const strong = document.createElement('b');
+        strong.textContent = String(valor);
+        s.appendChild(document.createTextNode(etiqueta + ': '));
+        s.appendChild(strong);
+        if (minimo !== null) s.appendChild(document.createTextNode(' (' + nota + ' ' + minimo + ')'));
+        medidas.appendChild(s);
+    });
 }
 
 /**
