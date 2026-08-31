@@ -1114,6 +1114,15 @@ function tipoBadge($tipo) {
     font-size: 0.8rem; color: var(--text-muted); margin-bottom: 10px;
     line-height: 1.5;
 }
+.imp-crudo { margin-top: 8px; font-size: 0.78rem; }
+.imp-crudo summary { cursor: pointer; color: var(--text-muted); padding: 4px 0; }
+.imp-crudo pre {
+    max-height: 190px; overflow: auto; margin: 6px 0 0;
+    background: var(--surface-sunk); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px; white-space: pre-wrap; word-break: break-word;
+    color: var(--text-muted); font-size: 0.74rem; line-height: 1.4;
+}
+
 .imp-dudas b { color: var(--warning); }
 .imp-dudas mark {
     background: var(--warning-soft); color: var(--warning);
@@ -1199,6 +1208,12 @@ function tipoBadge($tipo) {
                     <textarea id="impTextoFoto" rows="9"
                               aria-label="Escribí acá los renglones del remito"
                               placeholder="2.500 kg  Urea granulada     1.200,00&#10;800 lt    Glifosato 62%      5.000,00&#10;TOTAL                        7.000.000,00"></textarea>
+                    <?php /* Lo que el filtro descartó, por si se pasó de listo y
+                             tiró un renglón que servía. Plegado, para que no
+                             estorbe: el 99% de las veces es el membrete y el
+                             fondo de la foto. */ ?>
+                    <details id="impCrudo" class="imp-crudo" hidden></details>
+
                     <div class="imp-acciones">
                         <button type="button" class="btn" onclick="impPaso('origen')"
                                 style="background:rgba(255,255,255,0.1); color:var(--text-primary);">Otra foto</button>
@@ -1823,49 +1838,111 @@ function impMostrarLectura(data) {
     const basura = (texto.match(/[^\wáéíóúüñÁÉÍÓÚÜÑ\s.,:;%$()\/\-+°ºª]/g) || []).length;
     const proporcionBasura = basura / Math.max(1, texto.length);
 
-    /* Cuántos renglones se parecen a un renglón de remito: algo con un número
-       adelante y palabras después.
-       Se limpian antes los bordes de la tabla (| [ ]) y un eventual código de
-       la primera columna, EXACTAMENTE como lo hace el parser del servidor. Sin
-       eso el aviso mentía en el sentido peor: decía "no reconocí ningún
-       renglón" sobre un texto del que el importador después sacaba un insumo. */
-    const utiles = texto.split('\n').filter(l => {
-        let s = l.replace(/[|\[\]]/g, ' ').replace(/\s+/g, ' ').trim();
-        s = s.replace(/^0\d{2,}\s+(?=\d)/, '');
-        return /^\d[\d.,]*\s*[a-zA-Záéíóúñ]*\s+.*\p{L}{3,}/u.test(s);
-    }).length;
+    const utiles = impRenglonesUtiles(texto);
 
-    document.getElementById('impTextoFoto').value = texto;
+    /* SÓLO LOS RENGLONES QUE SIRVEN, no todo lo que leyó.
+     *
+     * Antes se volcaba el texto crudo, y en la foto de un remito eso son
+     * cincuenta renglones: el membrete, la dirección, los datos del transporte,
+     * el pie de página, y los pedazos del fondo, de la mano y del borde del
+     * papel. El renglón que importa quedaba enterrado ahí adentro y la pantalla
+     * era ilegible. Probado con un remito real: incomprensible.
+     *
+     * Va lo mismo que el importador va a usar, ya limpio. Lo demás se guarda por
+     * si el filtro se pasó de listo, pero plegado y fuera del camino. */
+    document.getElementById('impTextoFoto').value = utiles.join('\n');
+    impGuardarCrudo(texto);
 
-    if (confianza >= 75 && proporcionBasura < 0.05 && utiles >= 1) {
-        impLeerEstado('bien', 'Leí ' + utiles + (utiles === 1 ? ' renglón.' : ' renglones.'),
-            'Está escrito abajo. REVISÁ LOS NÚMEROS antes de analizar: el lector se equivoca ' +
+    if (!utiles.length) {
+        impLeerEstado('dudoso', 'No encontré ningún renglón de mercadería.',
+            'Leí texto, pero nada con la forma "cantidad, descripción, precio". Suele pasar cuando ' +
+            'la letra de la tabla salió muy chica. Escribilo a mano mirando la foto, o probá con ' +
+            'una foto más de cerca de la parte de los artículos.');
+    } else if (confianza >= 75 && proporcionBasura < 0.05) {
+        impLeerEstado('bien', 'Saqué ' + utiles.length + (utiles.length === 1 ? ' renglón.' : ' renglones.'),
+            'Están abajo, y es lo único que voy a usar. REVISÁ LOS NÚMEROS: el lector se equivoca ' +
             'sin avisar, y un dígito cambiado no se nota. Si el remito trae total, la suma lo verifica.');
-    } else if (utiles >= 1) {
-        impLeerEstado('dudoso', 'Leí algo, pero con dudas.',
-            'Confianza ' + Math.round(confianza) + ' sobre 100. Revisá renglón por renglón contra la ' +
-            'foto, o borrá todo y escribilo a mano, que va a ser más rápido que corregirlo.');
     } else {
-        impLeerEstado('dudoso', 'Leí texto, pero ningún renglón de insumo.',
-            'Lo que salió está abajo por si sirve de algo. Suele pasar cuando la foto está torcida ' +
-            'o el remito es manuscrito. Escribir a mano va a ser más rápido.');
+        impLeerEstado('dudoso', 'Saqué ' + utiles.length +
+                (utiles.length === 1 ? ' renglón, pero con dudas.' : ' renglones, pero con dudas.'),
+            'Confianza ' + Math.round(confianza) + ' sobre 100. Compará cada uno contra la foto antes ' +
+            'de seguir: puede faltar alguno, o tener un número cambiado.');
     }
 
-    impMostrarDudas(palabras);
+    impMostrarDudas(palabras, utiles.join('\n'));
+}
+
+/**
+ * De todo lo que leyó, los renglones que de verdad son mercadería.
+ *
+ * Aplica la MISMA limpieza que el parser del servidor, para que lo que se ve en
+ * pantalla sea exactamente lo que el importador va a usar. Si acá se mostrara
+ * una cosa y allá se interpretara otra, la revisión no serviría de nada.
+ */
+function impRenglonesUtiles(texto) {
+    // Frases del emisor y del cliente. No aparecen nunca describiendo mercadería.
+    const RUIDO = /ing\.?\s*brutos|ingresos brutos|inicio actividades|domicilio|localidad|responsable inscripto|cuit|cuil|impreso por|firma del|retirada por|patentes|observaciones|transporte|documento n|condici[oó]n de venta/i;
+
+    const salida = [];
+    texto.split('\n').forEach(cruda => {
+        // Bordes de la tabla a espacios, igual que en el servidor.
+        let l = cruda.replace(/[|\[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+        if (l.length < 4) return;
+        if (RUIDO.test(l)) return;
+
+        /* El total se conserva aunque no sea mercadería: es lo que después
+           permite verificar que la suma cierre. */
+        if (/^\s*(sub\s*total|total|neto)\b/i.test(l)) {
+            if (/\d/.test(l)) salida.push(l);
+            return;
+        }
+
+        // Un código de primera columna no es la cantidad.
+        l = l.replace(/^0\d{2,}\s+(?=\d)/, '');
+
+        // Cantidad adelante, unidad opcional, y una descripción con palabras.
+        if (!/^\d[\d.,]*\s*[a-zA-Záéíóúñ]{0,8}\s+.*\p{L}{3,}/u.test(l)) return;
+
+        salida.push(l);
+    });
+    return salida;
+}
+
+/** Todo lo leído, plegado: la salida de emergencia si el filtro se pasó. */
+function impGuardarCrudo(texto) {
+    const caja = document.getElementById('impCrudo');
+    if (!caja) return;
+    caja.textContent = '';
+    if (!texto) { caja.hidden = true; return; }
+    caja.hidden = false;
+    const s = document.createElement('summary');
+    s.textContent = 'Ver todo lo que leí, sin filtrar';
+    const pre = document.createElement('pre');
+    pre.textContent = texto;
+    caja.appendChild(s);
+    caja.appendChild(pre);
 }
 
 /** Las palabras donde el lector dudó, sobre todo las que tienen números. */
-function impMostrarDudas(palabras) {
+function impMostrarDudas(palabras, textoFinal) {
     const caja = document.getElementById('impDudas');
     caja.textContent = '';
 
     /* Se muestran sólo las que tienen dígitos. Un nombre de insumo mal leído se
        ve a simple vista —"Ur3a" salta—, pero un precio mal leído se lee como un
-       precio y no se nota. La atención tiene que ir a los números. */
+       precio y no se nota. La atención tiene que ir a los números.
+
+       Y sólo las que quedaron en los renglones que se van a usar. Antes se
+       listaban también las del membrete y los CUIT —números que ni siquiera
+       están en el cuadro—, y mandaba a comparar contra la foto cosas que no se
+       iban a cargar. */
     const dudosas = palabras
         .filter(p => (p.confidence || 100) < 80 && /\d/.test(p.text || ''))
         .map(p => p.text.trim())
-        .filter((v, i, a) => v && a.indexOf(v) === i)
+        // Nada de fragmentos de uno o dos caracteres: "00" o "6" sueltos no le
+        // dicen a nadie qué mirar, y ensucian el aviso que sí importa.
+        .filter(v => v.length >= 3 && textoFinal.indexOf(v) !== -1)
+        .filter((v, i, a) => a.indexOf(v) === i)
         .slice(0, 12);
 
     if (!dudosas.length) { caja.hidden = true; return; }
