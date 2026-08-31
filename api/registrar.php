@@ -60,6 +60,15 @@ $campania = (string)($_POST['campania'] ?? '');
    calcular, con la cotización del mes: es lo mismo que hace el formulario. */
 $moneda   = (($_POST['moneda'] ?? 'ARS') === 'USD') ? 'USD' : 'ARS';
 
+/* El número propio de esta carga, generado en el teléfono ANTES de mandarla.
+   Sirve para el caso del medio: la carga llegó y se guardó, pero la respuesta se
+   perdió. El teléfono no puede distinguir eso de "no llegó", así que reintenta;
+   con este número, el reintento reconoce que ya estaba en vez de duplicar el
+   gasto. Es opcional: el chat y el formulario, que mandan y esperan la respuesta
+   en el momento, siguen andando sin él. */
+$idem = trim((string)($_POST['idempotencia'] ?? ''));
+if ($idem !== '' && !preg_match('/^[0-9a-f-]{8,36}$/i', $idem)) $idem = '';
+
 /* El enum de la base acepta ocho tipos, pero la app sólo entiende tres: el
    formulario de operaciones ofrece labor, insumo y receta_labor, y el desglose de
    costos del panel suma únicamente labor/receta_labor como Labores e
@@ -212,6 +221,22 @@ if ($tipo === 'insumo') {
 // El formulario traduce "Insumo" a multi_insumo antes de guardar; se hace igual.
 $tipo_db = $tipo === 'insumo' ? 'multi_insumo' : 'labor';
 
+/* ¿Esta misma carga ya entró? Pasa cuando el teléfono la mandó sin señal, llegó,
+   y la respuesta se perdió. Se contesta que sí con los ids que ya tiene, así el
+   teléfono la saca de la cola tranquilo en vez de reintentarla para siempre. */
+if ($idem !== '') {
+    $st = $pdo->prepare("SELECT id FROM operaciones WHERE usuario_id = ? AND idempotencia = ? ORDER BY id");
+    $st->execute([$usuario_id, $idem]);
+    $ya = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+    if ($ya) {
+        echo json_encode([
+            'ok' => true, 'duplicado' => true, 'id' => $ya[0], 'ids' => $ya,
+            'msg' => 'Ese gasto ya estaba cargado: lo mandaste dos veces y se guardó una sola.',
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+}
+
 try {
     /* Transacción: son N filas (más sus renglones) que representan UNA carga. Si
        falla la tercera de cinco, el productor se queda con un gasto a medias que
@@ -222,8 +247,8 @@ try {
         "INSERT INTO operaciones
             (usuario_id, lote_id, grupo_gasto, tipo_componente, costo_total, moneda, fecha,
              campania_operacion, grupo_descripcion, proveedor_servicio,
-             cantidad_ha, precio_unitario, hectareas)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+             cantidad_ha, precio_unitario, hectareas, idempotencia)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
     $stmtIns = $pdo->prepare(
         "INSERT INTO operacion_insumos (operacion_id, insumo_id, nombre_libre, cantidad_ha, precio_unitario)
@@ -249,7 +274,8 @@ try {
                         $tipo === 'insumo' ? null : $detalle,
                         $tipo === 'insumo' ? 0 : $d['sup_calc'],
                         $tipo === 'insumo' ? 0 : $d['precio_ha'],
-                        $d['sup_calc']]);
+                        $d['sup_calc'],
+                        $idem !== '' ? $idem : null]);
         $op_id = (int)$pdo->lastInsertId();
         $ids[] = $op_id;
 
@@ -295,6 +321,24 @@ try {
 
 } catch (Throwable $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();
+
+    /* Dos reintentos que llegan a la vez pasan los dos el chequeo de arriba y
+       chocan en el índice único. Eso no es una falla: es exactamente lo que el
+       índice tiene que impedir, y quiere decir que la carga ya está guardada.
+       Se busca y se contesta como duplicado, igual que en el camino de arriba. */
+    if ($idem !== '' && $e instanceof PDOException && $e->getCode() === '23000') {
+        $st = $pdo->prepare("SELECT id FROM operaciones WHERE usuario_id = ? AND idempotencia = ? ORDER BY id");
+        $st->execute([$usuario_id, $idem]);
+        $ya = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+        if ($ya) {
+            echo json_encode([
+                'ok' => true, 'duplicado' => true, 'id' => $ya[0], 'ids' => $ya,
+                'msg' => 'Ese gasto ya estaba cargado: lo mandaste dos veces y se guardó una sola.',
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+    }
+
     error_log('[motor/registrar] ' . $e->getMessage());
     http_response_code(500);
     echo json_encode(['ok' => false, 'msg' => 'No se pudo guardar el gasto. No quedó nada a medias; probá de nuevo.'],
