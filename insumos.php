@@ -1883,12 +1883,15 @@ function impRenglonesUtiles(texto) {
     // Frases del emisor y del cliente. No aparecen nunca describiendo mercadería.
     const RUIDO = /ing\.?\s*brutos|ingresos brutos|inicio actividades|domicilio|localidad|responsable inscripto|cuit|cuil|impreso por|firma del|retirada por|patentes|observaciones|transporte|documento n|condici[oó]n de venta/i;
 
+    // La dirección del membrete: arranca con un número y no es mercadería.
+    const CALLE = /^\d{1,4} de (enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\b|\b(av|avda|avenida|calle|ruta|esquina|piso|depto)\b/i;
+
     const salida = [];
     texto.split('\n').forEach(cruda => {
         // Bordes de la tabla a espacios, igual que en el servidor.
         let l = cruda.replace(/[|\[\]]/g, ' ').replace(/\s+/g, ' ').trim();
         if (l.length < 4) return;
-        if (RUIDO.test(l)) return;
+        if (RUIDO.test(l) || CALLE.test(l)) return;
 
         /* El total se conserva aunque no sea mercadería: es lo que después
            permite verificar que la suma cierre. */
@@ -1900,8 +1903,15 @@ function impRenglonesUtiles(texto) {
         // Un código de primera columna no es la cantidad.
         l = l.replace(/^0\d{2,}\s+(?=\d)/, '');
 
-        // Cantidad adelante, unidad opcional, y una descripción con palabras.
-        if (!/^\d[\d.,]*\s*[a-zA-Záéíóúñ]{0,8}\s+.*\p{L}{3,}/u.test(l)) return;
+        // Cantidad adelante, unidad opcional, y después la descripción.
+        const m = l.match(/^\d[\d.,]*\s*[a-zA-Záéíóúñ]{0,8}\s+(.+)$/u);
+        if (!m) return;
+
+        /* Y la descripción tiene que ser una descripción: al menos una palabra
+           de cinco letras. Sin esto entraban los restos del fondo de la foto
+           —"3 ESA SA Ne", "5 — O ION RA"— y el cuadro se volvía ilegible otra
+           vez. Mismo criterio que aplica el servidor. */
+        if (!/\p{L}{5,}/u.test(m[1])) return;
 
         salida.push(l);
     });

@@ -928,6 +928,18 @@ function imp_linea_a_item(string $linea): ?array
         if (strpos($n, $r) !== false) return null;
     }
 
+    /* La DIRECCIÓN del proveedor, que en el membrete de casi todo remito
+       argentino arranca con un número y por eso entraba como si fuera una
+       cantidad: "9 DE JULIO 846, LA PUERTA" se cargaba como nueve unidades de
+       algo llamado "DE JULIO 846".
+       Buscar "ing. brutos" no alcanza: leyendo una foto, esa parte del renglón
+       sale destrozada ("ING as NE?") y la frase ya no está. Lo que sí se
+       reconoce es la calle misma. */
+    if (preg_match('/^\d{1,4} de (enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\b/', $n)
+        || preg_match('/\b(av|avda|avenida|calle|ruta|esquina|piso|depto)\b/', $n)) {
+        return null;
+    }
+
     $precio = null;
     // Importe al final, con símbolo o con dos decimales. Se recorta antes de
     // quedarse con el nombre para que no termine pegado a la descripción.
@@ -986,7 +998,25 @@ function imp_linea_a_item(string $linea): ?array
     // Restos del borde de la tabla que quedaron sueltos al final.
     $nombre = trim($nombre, " \t>-–—·.");
 
-    if ($nombre === '' || !preg_match('/\p{L}{3,}/u', $nombre)) return null;
+    /* UNA DESCRIPCIÓN DE VERDAD, no tres letras sueltas.
+     *
+     * Pedir "tres letras seguidas en algún lado" era demasiado poco. Leyendo la
+     * foto de un remito, el fondo y los bordes producen renglones como
+     * "3 ESA SA Ne" o "5 — O ION RA": empiezan con un número, tienen tres letras
+     * juntas, y entraban como si fueran mercadería. El productor abría el cuadro
+     * y veía eso, sin entender de dónde salía.
+     *
+     * El criterio es UNA palabra de cinco letras o más. Ningún insumo se llama
+     * con puras sílabas de dos y tres letras, y esa basura nunca las tiene.
+     *
+     * Se probó pidiendo además dos palabras con sustancia y era demasiado:
+     * dejaba afuera "Glifosato 62%" y "Urea 46%", que son de los nombres más
+     * comunes que hay —una palabra y un porcentaje—. Verificado contra dieciocho
+     * renglones, nueve de basura real sacada de la foto de un remito y nueve de
+     * mercadería: con la palabra larga sola alcanza para separarlos a todos. */
+    if ($nombre === '') return null;
+    preg_match_all('/\p{L}{5,}/u', $nombre, $mp);
+    if (empty($mp[0])) return null;
 
     return [
         'nombre'      => $nombre,
