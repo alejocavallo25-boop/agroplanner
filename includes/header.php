@@ -33,13 +33,26 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
     <link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png?v=6">
     
     <script>
+      /* updateViaCache 'none': que el navegador no use su propia caché para este
+         archivo. El servidor manda los estáticos con siete días, y el sw.js es
+         justamente lo que actualiza todo lo demás, así que cachearlo una semana
+         significa que una corrección tarda una semana en llegar. Pasó de verdad
+         en producción: el archivo nuevo estaba subido y el navegador seguía
+         usando el anterior. Del lado del servidor lo tapa el .htaccess.
+
+         La dirección va SIN versión a propósito. Se probó con ?v= y trae un
+         problema peor: campo.html registra el mismo archivo, y dos direcciones
+         distintas para el mismo alcance se pisan entre sí —cada página deshace
+         el registro de la otra y el service worker queda reinstalándose—. Tiene
+         que ser la misma cadena en los dos lados. */
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', function() {
-          navigator.serviceWorker.register('sw.js').then(function(registration) {
-            console.log('ServiceWorker registration successful with scope: ', registration.scope);
-          }, function(err) {
-            console.log('ServiceWorker registration failed: ', err);
-          });
+          navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+            .then(function(registration) {
+              console.log('ServiceWorker registration successful with scope: ', registration.scope);
+            }, function(err) {
+              console.log('ServiceWorker registration failed: ', err);
+            });
         });
       }
     </script>

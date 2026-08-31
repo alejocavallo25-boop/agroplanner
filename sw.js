@@ -39,7 +39,14 @@ const ESENCIALES = [
 self.addEventListener('install', event => {
     self.skipWaiting();
     event.waitUntil(
-        caches.open(CACHE).then(cache => cache.addAll(ESENCIALES))
+        caches.open(CACHE).then(cache =>
+            /* cache: 'reload' para saltear la caché del navegador al guardarlos.
+               Sin esto, si en ese momento le llega una copia vieja de campo.js
+               —el servidor manda los estáticos con siete días—, esa copia vieja
+               queda guardada y es la que se va a usar sin señal, quizás por meses.
+               Guardar algo desactualizado es peor que no guardarlo. */
+            cache.addAll(ESENCIALES.map(u => new Request(u, { cache: 'reload' })))
+        )
     );
 });
 

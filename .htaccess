@@ -1,0 +1,28 @@
+# ---------------------------------------------------------------------------
+# Encabezados de caché. Nada más: ni reescrituras ni redirecciones.
+#
+# EL PROBLEMA QUE ARREGLA
+# El servidor manda los archivos estáticos con Cache-Control: max-age=604800,
+# que son siete días. Para una imagen está bien. Para sw.js es grave: ese archivo
+# ES el mecanismo de actualización de todo lo demás, así que cachearlo una semana
+# significa que una corrección tarda una semana en llegar al teléfono de alguien
+# que ya entró antes.
+#
+# Se detectó probando en producción: el navegador seguía recibiendo la versión
+# anterior de sw.js —con su nombre de caché viejo— aunque el archivo nuevo ya
+# estaba subido y servido a quien lo pidiera de otra forma.
+#
+# Los tres archivos del modo campo van igual, porque el service worker los guarda
+# al instalarse: si en ese momento le llega una copia vieja, se la queda.
+#
+# no-cache no quiere decir "no guardar": quiere decir "preguntá antes de usar".
+# El archivo se sigue guardando y, si no cambió, el servidor contesta 304 y no se
+# baja de nuevo. El costo es un viaje corto; el beneficio es que una corrección
+# llega cuando se sube, no siete días después.
+# ---------------------------------------------------------------------------
+
+<IfModule mod_headers.c>
+    <FilesMatch "^(sw\.js|manifest\.json|campo\.html|campo\.js)$">
+        Header always set Cache-Control "no-cache, must-revalidate"
+    </FilesMatch>
+</IfModule>

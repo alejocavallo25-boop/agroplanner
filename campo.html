@@ -251,6 +251,17 @@ input:focus, select:focus, button:focus-visible {
 
 </div>
 
+<script>
+/* Esta pantalla también registra el service worker, y no sólo las páginas .php.
+   Es la que uno deja guardada en la pantalla de inicio del teléfono, así que
+   puede ser la primera —y la única— que se abra. Si dependiera de haber pasado
+   antes por el panel, alguien la agregaría al inicio y descubriría recién en el
+   campo, sin señal, que no anda. */
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+        .catch(function () { /* sin service worker la pantalla sigue andando con señal */ });
+}
+</script>
 <script src="assets/js/campo.js"></script>
 </body>
 </html>
