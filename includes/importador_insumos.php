@@ -881,8 +881,30 @@ function imp_mapear(array $grid): array
  */
 function imp_linea_a_item(string $linea): ?array
 {
-    $l = trim($linea);
+    /* Los bordes de la tabla, a espacios.
+     *
+     * Cuando el texto viene de leer la foto de un remito, las líneas y los
+     * recuadros del formulario salen como |, [ y ]. El renglón del artículo
+     * llegaba así:
+     *
+     *     [0000100] 1,00|FOSFURO DE ALUMINIO TECNOFOS x BOTELLA ]Fvo0ACRO09
+     *
+     * y no entraba por ningún lado, porque acá se espera que empiece con un
+     * número. Sacándolos queda un renglón normal. Es seguro: si esos símbolos
+     * estuvieran separando columnas de verdad, el texto no habría llegado a
+     * modo línea. */
+    $l = trim(preg_replace('/\s+/u', ' ', str_replace(['|', '[', ']'], ' ', $linea)));
     if ($l === '' || mb_strlen($l, 'UTF-8') < 4) return null;
+
+    /* El número de código de la primera columna no es una cantidad.
+     *
+     * Muchos remitos abren con "Código | Cantidad | Artículo", y un código se
+     * reconoce porque viene con ceros adelante —0000100— y porque atrás suyo hay
+     * OTRO número, que es la cantidad de verdad. Sin esto, se cargaba una
+     * cantidad de cien de algo que en realidad era uno. */
+    if (preg_match('/^0\d{2,}\s+(\d[\d.,]*\s+\S.*)$/u', $l, $mc)) {
+        $l = $mc[1];
+    }
 
     // Encabezados y pies de página del comprobante: no son mercadería.
     $n = imp_normalizar($l);
@@ -891,6 +913,19 @@ function imp_linea_a_item(string $linea): ?array
               'condicion de venta', 'imprenta', 'c a i', 'senores', 'sr es'];
     foreach ($ruido as $r) {
         if (strpos($n, $r) === 0) return null;
+    }
+
+    /* Datos del emisor y del cliente, estén donde estén en el renglón.
+     *
+     * La dirección "9 DE JULIO 846, LA PUERTA — ING. BRUTOS: 285429960" entraba
+     * como un insumo llamado "DE JULIO 846..." con cantidad NUEVE: el 9 de la
+     * calle se leía como la cantidad. La lista de arriba no lo agarra porque
+     * mira el principio del renglón, y ahí hay un número. Estas frases no
+     * aparecen nunca en la descripción de una mercadería. */
+    foreach (['ing brutos', 'ingresos brutos', 'inicio actividades', 'domicilio',
+              'localidad', 'responsable inscripto', 'cuit', 'cuil', 'impreso por',
+              'firma del', 'retirada por', 'patentes'] as $r) {
+        if (strpos($n, $r) !== false) return null;
     }
 
     $precio = null;
@@ -916,19 +951,49 @@ function imp_linea_a_item(string $linea): ?array
     // Una descripción que es puro número o código no es un insumo.
     if ($nombre === '' || !preg_match('/\p{L}{3,}/u', $nombre)) return null;
 
-    // Referencias sueltas al final (2008-7633-680) se guardan aparte del nombre.
+    /* Un remito con lote suele cerrar el renglón con el número de lote y la
+       fecha de vencimiento —"... x BOTELLA  FV00ACR009  30/06/2029"—. Sin
+       sacarlos, los dos terminaban dentro del nombre del insumo, y el
+       vencimiento, que es un campo propio y sirve, se perdía ahí adentro. Se
+       lee de atrás para adelante: primero la fecha, después el lote. */
+    /* Primero, la basura del final. Al leer una foto quedan colgando restos del
+       borde de la tabla —"> ]", una "J" suelta, una comilla— DESPUÉS del dato
+       que interesa, y por culpa de eso la fecha de vencimiento ya no estaba al
+       final y no se la encontraba. Se sacan símbolos sueltos y letras solas;
+       los números NO, que pueden ser parte del nombre ("Glifosato 62"). */
+    $nombre = preg_replace('/(\s+[^\p{L}\p{N}\s]+|\s+\p{L})+$/u', '', $nombre);
+
+    $vencimiento = null;
+    if (preg_match('#\s(\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4})\s*$#u', $nombre, $mv)) {
+        $f = imp_a_fecha($mv[1]);
+        if ($f !== null) {
+            $vencimiento = $f;
+            $nombre = trim(substr($nombre, 0, -strlen($mv[0])));
+        }
+    }
+
+    // Referencias sueltas al final (2008-7633-680, o un lote como FV00ACR009).
     $referencia = '';
     if (preg_match('/\s((?:[A-Z0-9]{2,}-){1,}[A-Z0-9]{2,})\s*$/u', $nombre, $mr)) {
         $referencia = $mr[1];
         $nombre = trim(substr($nombre, 0, -strlen($mr[0])));
+    } elseif (preg_match('/\s([A-Za-z]{1,3}\d[A-Za-z0-9]{4,})\s*$/u', $nombre, $mr)) {
+        // Un lote es letras y números mezclados; una palabra sola, no.
+        $referencia = $mr[1];
+        $nombre = trim(substr($nombre, 0, -strlen($mr[0])));
     }
+
+    // Restos del borde de la tabla que quedaron sueltos al final.
+    $nombre = trim($nombre, " \t>-–—·.");
+
+    if ($nombre === '' || !preg_match('/\p{L}{3,}/u', $nombre)) return null;
 
     return [
         'nombre'      => $nombre,
         'cantidad'    => $cantidad,
         'unidad'      => $unidad,
         'precio'      => $precio,
-        'vencimiento' => null,
+        'vencimiento' => $vencimiento,
         'tipo'        => null,
         'referencia'  => $referencia,
     ];

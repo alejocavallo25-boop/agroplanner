@@ -1584,16 +1584,37 @@ function impAnalizarTexto(cual) {
    WhatsApp: la misma foto daría números distintos según con qué se sacó.
    ═════════════════════════════════════════════════════════════════════════════ */
 
-const IMP_FOTO_LADO = 1600;   // tamaño de medición; los umbrales valen a esta escala
-const IMP_OCR_LADO  = 2200;   // tamaño para leer; más resolución, sin volverlo lento
+const IMP_FOTO_LADO = 2000;   // techo para medir; nunca agranda (ver abajo)
+const IMP_OCR_LADO  = 2200;   // tamaño al que se lee; acá SÍ se agranda
 
-/** Una copia de la imagen con el lado mayor en `lado`, sin agrandar de más. */
-function impEscalar(img, lado) {
-    const escala = Math.min(1, lado / Math.max(img.width, img.height));
+/**
+ * Una copia de la imagen con el lado mayor en `lado`.
+ *
+ * @param agrandar  Si es false, nunca agranda: sólo achica cuando la foto es
+ *                  más grande que el techo.
+ *
+ * Para MEDIR nunca se agranda: estirar una foto no le agrega detalle, y si se
+ * la estira, las letras miden más píxeles sin ser más legibles — el medidor
+ * diría que está bien justo cuando no lo está.
+ *
+ * Para LEER sí conviene agrandar. Medido con un remito real que vino por
+ * WhatsApp a 720×1280: leído a su tamaño no reconoció NADA del renglón del
+ * artículo; agrandado a 2200 reconoció cinco de siete palabras clave, número de
+ * código y vencimiento incluidos. No es que aparezca información: es que al
+ * lector le sirve tener la letra en unos 30 píxeles de alto, y a 720 de ancho
+ * las de la tabla quedaban en siete.
+ */
+function impEscalar(img, lado, agrandar) {
+    let escala = lado / Math.max(img.width, img.height);
+    if (!agrandar) escala = Math.min(1, escala);
     const c = document.createElement('canvas');
     c.width  = Math.max(1, Math.round(img.width  * escala));
     c.height = Math.max(1, Math.round(img.height * escala));
-    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    const x = c.getContext('2d');
+    x.imageSmoothingEnabled = true;
+    x.imageSmoothingQuality = 'high';
+    x.drawImage(img, 0, 0, c.width, c.height);
+    c._escala = escala;          // para poder volver a la medida real de la foto
     return c;
 }
 
@@ -1602,7 +1623,12 @@ const IMP_FOTO_MIN = {
     nitidez:   120,   // abajo de esto está movida o fuera de foco
     contraste:  60,   // menos que esto y la tinta se confunde con el papel
     papel:      90,   // el papel tiene que verse como papel, no como sombra
-    altoLetra:  16,   // en píxeles, a la escala de trabajo
+    /* Alto de la letra CHICA, en píxeles de la foto original. Trece es el piso
+       clásico del reconocimiento de texto: abajo de eso los trazos se tocan y
+       ya no hay con qué distinguir un 5 de un 6. Verificado contra un remito
+       real que vino por WhatsApp: su letra de tabla medía nueve, y el lector no
+       pudo con ella. */
+    altoLetra:  13,
 };
 
 function impFoto(archivo) {
@@ -1623,8 +1649,8 @@ function impFoto(archivo) {
          * La de LEER va más grande, porque al lector le sirve toda la resolución
          * que se le pueda dar sin volverlo lento. Mandarle la de medir sería
          * tirar detalle justo donde hace falta. */
-        const c = impEscalar(img, IMP_FOTO_LADO);
-        IMP.fotoCanvas = impEscalar(img, IMP_OCR_LADO);
+        const c = impEscalar(img, IMP_FOTO_LADO, false);
+        IMP.fotoCanvas = impEscalar(img, IMP_OCR_LADO, true);
 
         let m;
         try {
@@ -1797,10 +1823,17 @@ function impMostrarLectura(data) {
     const basura = (texto.match(/[^\wáéíóúüñÁÉÍÓÚÜÑ\s.,:;%$()\/\-+°ºª]/g) || []).length;
     const proporcionBasura = basura / Math.max(1, texto.length);
 
-    // Cuántos renglones se parecen a un renglón de remito: algo con un número
-    // adelante y palabras después. Es la señal más directa de si sirve.
-    const utiles = texto.split('\n').filter(l =>
-        /^\s*\d[\d.,]*\s*[a-zA-Záéíóúñ]*\s+.*\p{L}{3,}/u.test(l)).length;
+    /* Cuántos renglones se parecen a un renglón de remito: algo con un número
+       adelante y palabras después.
+       Se limpian antes los bordes de la tabla (| [ ]) y un eventual código de
+       la primera columna, EXACTAMENTE como lo hace el parser del servidor. Sin
+       eso el aviso mentía en el sentido peor: decía "no reconocí ningún
+       renglón" sobre un texto del que el importador después sacaba un insumo. */
+    const utiles = texto.split('\n').filter(l => {
+        let s = l.replace(/[|\[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+        s = s.replace(/^0\d{2,}\s+(?=\d)/, '');
+        return /^\d[\d.,]*\s*[a-zA-Záéíóúñ]*\s+.*\p{L}{3,}/u.test(s);
+    }).length;
 
     document.getElementById('impTextoFoto').value = texto;
 
@@ -1935,17 +1968,32 @@ function impMedirFoto(canvas) {
     }
     if (corrida > 1) bandas.push(corrida);
 
-    // La mediana y no el promedio: un título grande o una línea de la tabla
-    // corren el promedio, la mediana describe al renglón típico.
     bandas.sort((a, b) => a - b);
-    let altoLetra = bandas.length ? bandas[Math.floor(bandas.length / 2)] : 0;
+
+    /* EL CUARTIL DE ABAJO, NO LA MEDIANA. Esto se corrigió con un remito real.
+     *
+     * Un comprobante tiene el membrete grande, los títulos medianos y los
+     * renglones de la tabla chiquitos. La mediana describe a los medianos —en
+     * esa foto daba 29 píxeles y pasaba cómoda el control—, pero el renglón del
+     * artículo, que es EL DATO, medía siete. El lector no pudo con él y el
+     * medidor había dicho que la foto estaba bien.
+     *
+     * Lo que hay que mirar es la letra chica, porque ahí es donde está lo que se
+     * quiere leer y es la primera en volverse ilegible. */
+    const cuartil = bandas.length ? bandas[Math.floor(bandas.length * 0.25)] : 0;
+
+    /* Y se devuelve a la escala de la FOTO ORIGINAL. Lo que decide si algo se
+       puede leer es cuántos píxeles de verdad tiene la letra, no cuántos tiene
+       después de que la achicamos para medirla. */
+    const escala = canvas._escala || 1;
+    let altoLetra = Math.round(cuartil / escala);
 
     /* Una banda que se come más del 15% del alto no es un renglón: es que la
        binarización dio "todo tinta". Pasa con mucho ruido de sensor o con una
        foto muy pareja, y devolvía cosas como "alto de letra: 584 px", que además
        de ser mentira hacía pasar el control de tamaño. Cuando la medida no es
        creíble se dice que no se pudo medir, en vez de inventar un número. */
-    const letraConfiable = altoLetra > 0 && altoLetra < h * 0.15;
+    const letraConfiable = cuartil > 0 && bandas[bandas.length - 1] < h * 0.5;
     if (!letraConfiable) altoLetra = 0;
 
     return {
@@ -1999,7 +2047,13 @@ function impPintarVeredicto(m, archivo, img) {
     if (!m.letraConfiable) {
         problemas.push('No pude distinguir los renglones: la foto tiene mucho ruido o el papel y la tinta se mezclan. Probá con más luz y sin mover.');
     } else if (m.altoLetra < IMP_FOTO_MIN.altoLetra) {
-        problemas.push('La letra sale muy chica. Acercate, o sacá el remito por partes en vez de entero.');
+        /* El caso más común no es que la foto esté mal sacada: es que pasó por
+           WhatsApp, que la achica a 720 de ancho y ahí la letra de la tabla
+           queda en siete u ocho píxeles. Decir "acercate" a alguien que sacó una
+           foto perfecta y la mandó por WhatsApp no lo ayuda en nada. */
+        problemas.push('La letra de la tabla queda en ' + m.altoLetra + ' píxeles y hacen falta '
+            + IMP_FOTO_MIN.altoLetra + '. Si la foto te llegó por WhatsApp, ese es el motivo: la achica. '
+            + 'Usá la original de la galería, o sacá el remito de más cerca — sólo la parte de los artículos.');
     }
 
     const b = document.createElement('b');
