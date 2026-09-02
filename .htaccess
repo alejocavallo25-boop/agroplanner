@@ -61,6 +61,10 @@
     Require all denied
 </FilesMatch>
 
+# Los archivos de config/ se bloquean desde config/.htaccess, no desde acá: un
+# .htaccess sólo puede hablar de los archivos de su propia carpeta hacia abajo,
+# y meter un <Directory> acá no es válido — tira la web entera con un 500.
+
 # ---------------------------------------------------------------------------
 # La política de contenido, desde acá y no desde PHP
 #

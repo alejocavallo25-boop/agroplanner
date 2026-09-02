@@ -1,0 +1,14 @@
+# ---------------------------------------------------------------------------
+# Nada de esta carpeta se sirve por HTTP.
+#
+# Estos archivos sólo se incluyen desde otros (require_once), que va por disco y
+# no pasa por acá: bloquear el acceso web no rompe nada.
+#
+# Hoy pedirlos por dirección no filtra nada —PHP los ejecuta y no imprimen—,
+# pero el día que el servidor deje de ejecutar PHP por una mala configuración
+# —una actualización, un cambio de plan, un handler mal puesto— lo que se sirve
+# es el código fuente, y database.php tiene las credenciales adentro. Es la
+# clase de falla que aparece sola y sin aviso.
+# ---------------------------------------------------------------------------
+
+Require all denied
