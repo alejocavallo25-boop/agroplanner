@@ -1,7 +1,8 @@
 <?php
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+/* La sesion la abre csrf.php, y por una razon: ahi se le ponen a la cookie
+   httponly, samesite y secure ANTES de emitirla. Cuando esta pagina la abria
+   por su cuenta, la cookie del login —la que despues es la sesion de todo—
+   nacia con los valores por defecto, sin httponly. Verificado en produccion. */
 require_once 'config/database.php';
 require_once 'config/csrf.php';
 

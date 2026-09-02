@@ -32,3 +32,61 @@
         Header always set Cache-Control "no-cache, must-revalidate"
     </FilesMatch>
 </IfModule>
+
+# ---------------------------------------------------------------------------
+# Archivos que no tienen por qué poder bajarse
+#
+# Verificado pidiéndolos a producción sin sesión: se bajaban los cuatro.
+#
+#   php-errors.log   es el peor. Traía la ruta absoluta del servidor y, dentro
+#                    de ella, el identificador de la cuenta de Hostinger
+#                    (u515247413), que es además el prefijo del usuario de la
+#                    base. Medio par de credenciales de regalo, y encima el
+#                    detalle de qué consulta falló y en qué línea.
+#   database.sql     el esquema completo: tablas, columnas y tipos. No es una
+#                    llave, pero le ahorra el trabajo de reconocimiento a
+#                    cualquiera que quiera buscar un agujero.
+#   .gitignore       dice qué archivos existen y dónde viven los que se ocultan.
+#   *.md             README y PRODUCT: notas internas del proyecto.
+#
+# Se bloquea por patrón y no por nombre: mañana aparece otro .log o se renombra
+# el volcado, y la regla lo tiene que seguir cubriendo sin que nadie se acuerde.
+# ---------------------------------------------------------------------------
+
+<FilesMatch "\.(log|sql|md|yml|yaml|ini|bak|old|orig|dist|sh)$">
+    Require all denied
+</FilesMatch>
+
+<FilesMatch "^(\.gitignore|\.gitattributes|\.editorconfig|composer\.(json|lock)|package(-lock)?\.json)$">
+    Require all denied
+</FilesMatch>
+
+# ---------------------------------------------------------------------------
+# La política de contenido, desde acá y no desde PHP
+#
+# includes/header.php la manda con header(), y NO LLEGA: verificado en el
+# navegador, la única que arriba es la del CDN de Hostinger
+# (upgrade-insecure-requests), que pisa la nuestra. Se comprobó cargando un
+# script de un dominio prohibido: el navegador no lo reportó como bloqueado,
+# porque no había ninguna política que lo bloqueara.
+#
+# Puesta acá tiene otra ventaja: cubre TODAS las páginas, incluidas las que no
+# incluyen header.php —terminos.php y privacidad.php no mandaban ninguna
+# cabecera de seguridad—.
+#
+# Si el CDN igual la reemplaza, esto no rompe nada: queda la de él, que es lo
+# que ya había. Se verifica después de subir.
+# ---------------------------------------------------------------------------
+
+<IfModule mod_headers.c>
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://ui-avatars.com https://*.tile.openstreetmap.org https://server.arcgisonline.com https://unpkg.com https://tilecache.rainviewer.com; connect-src 'self' https://dolarapi.com https://api.open-meteo.com https://nominatim.openstreetmap.org https://api.rainviewer.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+
+    # Las mismas que ya manda header.php, para las páginas que no lo incluyen.
+    Header always set X-Frame-Options "DENY"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+
+    # Publica la versión exacta de PHP; no le sirve a nadie más que a quien busca
+    # un exploit para esa versión.
+    Header always unset X-Powered-By
+</IfModule>

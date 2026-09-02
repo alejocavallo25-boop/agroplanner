@@ -1,6 +1,12 @@
 <?php
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
+/* Los errores se anotan, no se muestran.
+ *
+ * Estaba con display_errors en 1, que era cómodo para desarrollar y en
+ * producción le mostraba al productor la ruta absoluta del servidor, el nombre
+ * de las tablas y la consulta que falló, en el medio de su reporte. Todo eso va
+ * al log del servidor, que es donde se lee cuando hace falta. */
+ini_set('display_errors', 0);
+ini_set('display_startup_errors', 0);
 error_reporting(E_ALL);
 
 require_once __DIR__ . '/../config/auth.php';

@@ -16,20 +16,10 @@
  */
 date_default_timezone_set('America/Argentina/Cordoba');
 
-if (session_status() === PHP_SESSION_NONE) {
-    // Session hardening before starting
-    ini_set('session.cookie_httponly', 1);
-    ini_set('session.use_only_cookies', 1);
-    ini_set('session.cookie_samesite', 'Strict');
-    
-    // Activar Secure solo si está bajo HTTPS para no romper entornos de desarrollo locales HTTP
-    if (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') {
-        ini_set('session.cookie_secure', 1);
-    }
-    
-    session_start();
-}
-
+/* La sesión la abre csrf.php, que es por donde entran TODAS las páginas: las
+   privadas por acá y las públicas —login, registro, términos— directamente.
+   Antes cada uno la abría por su lado y sólo este archivo endurecía la cookie,
+   así que la del login nacía sin protección. Un solo lugar, un solo criterio. */
 require_once __DIR__ . '/csrf.php';
 
 // Ruta base para redirecciones (funciona tanto en páginas como en /api)

@@ -76,9 +76,24 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['ajax']??'')==='1') {
             $pdo->prepare("DELETE FROM $t WHERE ".($t==='feedlot_lotes'?'id':'lote_id')."=? AND usuario_id=?")->execute([$id,$uid]);
         echo json_encode(['ok'=>true]); exit;
     }
+    /* El lote tiene que ser del que lo manda.
+     *
+     * Antes se insertaba con el lote_id que viniera del navegador y el usuario_id
+     * de la sesión. Nadie podía LEER datos ajenos así, pero sí meter renglones en
+     * el lote de otro: las lecturas de costos y de alimentos filtran por lote_id,
+     * y esos renglones aparecían en la pantalla del dueño ensuciándole la cuenta.
+     * Los ids son correlativos, así que no hacía falta adivinar nada. */
+    $duenoDelLote = function (int $loteId) use ($pdo, $uid): bool {
+        $s = $pdo->prepare("SELECT 1 FROM feedlot_lotes WHERE id = ? AND usuario_id = ?");
+        $s->execute([$loteId, $uid]);
+        return (bool)$s->fetchColumn();
+    };
+
     if ($a === 'add_costo') {
+        $loteId = (int)($_POST['lote_id'] ?? 0);
+        if (!$duenoDelLote($loteId)) { echo json_encode(['ok'=>false,'msg'=>'Ese lote no es tuyo.']); exit; }
         $stmt=$pdo->prepare("INSERT INTO feedlot_costos_fijos (lote_id,usuario_id,concepto,categoria,cantidad,precio_unitario,monto_mensual) VALUES (?,?,?,?,?,?,?)");
-        $stmt->execute([(int)$_POST['lote_id'],$uid,$_POST['concepto'],$_POST['categoria'],(float)$_POST['cantidad'],(float)$_POST['precio_unitario'],(float)$_POST['monto']]);
+        $stmt->execute([$loteId,$uid,$_POST['concepto'],$_POST['categoria'],(float)$_POST['cantidad'],(float)$_POST['precio_unitario'],(float)$_POST['monto']]);
         echo json_encode(['ok'=>true,'id'=>$pdo->lastInsertId()]); exit;
     }
     if ($a === 'del_costo') {
@@ -86,8 +101,10 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['ajax']??'')==='1') {
         echo json_encode(['ok'=>true]); exit;
     }
     if ($a === 'add_alim') {
+        $loteId = (int)($_POST['lote_id'] ?? 0);
+        if (!$duenoDelLote($loteId)) { echo json_encode(['ok'=>false,'msg'=>'Ese lote no es tuyo.']); exit; }
         $stmt=$pdo->prepare("INSERT INTO feedlot_alimentos (lote_id,usuario_id,fase,nombre,kg_x_dia,precio_kg) VALUES (?,?,?,?,?,?)");
-        $stmt->execute([(int)$_POST['lote_id'],$uid,$_POST['fase'],$_POST['nombre'],(float)$_POST['kg_x_dia'],(float)str_replace(',','',$_POST['precio_kg'])]);
+        $stmt->execute([$loteId,$uid,$_POST['fase'],$_POST['nombre'],(float)$_POST['kg_x_dia'],(float)str_replace(',','',$_POST['precio_kg'])]);
         echo json_encode(['ok'=>true,'id'=>$pdo->lastInsertId()]); exit;
     }
     if ($a === 'del_alim') {

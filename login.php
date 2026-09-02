@@ -1,7 +1,8 @@
 <?php
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+/* La sesion la abre csrf.php, y por una razon: ahi se le ponen a la cookie
+   httponly, samesite y secure ANTES de emitirla. Cuando esta pagina la abria
+   por su cuenta, la cookie del login —la que despues es la sesion de todo—
+   nacia con los valores por defecto, sin httponly. Verificado en produccion. */
 require_once 'config/database.php';
 require_once 'config/csrf.php';
 
@@ -21,16 +22,93 @@ if (isset($_GET['expired'])) {
     $notice = 'Tu sesión se cerró por inactividad. Iniciá sesión nuevamente.';
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // --- Rate Limiting Básico por Sesión ---
-    if (!isset($_SESSION['login_attempts'])) {
-        $_SESSION['login_attempts'] = 0;
-        $_SESSION['login_locked_until'] = 0;
-    }
+/* ─── Freno contra la prueba de contraseñas ───────────────────────────────────
+ *
+ * EL FRENO ANTERIOR NO FRENABA NADA. Contaba los intentos en $_SESSION, o sea
+ * en una cookie del que los hace. Quien prueba contraseñas en serie no guarda
+ * cookies: cada intento llega como visitante nuevo, con el contador en cero.
+ *
+ * Medido en producción antes de esto: diez intentos seguidos tardaron 43, 42 y
+ * 36 milisegundos. Ni demora ni bloqueo.
+ *
+ * Ahora se cuenta en la base, que es lo único que el atacante no controla, y
+ * por las DOS cosas a la vez:
+ *   por CORREO, o se ataca una cuenta desde muchas IP;
+ *   por IP,     o se prueban muchas cuentas desde una máquina.
+ *
+ * Ocho intentos en quince minutos: holgado para quien no se acuerda de su clave,
+ * inútil para quien prueba de a miles.
+ */
+const LOGIN_MAX_INTENTOS = 8;
+const LOGIN_VENTANA_MIN  = 15;
 
-    if (time() < $_SESSION['login_locked_until']) {
-        $restantes = ceil(($_SESSION['login_locked_until'] - time()) / 60);
-        $error = "Demasiados intentos fallidos. Intenta de nuevo en $restantes minuto(s).";
+/** La IP de quien pide, mirando también la cabecera del proxy del hosting. */
+function login_ip(): string {
+    foreach (['HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR'] as $k) {
+        $v = $_SERVER[$k] ?? '';
+        if ($v === '') continue;
+        // X-Forwarded-For puede traer varias separadas por coma; la primera es el origen.
+        $ip = trim(explode(',', $v)[0]);
+        if (filter_var($ip, FILTER_VALIDATE_IP)) return $ip;
+    }
+    return '0.0.0.0';
+}
+
+/**
+ * Cuántos intentos fallidos hay ya, y si alcanza para frenar.
+ *
+ * Si la tabla no existe todavía —porque la migración no corrió— NO se bloquea el
+ * login: se devuelve cero. Un error de infraestructura no puede dejar a nadie
+ * afuera de su propia cuenta.
+ */
+function login_intentos_recientes(PDO $pdo, string $ip, string $email): int {
+    try {
+        $st = $pdo->prepare(
+            "SELECT MAX(n) FROM (
+                 SELECT COUNT(*) AS n FROM login_intentos
+                  WHERE ip = ? AND cuando > (NOW() - INTERVAL ? MINUTE)
+                 UNION ALL
+                 SELECT COUNT(*) AS n FROM login_intentos
+                  WHERE email = ? AND cuando > (NOW() - INTERVAL ? MINUTE)
+             ) AS x"
+        );
+        $st->execute([$ip, LOGIN_VENTANA_MIN, $email, LOGIN_VENTANA_MIN]);
+        return (int)$st->fetchColumn();
+    } catch (Throwable $e) {
+        error_log('[login] no pude contar intentos: ' . $e->getMessage());
+        return 0;
+    }
+}
+
+function login_anotar_fallo(PDO $pdo, string $ip, string $email): void {
+    try {
+        $pdo->prepare("INSERT INTO login_intentos (ip, email, cuando) VALUES (?, ?, NOW())")
+            ->execute([$ip, mb_substr($email, 0, 255)]);
+        // Limpieza al pasar: sin esto la tabla crece para siempre.
+        if (random_int(1, 20) === 1) {
+            $pdo->exec("DELETE FROM login_intentos WHERE cuando < (NOW() - INTERVAL 1 DAY)");
+        }
+    } catch (Throwable $e) {
+        error_log('[login] no pude anotar el intento: ' . $e->getMessage());
+    }
+}
+
+function login_limpiar(PDO $pdo, string $email): void {
+    // Quien recordó su contraseña no arrastra el castigo.
+    try {
+        $pdo->prepare("DELETE FROM login_intentos WHERE email = ?")->execute([$email]);
+    } catch (Throwable $e) {
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $ipQuienPide = login_ip();
+    $emailIntento = trim($_POST['email'] ?? '');
+
+    if (login_intentos_recientes($pdo, $ipQuienPide, $emailIntento) >= LOGIN_MAX_INTENTOS) {
+        $error = 'Demasiados intentos fallidos. Esperá ' . LOGIN_VENTANA_MIN
+               . ' minutos y probá de nuevo. Si no te acordás la contraseña, '
+               . 'usá "Olvidé mi contraseña".';
     } else {
         $email = trim($_POST['email'] ?? '');
         $password = $_POST['password'] ?? '';
@@ -46,10 +124,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($user && password_verify($password, $user['password_hash'])) {
                 if ($user['status'] === 'active') {
-                    // Resetear intentos fallidos
-                    $_SESSION['login_attempts'] = 0;
-                    $_SESSION['login_locked_until'] = 0;
-                    
+                    // Entró bien: se le borran los fallidos anteriores.
+                    login_limpiar($pdo, $email);
+
                     // Regenerar sesión para mitigar Session Fixation
                     session_regenerate_id(true);
                     $_SESSION['usuario_id'] = $user['id'];
@@ -78,12 +155,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $error = 'Tu cuenta aún no ha sido aprobada por el administrador.';
                 }
             } else {
-                $_SESSION['login_attempts']++;
-                if ($_SESSION['login_attempts'] >= 5) {
-                    $_SESSION['login_locked_until'] = time() + (10 * 60); // Bloqueo de 10 minutos
-                    $error = 'Demasiados intentos fallidos. Intenta de nuevo en 10 minutos.';
-                } else {
-                    $error = 'Credenciales incorrectas.';
+                login_anotar_fallo($pdo, $ipQuienPide, $email);
+                /* El mismo mensaje exista o no el correo: si dijera "ese correo no
+                   existe", se podría averiguar quién tiene cuenta probando
+                   direcciones, sin necesidad de adivinar ninguna contraseña. */
+                $error = 'Credenciales incorrectas.';
+                $quedan = LOGIN_MAX_INTENTOS - login_intentos_recientes($pdo, $ipQuienPide, $email);
+                if ($quedan > 0 && $quedan <= 3) {
+                    $error .= " Te quedan $quedan intento" . ($quedan === 1 ? '' : 's')
+                            . ' antes de tener que esperar.';
                 }
             }
         } else {

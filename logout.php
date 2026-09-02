@@ -1,5 +1,7 @@
 <?php
-session_start();
+/* Abre la sesion con la misma configuracion que el resto —csrf.php le pone
+   httponly, samesite y secure—; hace falta tenerla abierta para destruirla. */
+require_once 'config/csrf.php';
 $_SESSION = array();
 if (ini_get("session.use_cookies")) {
     $params = session_get_cookie_params();

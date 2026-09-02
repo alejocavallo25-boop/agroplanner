@@ -4,7 +4,39 @@
  * Sistema de protección contra falsificación de peticiones en sitios cruzados (CSRF)
  */
 
+/* ─── Cómo se crea la cookie de sesión ────────────────────────────────────────
+ *
+ * Va ACÁ y no en auth.php, y esa es la corrección.
+ *
+ * auth.php ya endurecía la cookie, pero la sesión no siempre nace por ahí: las
+ * páginas públicas —login, registro, recuperar contraseña, términos— incluyen
+ * este archivo SIN pasar por auth.php. O sea que la cookie se creaba en el
+ * login, con los valores por defecto de PHP, y esa misma cookie seguía siendo la
+ * sesión después de entrar.
+ *
+ * Verificado en producción: la cookie llegaba SIN HttpOnly. Con eso, cualquier
+ * XSS puede leerla con document.cookie y quedarse con la sesión del productor.
+ *
+ * Estas tres líneas tienen que correr ANTES de session_start(): después ya no
+ * hacen nada, la cookie ya se emitió.
+ *
+ *   httponly  el javascript no la puede leer.
+ *   samesite  no se manda desde otro sitio; es la segunda defensa contra CSRF.
+ *   secure    sólo por HTTPS. Se detecta mirando también la cabecera del proxy:
+ *             detrás del CDN, $_SERVER['HTTPS'] no siempre llega en 'on', y con
+ *             la comprobación ingenua la cookie viajaba sin la marca.
+ */
 if (session_status() === PHP_SESSION_NONE) {
+    ini_set('session.cookie_httponly', 1);
+    ini_set('session.use_only_cookies', 1);
+    ini_set('session.cookie_samesite', 'Strict');
+
+    $porHttps = (($_SERVER['HTTPS'] ?? '') === 'on')
+             || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https')
+             || ((int)($_SERVER['SERVER_PORT'] ?? 0) === 443);
+    // En el XAMPP local se sirve por http: con esto puesto, no habría sesión.
+    if ($porHttps) ini_set('session.cookie_secure', 1);
+
     session_start();
 }
 
