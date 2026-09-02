@@ -1431,7 +1431,8 @@ const IMP = {
     cotizacion: 0,      // para poder mostrarlos en la otra
     paso: 'origen',     // dónde estaba, para que "Volver" no borre lo escrito
     fotoUrl: null,      // la imagen en memoria, hasta que se la suelte
-    fotoCanvas: null,   // la copia grande, para el lector
+    fotoImg: null,      // la imagen tal cual, para que el lector la amplíe él
+    medidas: null,      // lo que dio el medidor; de ahí sale cuánto ampliar
 };
 
 /* Cuánto se puede apartar el precio del comprobante del que ya le conocíamos al
@@ -1465,7 +1466,8 @@ function impAbrir() {
 
 /** La imagen ocupa memoria hasta que se la suelta explícitamente. */
 function impSoltarFoto() {
-    IMP.fotoCanvas = null;
+    IMP.fotoImg = null;
+    IMP.medidas = null;
     const caja = document.getElementById('impLeerEstado');
     if (caja) caja.hidden = true;
     const dudas = document.getElementById('impDudas');
@@ -1665,11 +1667,14 @@ function impFoto(archivo) {
          * que se le pueda dar sin volverlo lento. Mandarle la de medir sería
          * tirar detalle justo donde hace falta. */
         const c = impEscalar(img, IMP_FOTO_LADO, false);
-        IMP.fotoCanvas = impEscalar(img, IMP_OCR_LADO, true);
+        // La imagen queda guardada, no una copia ya escalada: el lector decide
+        // después a qué tamaño conviene ampliarla, y eso depende de lo que mida.
+        IMP.fotoImg = img;
 
         let m;
         try {
             m = impMedirFoto(c);
+            IMP.medidas = m;
         } catch (e) {
             // Un canvas "sucio" (por ejemplo, una imagen de otro origen) no se puede
             // leer. No es motivo para no dejar cargar: se sigue sin veredicto.
@@ -1767,8 +1772,78 @@ function impLeerEstado(clase, titulo, detalle, progreso) {
     }
 }
 
+/**
+ * A qué tamaño conviene ampliar para leer.
+ *
+ * Al lector le sirve tener la letra en unos 28 píxeles: más chica se le tocan
+ * los trazos, más grande no gana nada y tarda de más. Como ya se midió cuánto
+ * mide la letra chica en la foto original, el factor sale de una división en vez
+ * de ser un número fijo. Con un número fijo, la foto entera de un remito y un
+ * recorte de la tabla —que necesitan ampliaciones muy distintas— quedaban los
+ * dos mal.
+ */
+function impLadoParaLeer(img) {
+    const alto = (IMP.medidas && IMP.medidas.altoLetra) || 0;
+    let factor = alto > 0 ? 28 / alto : 2;
+    factor = Math.max(1, Math.min(factor, 6));
+    const lado = Math.max(img.naturalWidth, img.naturalHeight) * factor;
+    return Math.round(Math.max(1600, Math.min(lado, 3600)));
+}
+
+/** Una copia lista para el lector; binarizada si se pide. */
+function impPrepararParaLeer(img, lado, binarizar) {
+    const c = impEscalar(img, lado, true);
+    if (!binarizar) return c;
+
+    const x = c.getContext('2d');
+    const d = x.getImageData(0, 0, c.width, c.height);
+    const p = d.data;
+    const n = c.width * c.height;
+
+    const gris = new Float32Array(n);
+    for (let i = 0; i < n; i++) gris[i] = 0.299 * p[i*4] + 0.587 * p[i*4+1] + 0.114 * p[i*4+2];
+
+    // El mismo Otsu que usa la medición: separa tinta de papel sin suponer
+    // cuánto ocupa cada una.
+    const hist = new Int32Array(256);
+    for (let i = 0; i < n; i++) hist[Math.round(gris[i])]++;
+    let st = 0;
+    for (let g = 0; g < 256; g++) st += g * hist[g];
+    let so = 0, po = 0, mv = -1, corte = 128;
+    for (let g = 0; g < 256; g++) {
+        po += hist[g]; if (!po) continue;
+        const pc = n - po; if (!pc) break;
+        so += g * hist[g];
+        const mo = so / po, mc = (st - so) / pc;
+        const e = po * pc * (mo - mc) * (mo - mc);
+        if (e > mv) { mv = e; corte = g; }
+    }
+    for (let i = 0; i < n; i++) {
+        const v = gris[i] < corte ? 0 : 255;
+        p[i*4] = p[i*4+1] = p[i*4+2] = v; p[i*4+3] = 255;
+    }
+    x.putImageData(d, 0, 0);
+    return c;
+}
+
+/* Cómo intentar leer, en orden. Cada intento es una forma distinta de mirar la
+   misma foto, y se prueban todas porque NINGUNA sirve para los dos casos:
+
+   psm 6 lee un bloque parejo de texto y es el que saca la tabla de un recorte.
+   psm 3 es el automático: reparte la hoja en zonas y funciona con la foto
+   entera del remito, pero sobre una tira angosta devuelve VACÍO —medido: cero
+   de ocho palabras clave, mientras que con psm 6 salían cinco—.
+
+   Por eso no se elige de antemano: se prueban y gana el que más renglones de
+   mercadería produce, que es lo único que interesa. */
+const IMP_OCR_INTENTOS = [
+    { psm: '6',  binarizar: true,  nombre: 'bloque' },
+    { psm: '3',  binarizar: false, nombre: 'hoja entera' },
+    { psm: '11', binarizar: false, nombre: 'texto suelto' },
+];
+
 async function impLeerFoto() {
-    if (IMP_OCR.corriendo || !IMP.fotoCanvas) return;
+    if (IMP_OCR.corriendo || !IMP.fotoImg) return;
     IMP_OCR.corriendo = true;
     const boton = document.getElementById('impLeerBtn');
     boton.disabled = true;
@@ -1779,22 +1854,54 @@ async function impLeerFoto() {
                       'La primera vez baja unos megas; después queda guardado.', 0);
 
         const worker = await impCargarLector(m => {
-            if (m.status === 'recognizing text') {
-                impLeerEstado('trabajando', 'Leyendo la foto…',
-                              'Puede tardar unos segundos.', m.progress);
-            } else if (m.progress !== undefined) {
+            if (m.progress !== undefined && m.status !== 'recognizing text') {
                 impLeerEstado('trabajando', 'Preparando el lector…',
                               'La primera vez baja unos megas; después queda guardado.', m.progress);
             }
         });
 
-        impLeerEstado('trabajando', 'Leyendo la foto…', 'Puede tardar unos segundos.', 0);
-        /* El tercer argumento pide los bloques. Sin eso, la versión 7 devuelve
-           el texto y una confianza global, pero no la confianza POR PALABRA —y
-           esa es la que permite decir en qué números dudó, que es lo único que
-           hace revisable una lectura de veinte renglones. */
-        const { data } = await worker.recognize(IMP.fotoCanvas, {}, { text: true, blocks: true });
-        impMostrarLectura(data);
+        const lado = impLadoParaLeer(IMP.fotoImg);
+        let mejor = null;
+        const arranque = Date.now();
+
+        for (let i = 0; i < IMP_OCR_INTENTOS.length; i++) {
+            /* Techo de tiempo. Sobre una foto mala cada intento tarda mucho más
+               —medido: 27 segundos las tres pasadas contra menos de dos en una
+               buena—, y seguir probando sobre algo que no se lee es hacer
+               esperar al pedo. Con lo que se haya sacado hasta acá alcanza para
+               decidir. */
+            if (i > 0 && Date.now() - arranque > 18000) break;
+
+            const intento = IMP_OCR_INTENTOS[i];
+            impLeerEstado('trabajando', 'Leyendo la foto…',
+                'Probando de leerla de varias formas (' + (i + 1) + ' de ' +
+                IMP_OCR_INTENTOS.length + ').', (i + 0.5) / IMP_OCR_INTENTOS.length);
+
+            const lienzo = impPrepararParaLeer(IMP.fotoImg, lado, intento.binarizar);
+            await worker.setParameters({ tessedit_pageseg_mode: intento.psm });
+            /* Los bloques hacen falta para la confianza POR PALABRA: es la que
+               permite decir en qué números dudó, que es lo que hace revisable
+               una lectura de veinte renglones. */
+            const { data } = await worker.recognize(lienzo, {}, { text: true, blocks: true });
+
+            const cuantos = impRenglonesUtiles(data.text || '').length;
+            const largo = (data.text || '').trim().length;
+
+            /* Se desempata por CUÁNTO TEXTO sacó, no por la confianza.
+               La confianza de una pasada que no leyó nada viene alta —el lector
+               informa 95 sobre un resultado vacío—, así que desempatar por ahí
+               hacía ganar a la que no había leído nada contra la que sí había
+               sacado el renglón. Medido: la pasada de hoja entera devolvía vacío
+               con 95 y le ganaba a la de bloque, que traía el artículo. */
+            if (!mejor || cuantos > mejor.cuantos ||
+                (cuantos === mejor.cuantos && largo > mejor.largo)) {
+                mejor = { cuantos: cuantos, largo: largo, data: data, intento: intento };
+            }
+            // Con varios renglones ya reconocidos no hace falta seguir probando.
+            if (cuantos >= 2) break;
+        }
+
+        impMostrarLectura(mejor.data);
 
     } catch (e) {
         impLeerEstado('falla', 'No pude leer la foto.',
@@ -1888,8 +1995,10 @@ function impRenglonesUtiles(texto) {
 
     const salida = [];
     texto.split('\n').forEach(cruda => {
-        // Bordes de la tabla a espacios, igual que en el servidor.
-        let l = cruda.replace(/[|\[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+        // Bordes de la tabla a espacios, igual que en el servidor. Las rayas
+        // largas y los guiones bajos también: así dibuja las líneas del
+        // formulario. El guión corto no, que va en fechas y en lotes.
+        let l = cruda.replace(/[|\[\]—–_¬]/g, ' ').replace(/\s+/g, ' ').trim();
         if (l.length < 4) return;
         if (RUIDO.test(l) || CALLE.test(l)) return;
 
@@ -1900,12 +2009,26 @@ function impRenglonesUtiles(texto) {
             return;
         }
 
-        // Un código de primera columna no es la cantidad.
-        l = l.replace(/^0\d{2,}\s+(?=\d)/, '');
+        /* Un código de primera columna no es la cantidad. Se reconoce por los
+           ceros adelante, o por ser largo: leyendo la foto, el borde de la tabla
+           se le pega y "0000100" llega como "10000100". */
+        l = l.replace(/^\d{5,}\s+(?=\d)/, '').replace(/^0\d{2,}\s+(?=\d)/, '');
 
-        // Cantidad adelante, unidad opcional, y después la descripción.
-        const m = l.match(/^\d[\d.,]*\s*[a-zA-Záéíóúñ]{0,8}\s+(.+)$/u);
+        /* Cantidad adelante, unidad opcional, y después la descripción. Si no
+           entra, se prueba sin la primera palabra, hasta dos veces: adelante
+           suele quedar pegado el borde de la tabla o el código del artículo con
+           las letras cambiadas ("Oooo1o0" por "0000100", que es la confusión más
+           común del lector). Mismo criterio que el servidor. */
+        let m = null, resto = l;
+        for (let i = 0; i <= 2; i++) {
+            m = resto.match(/^\d[\d.,]*\s*[a-zA-Záéíóúñ]{0,8}\s+(.+)$/u);
+            if (m) break;
+            const corte = resto.indexOf(' ');
+            if (corte === -1) break;
+            resto = resto.slice(corte + 1);
+        }
         if (!m) return;
+        l = resto;
 
         /* Y la descripción tiene que ser una descripción: al menos una palabra
            de cinco letras. Sin esto entraban los restos del fondo de la foto

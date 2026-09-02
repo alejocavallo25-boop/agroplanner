@@ -892,8 +892,13 @@ function imp_linea_a_item(string $linea): ?array
      * y no entraba por ningún lado, porque acá se espera que empiece con un
      * número. Sacándolos queda un renglón normal. Es seguro: si esos símbolos
      * estuvieran separando columnas de verdad, el texto no habría llegado a
-     * modo línea. */
-    $l = trim(preg_replace('/\s+/u', ' ', str_replace(['|', '[', ']'], ' ', $linea)));
+     * modo línea.
+     *
+     * Las rayas largas y los guiones bajos son lo mismo: así dibuja el lector
+     * las líneas horizontales del formulario. El guión CORTO no se toca, que
+     * aparece en las fechas y en los números de lote. */
+    $l = str_replace(['|', '[', ']', '—', '–', '_', '¬'], ' ', $linea);
+    $l = trim(preg_replace('/\s+/u', ' ', $l));
     if ($l === '' || mb_strlen($l, 'UTF-8') < 4) return null;
 
     /* El número de código de la primera columna no es una cantidad.
@@ -902,7 +907,8 @@ function imp_linea_a_item(string $linea): ?array
      * reconoce porque viene con ceros adelante —0000100— y porque atrás suyo hay
      * OTRO número, que es la cantidad de verdad. Sin esto, se cargaba una
      * cantidad de cien de algo que en realidad era uno. */
-    if (preg_match('/^0\d{2,}\s+(\d[\d.,]*\s+\S.*)$/u', $l, $mc)) {
+    if (preg_match('/^\d{5,}\s+(\d[\d.,]*\s+\S.*)$/u', $l, $mc)
+        || preg_match('/^0\d{2,}\s+(\d[\d.,]*\s+\S.*)$/u', $l, $mc)) {
         $l = $mc[1];
     }
 
@@ -951,10 +957,34 @@ function imp_linea_a_item(string $linea): ?array
         }
     }
 
-    // Cantidad al principio, con o sin unidad pegada.
-    if (!preg_match('/^(\d{1,6}(?:[.,]\d{1,3})?)\s*(kgs?|kilos?|lts?|litros?|bolsas?|bidones?|tambores?|un|u|ds|dosis|cajas?|x)?\s+(.{3,})$/iu', $l, $m)) {
-        return null;
+    /* Cantidad al principio, con o sin unidad pegada.
+     *
+     * Y si no entra, se prueba otra vez sin la primera palabra, hasta dos veces.
+     *
+     * Leyendo la foto de un remito, adelante del renglón queda basura pegada:
+     * el borde de la tabla, o el código del artículo con las letras cambiadas.
+     * Medido sobre un remito real, el renglón llegaba así:
+     *
+     *     —Oooo1o0 1.00 FOSFURO DE ALUMINIO TECNOFOS x BOTELLA
+     *
+     * Ese "Oooo1o0" es "0000100" con las O confundidas por ceros, que es la
+     * equivocación más común que hay. No se puede pedir que el renglón empiece
+     * limpio; sí se puede intentar de nuevo un poco más adelante.
+     *
+     * No afloja el control: lo que quede tiene que seguir pasando todas las
+     * comprobaciones de abajo, incluida la de tener una palabra de verdad. Un
+     * renglón de basura sigue sin entrar aunque se le saquen dos palabras. */
+    $patron = '/^(\d{1,6}(?:[.,]\d{1,3})?)\s*(kgs?|kilos?|lts?|litros?|bolsas?|bidones?|tambores?|un|u|ds|dosis|cajas?|x)?\s+(.{3,})$/iu';
+    $resto = $l;
+    $m = null;
+    for ($salto = 0; $salto <= 2; $salto++) {
+        if (preg_match($patron, $resto, $m)) break;
+        $m = null;
+        $corte = mb_strpos($resto, ' ');
+        if ($corte === false) break;
+        $resto = mb_substr($resto, $corte + 1);
     }
+    if (!$m) return null;
 
     $cantidad = imp_a_numero($m[1]);
     $unidad   = trim($m[2] ?? '');
