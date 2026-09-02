@@ -1052,54 +1052,6 @@ function tipoBadge($tipo) {
 /* Que el título no se meta abajo de la cruz. */
 #importModal .modal-panel h2, #importConfirmModal .modal-panel > h2 { padding-right: 46px; }
 
-/* ── En el teléfono ────────────────────────────────────────────────────────
-   La tabla de revisión tiene ocho columnas. A 390 píxeles de ancho eso es una
-   tira con scroll lateral donde se ve el nombre y medio "qué hago": para tocar
-   la cantidad de la tercera fila hay que arrastrar de costado y perder de vista
-   de qué fila era. Medido en un teléfono: la tabla desbordaba.
-
-   Acá cada fila pasa a ser una carta con los campos uno abajo del otro, y cada
-   uno dice qué es —la etiqueta sale del data-label que pone impFila()—. Es la
-   misma información, en una forma que se puede tocar. */
-@media (max-width: 760px) {
-    .modal-wrapper { padding: 12px; }
-    #importModal .modal-panel, #importConfirmModal .modal-panel { padding: 18px 14px; }
-
-    .imp-tabla-wrap { overflow-x: visible; }
-    .imp-tabla, .imp-tabla tbody, .imp-tabla tr, .imp-tabla td { display: block; width: 100%; }
-    .imp-tabla thead { display: none; }
-    .imp-tabla tr {
-        border: 1px solid var(--border); border-radius: 12px;
-        padding: 10px 12px; margin-bottom: 12px; background: var(--bg-card);
-    }
-    .imp-tabla td {
-        border: 0; padding: 5px 0;
-        display: grid; grid-template-columns: 84px 1fr; align-items: center; gap: 10px;
-    }
-    .imp-tabla td::before {
-        content: attr(data-label);
-        font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em;
-        color: var(--text-muted); text-transform: uppercase;
-    }
-    /* Los anchos fijos de columna no significan nada apilados. */
-    .imp-col-num, .imp-col-fecha, .imp-col-nombre, .imp-col-accion { width: auto; min-width: 0; }
-    .imp-col-num input { text-align: left; }
-    .imp-tabla td:has(.imp-alerta-precio:not(:empty)) { min-width: 0; }
-    .imp-alerta-precio { grid-column: 2; }
-    .imp-ref { grid-column: 2; }
-
-    /* Los botones, cómodos y uno por renglón. */
-    .imp-acciones { flex-direction: column; align-items: stretch; }
-    .imp-acciones .btn { width: 100%; justify-content: center; min-height: 46px; }
-    .imp-contador { margin: 0 0 4px; text-align: center; }
-
-    .imp-barra { flex-direction: column; align-items: stretch; }
-    .imp-campo { width: 100%; }
-    .imp-leer { flex-direction: column; align-items: stretch; }
-    .imp-leer .btn { width: 100%; justify-content: center; min-height: 46px; }
-    .imp-leer-nota { text-align: center; }
-}
-
 /* ── La foto ───────────────────────────────────────────────────────────────
    La imagen todavía no se lee sola, pero tenerla en pantalla mientras se
    escribe convierte "acordarse del remito" en "copiar lo que se está viendo",
@@ -1130,13 +1082,14 @@ function tipoBadge($tipo) {
 
 /* El veredicto de la medición. Verde no dice "va a leerse perfecto": dice
    "por nitidez, luz y tamaño, esta foto no tiene nada que la descalifique". */
+/* Una línea. Antes era un párrafo con viñetas y el consejo completo de cada
+   problema: con dos problemas ocupaba media pantalla del teléfono, arriba de la
+   foto que se quiere mirar. */
 .imp-veredicto {
-    padding: 12px 14px; border-radius: 10px; margin-bottom: 12px;
-    font-size: 0.88rem; border: 1px solid; line-height: 1.5;
+    padding: 8px 12px; border-radius: 8px; margin-bottom: 10px;
+    font-size: 0.86rem; border: 1px solid; line-height: 1.4;
 }
-.imp-veredicto b { display: block; margin-bottom: 4px; }
-.imp-veredicto ul { margin: 6px 0 0; padding-left: 18px; }
-.imp-veredicto li { margin-bottom: 3px; }
+.imp-veredicto b { font-weight: 700; }
 .imp-veredicto.sirve   { background: var(--accent-soft);  border-color: var(--accent);  color: var(--accent); }
 .imp-veredicto.no-sirve{ background: var(--warning-soft); border-color: var(--warning); color: var(--warning); }
 
@@ -1195,6 +1148,58 @@ function tipoBadge($tipo) {
     padding: 1px 5px; border-radius: 4px; font-weight: 600;
     font-variant-numeric: tabular-nums;
 }
+
+/* ── En el teléfono ────────────────────────────────────────────────────────
+   La tabla de revisión tiene ocho columnas. A 390 píxeles de ancho eso es una
+   tira con scroll lateral donde se ve el nombre y medio "qué hago": para tocar
+   la cantidad de la tercera fila hay que arrastrar de costado y perder de vista
+   de qué fila era. Medido en un teléfono: la tabla desbordaba.
+
+   Acá cada fila pasa a ser una carta con los campos uno abajo del otro, y cada
+   uno dice qué es —la etiqueta sale del data-label que pone impFila()—. Es la
+   misma información, en una forma que se puede tocar. */
+@media (max-width: 760px) {
+    .modal-wrapper { padding: 12px; }
+    #importModal .modal-panel, #importConfirmModal .modal-panel { padding: 18px 14px; }
+
+    .imp-tabla-wrap { overflow-x: visible; }
+    .imp-tabla, .imp-tabla tbody, .imp-tabla tr, .imp-tabla td { display: block; width: 100%; }
+    .imp-tabla thead { display: none; }
+    .imp-tabla tr {
+        border: 1px solid var(--border); border-radius: 12px;
+        padding: 10px 12px; margin-bottom: 12px; background: var(--bg-card);
+    }
+    .imp-tabla td {
+        border: 0; padding: 5px 0;
+        display: grid; grid-template-columns: 84px 1fr; align-items: center; gap: 10px;
+    }
+    .imp-tabla td::before {
+        content: attr(data-label);
+        font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em;
+        color: var(--text-muted); text-transform: uppercase;
+    }
+    /* Los anchos fijos de columna no significan nada apilados. */
+    .imp-col-num, .imp-col-fecha, .imp-col-nombre, .imp-col-accion { width: auto; min-width: 0; }
+    .imp-col-num input { text-align: left; }
+    .imp-tabla td:has(.imp-alerta-precio:not(:empty)) { min-width: 0; }
+    .imp-alerta-precio { grid-column: 2; }
+    .imp-ref { grid-column: 2; }
+
+    /* Los botones, cómodos y uno por renglón. */
+    .imp-acciones { flex-direction: column; align-items: stretch; }
+    .imp-acciones .btn { width: 100%; justify-content: center; min-height: 46px; }
+    .imp-contador { margin: 0 0 4px; text-align: center; }
+
+    .imp-barra { flex-direction: column; align-items: stretch; }
+    .imp-campo { width: 100%; }
+    .imp-leer { flex-direction: column; align-items: stretch; }
+    .imp-leer .btn { width: 100%; justify-content: center; min-height: 46px; }
+    /* El flex-basis de 160px estaba pensado para la fila: al apilar en columna
+       pasa a ser ALTO, y la nota dejaba un hueco de 160 píxeles en blanco entre
+       el botón y el cuadro de texto. */
+    .imp-leer-nota { flex: 0 0 auto; text-align: center; }
+}
+
 </style>
 
 <!-- ===== MODAL: Importar (subida + análisis) ===== -->
@@ -1239,13 +1244,6 @@ function tipoBadge($tipo) {
                 </div>
             </details>
 
-            <div class="imp-nota">
-                <strong>La foto todavía no se lee sola.</strong>
-                Convertir píxeles en texto necesita OCR, que este importador no incluye por ahora.
-                Lo que sí hace: revisa si la foto es legible —enfoque, luz y tamaño de la letra— y
-                te la deja en pantalla para que cargues los renglones mirándola, sin ir y volver al papel.
-            </div>
-
             <div id="impError" class="imp-error" hidden></div>
 
             <div class="imp-acciones">
@@ -1272,13 +1270,13 @@ function tipoBadge($tipo) {
                         <button type="button" class="btn btn-primary" id="impLeerBtn" onclick="impLeerFoto()">
                             <i class="fas fa-eye"></i> Intentar leerla
                         </button>
-                        <span class="imp-leer-nota">Se lee en tu teléfono, la foto no sale de acá. Tarda unos segundos.</span>
+                        <span class="imp-leer-nota">Se lee acá, en tu teléfono.</span>
                     </div>
                     <div id="impLeerEstado" class="imp-leer-estado" hidden></div>
                     <div id="impDudas" class="imp-dudas" hidden></div>
 
-                    <p>Escribí los renglones mirando la foto: <strong>cantidad, descripción y precio</strong>.
-                       Si el remito trae total, ponelo al final — con eso verifico que la suma cierre.</p>
+                    <p><strong>Cantidad, descripción y precio</strong> por renglón.
+                       Si hay total, ponelo al final: con eso verifico la suma.</p>
                     <textarea id="impTextoFoto" rows="9"
                               aria-label="Escribí acá los renglones del remito"
                               placeholder="2.500 kg  Urea granulada     1.200,00&#10;800 lt    Glifosato 62%      5.000,00&#10;TOTAL                        7.000.000,00"></textarea>
@@ -2035,20 +2033,18 @@ function impMostrarLectura(data) {
     document.getElementById('impTextoFoto').value = utiles.join('\n');
     impGuardarCrudo(texto);
 
+    /* Los tres estados, en un renglón cada uno. El aviso de revisar los números
+       queda, porque es lo único que no se puede dar por sabido: el lector se
+       equivoca sin avisar y un dígito cambiado no se nota. */
+    const cuantos = utiles.length + (utiles.length === 1 ? ' renglón' : ' renglones');
     if (!utiles.length) {
-        impLeerEstado('dudoso', 'No encontré ningún renglón de mercadería.',
-            'Leí texto, pero nada con la forma "cantidad, descripción, precio". Suele pasar cuando ' +
-            'la letra de la tabla salió muy chica. Escribilo a mano mirando la foto, o probá con ' +
-            'una foto más de cerca de la parte de los artículos.');
+        impLeerEstado('dudoso', 'No encontré insumos en la foto.',
+            'Escribilos a mano mirándola.');
     } else if (confianza >= 75 && proporcionBasura < 0.05) {
-        impLeerEstado('bien', 'Saqué ' + utiles.length + (utiles.length === 1 ? ' renglón.' : ' renglones.'),
-            'Están abajo, y es lo único que voy a usar. REVISÁ LOS NÚMEROS: el lector se equivoca ' +
-            'sin avisar, y un dígito cambiado no se nota. Si el remito trae total, la suma lo verifica.');
+        impLeerEstado('bien', 'Saqué ' + cuantos + '.', 'Revisá los números contra la foto.');
     } else {
-        impLeerEstado('dudoso', 'Saqué ' + utiles.length +
-                (utiles.length === 1 ? ' renglón, pero con dudas.' : ' renglones, pero con dudas.'),
-            'Confianza ' + Math.round(confianza) + ' sobre 100. Compará cada uno contra la foto antes ' +
-            'de seguir: puede faltar alguno, o tener un número cambiado.');
+        impLeerEstado('dudoso', 'Saqué ' + cuantos + ', con dudas.',
+            'Confianza ' + Math.round(confianza) + '/100. Revisalos uno por uno.');
     }
 
     impMostrarDudas(palabras, utiles.join('\n'));
@@ -2312,78 +2308,43 @@ function impPintarVeredicto(m, archivo, img) {
         return;
     }
 
+    /* Cada problema en dos o tres palabras.
+     *
+     * Antes cada uno era una frase con el consejo completo —"apoyá el codo o el
+     * teléfono en algo firme y sacala de nuevo"— y con dos problemas el aviso
+     * ocupaba media pantalla del teléfono, arriba de la foto que se quiere
+     * mirar. El consejo era bueno; el lugar, no. Lo que hace falta saber de un
+     * vistazo es SI la foto sirve y POR QUÉ NO, no qué hacer paso a paso: quien
+     * la sacó ya sabe cómo sacar otra. */
     const problemas = [];
-    if (m.nitidez < IMP_FOTO_MIN.nitidez) {
-        problemas.push('Está movida o fuera de foco. Apoyá el codo o el teléfono en algo firme y sacala de nuevo.');
-    }
-    if (m.papel < IMP_FOTO_MIN.papel) {
-        problemas.push('Está oscura: el papel se ve gris en vez de blanco. Buscá más luz o acercate a una ventana.');
-    }
+    if (m.nitidez < IMP_FOTO_MIN.nitidez) problemas.push('está movida');
+    if (m.papel   < IMP_FOTO_MIN.papel)   problemas.push('está oscura');
     if (m.contraste < IMP_FOTO_MIN.contraste) {
-        /* Poco contraste tiene dos causas y dos remedios opuestos: si además el
-           papel salió muy brillante, fue el reflejo el que se comió la tinta y
-           hay que sacarle luz; si no, es el remito el que ya venía despintado y
-           hay que agregarle. Decir "poco contraste" y nada más mandaría a la
-           mitad de la gente a hacer justo lo contrario de lo que necesita. */
-        problemas.push(m.papel > 235
-            ? 'El reflejo se comió la tinta. Evitá el flash y la luz directa sobre el papel: mejor a la sombra.'
-            : 'La tinta casi no se separa del papel. Suele pasar con remitos térmicos despintados; probá con más luz de costado.');
+        // El remedio es opuesto según la causa, y en dos palabras se distingue.
+        problemas.push(m.papel > 235 ? 'hay reflejo' : 'poco contraste');
     }
-    if (!m.letraConfiable) {
-        problemas.push('No pude distinguir los renglones: la foto tiene mucho ruido o el papel y la tinta se mezclan. Probá con más luz y sin mover.');
-    } else if (m.altoLetra < IMP_FOTO_MIN.altoLetra) {
-        /* El caso más común no es que la foto esté mal sacada: es que pasó por
-           WhatsApp, que la achica a 720 de ancho y ahí la letra de la tabla
-           queda en siete u ocho píxeles. Decir "acercate" a alguien que sacó una
-           foto perfecta y la mandó por WhatsApp no lo ayuda en nada. */
-        problemas.push('La letra de la tabla queda en ' + m.altoLetra + ' píxeles y hacen falta '
-            + IMP_FOTO_MIN.altoLetra + '. Si la foto te llegó por WhatsApp, ese es el motivo: la achica. '
-            + 'Usá la original de la galería, o sacá el remito de más cerca — sólo la parte de los artículos.');
-    }
+    if (!m.letraConfiable)                        problemas.push('mucho ruido');
+    else if (m.altoLetra < IMP_FOTO_MIN.altoLetra) problemas.push('letra muy chica');
 
     const b = document.createElement('b');
     if (!problemas.length) {
         caja.className = 'imp-veredicto sirve';
-        b.textContent = '✓ La foto se lee bien.';
+        b.textContent = '✓ Se lee bien';
         caja.appendChild(b);
-        const t = document.createTextNode(
-            'Enfoque, luz y tamaño de letra están dentro de lo razonable. ' +
-            'Escribí los renglones al lado mirándola.');
-        caja.appendChild(t);
     } else {
         caja.className = 'imp-veredicto no-sirve';
-        b.textContent = problemas.length === 1
-            ? '⚠ Hay un problema con esta foto.'
-            : '⚠ Hay ' + problemas.length + ' problemas con esta foto.';
+        b.textContent = '⚠ Calidad baja: ' + problemas.join(', ');
         caja.appendChild(b);
-        const ul = document.createElement('ul');
-        problemas.forEach(p => {
-            const li = document.createElement('li');
-            li.textContent = p;
-            ul.appendChild(li);
-        });
-        caja.appendChild(ul);
-        const t = document.createElement('div');
-        t.style.marginTop = '8px';
-        t.textContent = 'Podés usarla igual si se entiende a ojo: ampliala tocándola y escribí al lado.';
-        caja.appendChild(t);
     }
 
-    // Los números crudos, para poder discutir el veredicto en vez de creerle.
-    [['Nitidez', Math.round(m.nitidez), IMP_FOTO_MIN.nitidez, 'mín.'],
-     ['Contraste', m.contraste, IMP_FOTO_MIN.contraste, 'mín.'],
-     ['Alto de letra', m.letraConfiable ? m.altoLetra + ' px' : 'no se pudo medir',
-      m.letraConfiable ? IMP_FOTO_MIN.altoLetra + ' px' : null, 'mín.'],
-     ['Renglones detectados', m.letraConfiable ? m.renglones : '—', null, null],
-    ].forEach(([etiqueta, valor, minimo, nota]) => {
-        const s = document.createElement('span');
-        const strong = document.createElement('b');
-        strong.textContent = String(valor);
-        s.appendChild(document.createTextNode(etiqueta + ': '));
-        s.appendChild(strong);
-        if (minimo !== null) s.appendChild(document.createTextNode(' (' + nota + ' ' + minimo + ')'));
-        medidas.appendChild(s);
-    });
+    // Los números, en un renglón: sirven para discutir el veredicto en vez de
+    // creerle, pero no para leerlos siempre.
+    const partes = [
+        'nitidez ' + Math.round(m.nitidez),
+        'contraste ' + m.contraste,
+        'letra ' + (m.letraConfiable ? m.altoLetra + ' px' : '?'),
+    ];
+    medidas.textContent = partes.join(' · ');
 }
 
 /**
