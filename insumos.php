@@ -1034,6 +1034,72 @@ function tipoBadge($tipo) {
 .imp-ref { display: block; font-size: 0.8rem; color: var(--text-muted); margin-top: 3px; }
 .imp-contador { margin-right: auto; font-size: 0.85rem; color: var(--text-muted); }
 
+/* ── Salir ─────────────────────────────────────────────────────────────────
+   Arriba a la derecha y de 44px, que es el mínimo para tocar con el dedo sin
+   errarle. El panel pasa a position:relative para que la cruz quede anclada a
+   él y no a la pantalla. */
+#importModal .modal-panel, #importConfirmModal .modal-panel { position: relative; }
+.imp-cerrar {
+    position: absolute; top: 10px; right: 10px;
+    width: 44px; height: 44px; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.6rem; font-family: inherit;
+    background: none; border: 0; border-radius: 10px;
+    color: var(--text-muted); cursor: pointer; z-index: 2;
+}
+.imp-cerrar:hover { background: var(--surface-hover); color: var(--text-primary); }
+.imp-cerrar:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 1px; }
+/* Que el título no se meta abajo de la cruz. */
+#importModal .modal-panel h2, #importConfirmModal .modal-panel > h2 { padding-right: 46px; }
+
+/* ── En el teléfono ────────────────────────────────────────────────────────
+   La tabla de revisión tiene ocho columnas. A 390 píxeles de ancho eso es una
+   tira con scroll lateral donde se ve el nombre y medio "qué hago": para tocar
+   la cantidad de la tercera fila hay que arrastrar de costado y perder de vista
+   de qué fila era. Medido en un teléfono: la tabla desbordaba.
+
+   Acá cada fila pasa a ser una carta con los campos uno abajo del otro, y cada
+   uno dice qué es —la etiqueta sale del data-label que pone impFila()—. Es la
+   misma información, en una forma que se puede tocar. */
+@media (max-width: 760px) {
+    .modal-wrapper { padding: 12px; }
+    #importModal .modal-panel, #importConfirmModal .modal-panel { padding: 18px 14px; }
+
+    .imp-tabla-wrap { overflow-x: visible; }
+    .imp-tabla, .imp-tabla tbody, .imp-tabla tr, .imp-tabla td { display: block; width: 100%; }
+    .imp-tabla thead { display: none; }
+    .imp-tabla tr {
+        border: 1px solid var(--border); border-radius: 12px;
+        padding: 10px 12px; margin-bottom: 12px; background: var(--bg-card);
+    }
+    .imp-tabla td {
+        border: 0; padding: 5px 0;
+        display: grid; grid-template-columns: 84px 1fr; align-items: center; gap: 10px;
+    }
+    .imp-tabla td::before {
+        content: attr(data-label);
+        font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em;
+        color: var(--text-muted); text-transform: uppercase;
+    }
+    /* Los anchos fijos de columna no significan nada apilados. */
+    .imp-col-num, .imp-col-fecha, .imp-col-nombre, .imp-col-accion { width: auto; min-width: 0; }
+    .imp-col-num input { text-align: left; }
+    .imp-tabla td:has(.imp-alerta-precio:not(:empty)) { min-width: 0; }
+    .imp-alerta-precio { grid-column: 2; }
+    .imp-ref { grid-column: 2; }
+
+    /* Los botones, cómodos y uno por renglón. */
+    .imp-acciones { flex-direction: column; align-items: stretch; }
+    .imp-acciones .btn { width: 100%; justify-content: center; min-height: 46px; }
+    .imp-contador { margin: 0 0 4px; text-align: center; }
+
+    .imp-barra { flex-direction: column; align-items: stretch; }
+    .imp-campo { width: 100%; }
+    .imp-leer { flex-direction: column; align-items: stretch; }
+    .imp-leer .btn { width: 100%; justify-content: center; min-height: 46px; }
+    .imp-leer-nota { text-align: center; }
+}
+
 /* ── La foto ───────────────────────────────────────────────────────────────
    La imagen todavía no se lee sola, pero tenerla en pantalla mientras se
    escribe convierte "acordarse del remito" en "copiar lo que se está viendo",
@@ -1135,6 +1201,12 @@ function tipoBadge($tipo) {
 <div id="importModal" class="modal-wrapper">
     <div class="glass-panel modal-panel">
 
+        <?php /* Salir. En el teléfono no hay tecla Escape ni lugar para hacer clic
+                 afuera —el modal ocupa la pantalla entera—, así que sin esto la
+                 única salida era el botón Cancelar del primer paso: quien llegaba
+                 a la foto quedaba encerrado. */ ?>
+        <button type="button" class="imp-cerrar" onclick="impCerrar()" aria-label="Cerrar">&times;</button>
+
         <!-- Paso 1: elegir el origen -->
         <div id="impPasoOrigen">
             <h2 style="margin-bottom:6px;">📥 Importar insumos</h2>
@@ -1148,11 +1220,13 @@ function tipoBadge($tipo) {
                 <strong>Arrastrá el archivo o hacé clic para elegirlo</strong>
                 <span>Excel (.xlsx) · CSV · PDF digital · foto del remito — hasta 8 MB</span>
             </div>
-            <?php /* capture="environment" abre la cámara de atrás en el teléfono en
-                     vez del carrete: si estás con el remito en la mano, es un toque
-                     menos. En la computadora el atributo se ignora. */ ?>
+            <?php /* SIN capture. Estaba puesto como comodidad —abre la cámara de
+                     atrás directamente— pero el efecto real es el contrario: con
+                     ese atributo el teléfono va DERECHO a la cámara y no ofrece la
+                     galería, así que no se puede elegir una foto ya sacada. Sin él,
+                     el teléfono muestra el menú de siempre y ahí están las dos. */ ?>
             <input type="file" id="impInput" aria-label="Elegir el archivo a importar"
-                   accept=".xlsx,.xlsm,.csv,.txt,.tsv,.pdf,image/*" capture="environment" hidden>
+                   accept=".xlsx,.xlsm,.csv,.txt,.tsv,.pdf,image/*" hidden>
 
             <details class="imp-pegar">
                 <summary><i class="fas fa-paste"></i> …o pegar la tabla a mano</summary>
@@ -1245,6 +1319,7 @@ function tipoBadge($tipo) {
 <!-- ===== MODAL: Confirmar lo detectado ===== -->
 <div id="importConfirmModal" class="modal-wrapper">
     <div class="glass-panel modal-panel imp-ancho">
+        <button type="button" class="imp-cerrar" onclick="impCerrar()" aria-label="Cerrar">&times;</button>
         <h2 id="impConfTitulo" style="margin-bottom:6px;">Revisá antes de cargar</h2>
         <p class="imp-sub" id="impConfSub"></p>
 
@@ -2692,9 +2767,14 @@ function impCuadrar() {
 function impFila(it) {
     const tr = document.createElement('tr');
     tr._campos = {};
-    const celda = clase => {
+    /* La etiqueta va en el propio td. En el teléfono la tabla se convierte en
+       cartas —una por fila, con los campos uno abajo del otro— y ahí no hay
+       encabezado de columna que mire: cada campo tiene que decir qué es. La CSS
+       lo saca de data-label. */
+    const celda = (clase, etiqueta) => {
         const td = document.createElement('td');
         if (clase) td.className = clase;
+        if (etiqueta) td.setAttribute('data-label', etiqueta);
         tr.appendChild(td);
         return td;
     };
@@ -2710,10 +2790,10 @@ function impFila(it) {
         impContar();
         impCuadrar();   // sacar una fila cambia la suma
     });
-    celda().appendChild(chk);
+    celda('', 'Incluir').appendChild(chk);
 
     // Nombre (+ referencia del comprobante, si la había)
-    const cNombre = celda('imp-col-nombre');
+    const cNombre = celda('imp-col-nombre', 'Insumo');
     tr._campos.nombre = impCrearInput('text', it.nombre, v => { it.nombre = v; }, { maxLength: 150 });
     cNombre.appendChild(tr._campos.nombre);
     if (it.referencia) {
@@ -2724,7 +2804,7 @@ function impFila(it) {
     }
 
     // Crear nuevo vs. sumar stock a uno existente
-    const cAccion = celda('imp-col-accion');
+    const cAccion = celda('imp-col-accion', 'Qué hago');
     const sel = document.createElement('select');
     sel.add(new Option('➕ Crear nuevo', 'nuevo'));
     if (it.match_id) sel.add(new Option('📈 Sumar a: ' + it.match_nombre, String(it.match_id)));
@@ -2751,20 +2831,20 @@ function impFila(it) {
 
     // Tipo
     tr._campos.tipo = impCrearSelect(IMP_TIPOS, it.tipo || 'otro', v => { it.tipo = v; });
-    celda().appendChild(tr._campos.tipo);
+    celda('', 'Tipo').appendChild(tr._campos.tipo);
 
     // Cantidad. Cambiarla mueve la suma, así que se recalcula el cuadre.
-    celda('imp-col-num').appendChild(
+    celda('imp-col-num', 'Cantidad').appendChild(
         impCrearInput('text', impTexto(it.cantidad), v => { it.cantidad = v; impCuadrar(); },
                       { inputMode: 'decimal', autocomplete: 'off' })
     );
 
     // Unidad
     tr._campos.unidad = impCrearSelect(IMP_UNIDADES, it.unidad_medida || 'kg', v => { it.unidad_medida = v; });
-    celda().appendChild(tr._campos.unidad);
+    celda('', 'Unidad').appendChild(tr._campos.unidad);
 
     // Precio, con el aviso cuando se despega del que ya le conocíamos al insumo.
-    const cPrecio = celda('imp-col-num');
+    const cPrecio = celda('imp-col-num', 'Precio');
     const avisoPrecio = document.createElement('span');
     avisoPrecio.className = 'imp-alerta-precio';
     const inputPrecio = impCrearInput('text', impTexto(it.precio), v => {
@@ -2784,7 +2864,7 @@ function impFila(it) {
     cPrecio.appendChild(avisoPrecio);
 
     // Vencimiento
-    celda('imp-col-fecha').appendChild(
+    celda('imp-col-fecha', 'Vence').appendChild(
         impCrearInput('date', it.vencimiento || '', v => { it.vencimiento = v; })
     );
 
