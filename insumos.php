@@ -1098,8 +1098,21 @@ function tipoBadge($tipo) {
     font-size: 0.76rem; color: var(--text-muted); font-variant-numeric: tabular-nums;
 }
 .imp-medidas span b { font-weight: 700; color: var(--text-primary); }
+/* El cuadro crece con lo que tiene adentro.
+   Eran 210 píxeles fijos: con un renglón leído quedaban dos tercios de caja
+   vacía empujando los botones fuera de la pantalla del teléfono, y con un remito
+   de veinte renglones había que hacer scroll adentro del cuadro teniendo media
+   pantalla libre al lado.
+   El alto lo calcula impAjustarAlto(); el piso y el techo los pone esta regla,
+   así crecer nunca se come la pantalla y el máximo deja su propio scroll. */
+/* Sin min-height: el piso lo pone rows, que es lo que mueve impAjustarAlto().
+   Queda el techo, para que un remito largo no empuje los botones fuera de la
+   pantalla, con su propia barra. */
+.imp-foto-lado textarea, .imp-pegar textarea {
+    max-height: 42vh; overflow-y: auto;
+}
 .imp-foto-lado textarea {
-    width: 100%; min-height: 210px; font-family: ui-monospace, monospace; font-size: 0.84rem;
+    width: 100%; font-family: ui-monospace, monospace; font-size: 0.84rem;
     padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-color);
     background: var(--input-bg); color: var(--text-primary); resize: vertical;
 }
@@ -1277,7 +1290,10 @@ function tipoBadge($tipo) {
 
                     <p><strong>Cantidad, descripción y precio</strong> por renglón.
                        Si hay total, ponelo al final: con eso verifico la suma.</p>
-                    <textarea id="impTextoFoto" rows="9"
+                    <?php /* rows chico: es el alto de arranque y el que vale si
+                             el javascript no corriera. El alto de verdad lo pone
+                             impAjustarAlto() según lo que haya adentro. */ ?>
+                    <textarea id="impTextoFoto" rows="3"
                               aria-label="Escribí acá los renglones del remito"
                               placeholder="2.500 kg  Urea granulada     1.200,00&#10;800 lt    Glifosato 62%      5.000,00&#10;TOTAL                        7.000.000,00"></textarea>
                     <?php /* Lo que el filtro descartó, por si se pasó de listo y
@@ -1535,6 +1551,11 @@ function impAbrir() {
     document.getElementById('impTextoFoto').value = '';
     document.getElementById('importModal').style.display = 'block';
     document.body.classList.add('modal-open');
+    /* Los cuadros vuelven al mínimo. Va DESPUÉS de mostrar el modal: mientras
+       está oculto no tiene medidas, scrollHeight da cero y el alto quedaría mal
+       calculado hasta que alguien escriba algo. */
+    impAjustarAlto(document.getElementById('impTexto'));
+    impAjustarAlto(document.getElementById('impTextoFoto'));
 }
 
 /** La imagen ocupa memoria hasta que se la suelta explícitamente. */
@@ -1580,6 +1601,41 @@ function impPaso(cual) {
     document.getElementById('impPasoAnalisis').hidden = (cual !== 'analisis');
     // 'analisis' es de paso: volver ahí no tendría sentido.
     if (cual !== 'analisis') IMP.paso = cual;
+
+    /* Recién ahora el cuadro tiene medidas. Antes de mostrarse no se lo puede
+       medir, así que el alto se acomoda acá, cuando el paso aparece. */
+    if (cual === 'foto') impAjustarAlto(document.getElementById('impTextoFoto'));
+}
+
+/**
+ * El cuadro de texto, del alto de lo que tiene adentro.
+ *
+ * Se pone en 'auto' antes de medir a propósito: scrollHeight devuelve el alto
+ * del contenido O el alto fijado, lo que sea mayor, así que sin ese paso el
+ * cuadro puede crecer pero nunca achicarse.
+ *
+ * El piso y el techo los pone la CSS (min-height y max-height): acá sólo se
+ * calcula, y el navegador recorta. Así el techo puede ir en unidades de
+ * pantalla y sigue valiendo cuando se gira el teléfono.
+ */
+function impAjustarAlto(caja) {
+    if (!caja) return;
+    /* Se cuentan renglones y se mueve ROWS, que es el mecanismo propio del
+       textarea. No se toca height.
+     *
+     * La versión por píxeles —poner height en cero, leer scrollHeight y escribir
+     * el resultado— no funcionaba acá, y costó averiguar por qué: si se le fija
+     * un alto mientras el elemento todavía no está en pantalla (al abrir el
+     * modal el paso de la foto está oculto), el navegador después ignora
+     * cualquier alto nuevo. Se le pidieron 120, 202, 300 y 500 píxeles y siguió
+     * mostrando 76; sacado del documento y vuelto a poner en el MISMO lugar,
+     * obedecía. Un estado interno, no una regla de CSS.
+     *
+     * Con rows nada de eso pasa: es un atributo, no un estilo calculado, y vale
+     * igual esté el elemento visible o no. El techo lo sigue poniendo el
+     * max-height de la CSS, que le deja su propia barra si el remito es largo. */
+    const lineas = (caja.value || '').split('\n').length;
+    caja.rows = Math.max(3, Math.min(lineas + 1, 16));
 }
 
 function impMostrarError(msg) {
@@ -1622,6 +1678,22 @@ function impMostrarError(msg) {
     const foto = document.getElementById('impFotoImg');
     if (foto) {
         foto.addEventListener('click', () => foto.classList.toggle('ampliada'));
+    }
+
+    // Los dos cuadros de texto se acomodan solos a medida que se escribe.
+    ['impTextoFoto', 'impTexto'].forEach(id => {
+        const caja = document.getElementById(id);
+        if (!caja) return;
+        caja.addEventListener('input', () => impAjustarAlto(caja));
+    });
+
+    /* El de pegar vive dentro de un desplegable: mientras está cerrado no tiene
+       medidas, así que se acomoda al abrirlo. */
+    const pegar = document.querySelector('.imp-pegar');
+    if (pegar) {
+        pegar.addEventListener('toggle', () => {
+            if (pegar.open) impAjustarAlto(document.getElementById('impTexto'));
+        });
     }
 })();
 
@@ -2030,7 +2102,9 @@ function impMostrarLectura(data) {
      *
      * Va lo mismo que el importador va a usar, ya limpio. Lo demás se guarda por
      * si el filtro se pasó de listo, pero plegado y fuera del camino. */
-    document.getElementById('impTextoFoto').value = utiles.join('\n');
+    const caja = document.getElementById('impTextoFoto');
+    caja.value = utiles.join('\n');
+    impAjustarAlto(caja);          // que el cuadro quede del alto de lo leído
     impGuardarCrudo(texto);
 
     /* Los tres estados, en un renglón cada uno. El aviso de revisar los números
