@@ -5302,12 +5302,19 @@ function motor_detectar_dosis(string $original, array $catalogo): ?array {
         /* El "de" es obligatorio: sin él, "120 kg" solo no dice de qué insumo, y
            adivinarlo sería inventar. El nombre se toma hasta el fin de la frase o
            hasta una preposición, para que "urea en el lote 3" no se lleve el lote. */
+        /* El signo de pregunta ENTRA en la captura y se recorta después, no se
+           excluye de la clase: si se lo excluye, en "¿…2 lt de glifosato?" no
+           queda nada que consuma ese signo antes del final y el patrón deja de
+           coincidir del todo — probado, se rompía el reconocimiento entero. */
         $re = '/(\d+(?:[.,]\d+)?)\s*(?:' . $alt . ')\s+de\s+([^,.;]+?)'
             . '(?:\s+(?:en|para|el|la|los|las|por|a)\s|\s*$)/iu';
         if (!preg_match($re, $original, $m)) continue;
 
         $dosis  = (float)str_replace(',', '.', $m[1]);
-        $nombre = trim($m[2]);
+        /* Y el recorte no es cosmético: este nombre se compara contra el catálogo,
+           y "glifosato?" no coincide con "Glifosato 62" — el insumo quedaba sin
+           vincular por un signo de puntuación. */
+        $nombre = trim($m[2], " \t\n\r\0\x0B?!¿¡.,;:");
         if ($dosis <= 0 || $nombre === '') continue;
 
         // Contra el catálogo: si es uno suyo se vincula y descuenta stock.
