@@ -1397,7 +1397,8 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
            casilleros distintos y pueden pasar los dos en la misma carga. */
         $aviso = trim($avisoInsumo . ' ' . $avisoFecha);
         $usados = motor_insumos_usados($pdo, $usuarioId, $slots['grupo_gasto'] ?? null);
-        if ($falta = motor_alta_siguiente($slots, $lotes, $aviso, $catalogoAlta, $usados)) return $falta;
+        if ($falta = motor_alta_siguiente($slots, $lotes, $aviso, $catalogoAlta, $usados,
+                                          motor_lotes_para_alta($pdo, $usuarioId, $lotes, $campania))) return $falta;
 
         // Están todos: se arma la MISMA confirmación que el modo de una sola frase.
         $prop = motor_armar_alta($slots, $lotes, $campania);
@@ -1431,7 +1432,8 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
            haya uno solo: acá se está por escribir, y un gasto en el campo
            equivocado no se nota hasta que el margen ya salió mal. */
         $usados = motor_insumos_usados($pdo, $usuarioId, $slots['grupo_gasto'] ?? null);
-        if ($falta = motor_alta_siguiente($slots, $lotes, '', $catalogo, $usados)) return $falta;
+        if ($falta = motor_alta_siguiente($slots, $lotes, '', $catalogo, $usados,
+                                          motor_lotes_para_alta($pdo, $usuarioId, $lotes, $campania))) return $falta;
 
         $prop = motor_armar_alta($slots, $lotes, $campania);
         return [
@@ -5146,6 +5148,56 @@ const MOTOR_INSUMO_LIBRE = 'No está en la lista';
 
 /** Cuántos insumos se ofrecen como chips antes de que la lista tape la pregunta. */
 const MOTOR_CHIPS_INSUMO = 8;
+/** Y cuántos lotes. Mismo motivo: con veinte campos la lista tapa la pantalla. */
+const MOTOR_CHIPS_LOTE = 8;
+
+/**
+ * Los lotes ordenados por cuál es más probable que sea el de esta carga.
+ *
+ * Mismo problema que con los insumos: se ofrecían TODOS, y con veinte campos la
+ * lista tapa la pregunta. La diferencia es qué los ordena.
+ *
+ * Manda la campaña que se está mirando: si estás cargando la 26/27, el lote es
+ * casi seguro uno de los que venís trabajando este año. Después, cuál se tocó
+ * más recientemente — el que se sembró la semana pasada es el que se está
+ * fertilizando hoy—, y por último el nombre, para que el orden no baile entre
+ * dos lotes sin movimientos.
+ *
+ * Los que quedan afuera NO desaparecen: se pueden escribir, y "todos los lotes"
+ * sigue significando todos y no sólo los que se ven.
+ */
+function motor_lotes_para_alta(PDO $pdo, int $uid, array $lotes, ?string $campania): array {
+    $act = [];
+    try {
+        $st = $pdo->prepare(
+            "SELECT lote_id AS id,
+                    SUM(CASE WHEN campania_operacion = ? THEN 1 ELSE 0 END) AS enCiclo,
+                    MAX(fecha) AS ultima
+               FROM operaciones
+              WHERE usuario_id = ?
+              GROUP BY lote_id"
+        );
+        $st->execute([$campania, $uid]);
+        foreach ($st->fetchAll() as $f) {
+            $act[(int)$f['id']] = ['enCiclo' => (int)$f['enCiclo'], 'ultima' => (string)$f['ultima']];
+        }
+    } catch (Throwable $e) {
+        $act = [];   // sin historia se ordena por nombre y ya
+    }
+
+    $orden = array_values($lotes);
+    usort($orden, function ($a, $b) use ($act) {
+        $ia = $act[(int)$a['id']] ?? ['enCiclo' => 0, 'ultima' => ''];
+        $ib = $act[(int)$b['id']] ?? ['enCiclo' => 0, 'ultima' => ''];
+        // Con movimientos en la campaña que se mira, antes que sin ellos.
+        $ca = $ia['enCiclo'] > 0 ? 1 : 0;
+        $cb = $ib['enCiclo'] > 0 ? 1 : 0;
+        if ($ca !== $cb) return $cb <=> $ca;
+        if ($ia['ultima'] !== $ib['ultima']) return strcmp($ib['ultima'], $ia['ultima']);
+        return strcasecmp((string)$a['nombre'], (string)$b['nombre']);
+    });
+    return $orden;
+}
 
 /**
  * Cuántas veces usó cada insumo EN ESA ETAPA, de todo lo que lleva cargado.
@@ -5277,7 +5329,7 @@ function motor_alta_nombres_lotes(array $ids, array $lotes): array {
  * salida; ahora es simplemente el paso a paso empezado más adelante.
  */
 function motor_alta_siguiente(array $slots, array $lotes, string $aviso = '', array $catalogo = [],
-                              array $usados = []): ?array {
+                              array $usados = [], array $ordenLotes = []): ?array {
     foreach (motor_alta_pasos() as $campo => $paso) {
         if (isset($slots[$campo])) continue;
         if (!motor_alta_paso_aplica($paso, $slots)) continue;
@@ -5339,8 +5391,7 @@ function motor_alta_siguiente(array $slots, array $lotes, string $aviso = '', ar
         }
 
         if ($campo === 'lotes') {
-            $ops = array_map(fn($l) => $l['nombre'], $lotes);
-            if (!$ops) {
+            if (!$lotes) {
                 return [
                     'ok' => false, 'tipo' => 'falta_dato',
                     'respuesta' => 'Todavía no tenés lotes cargados, así que no puedo anotar el gasto.',
@@ -5349,9 +5400,17 @@ function motor_alta_siguiente(array $slots, array $lotes, string $aviso = '', ar
                     'filtros' => [], 'link' => 'lotes.php', 'sugerencias' => [],
                 ];
             }
+            $ops = array_map(fn($l) => $l['nombre'], array_slice($ordenLotes ?: $lotes, 0, MOTOR_CHIPS_LOTE));
             // El atajo para el caso más común de una carga repartida, que si no
-            // habría que escribir nombrando los lotes uno por uno.
-            if (count($ops) > 1) $ops[] = 'Todos los lotes';
+            // habría que escribir nombrando los lotes uno por uno. Sigue queriendo
+            // decir TODOS, no sólo los que entraron en la lista.
+            if (count($lotes) > 1) $ops[] = 'Todos los lotes';
+
+            $quedan = count($lotes) - count($ops) + (count($lotes) > 1 ? 1 : 0);
+            if ($quedan > 0) {
+                $paso['ayuda'] = 'Éstos son los que venís trabajando. Tenés ' . $quedan
+                               . ' más: escribime el nombre y lo busco. También podés nombrar varios de una.';
+            }
         }
 
         // Lo que ya se sabe, repetido en cada pregunta: sin esto, cinco preguntas
