@@ -93,27 +93,84 @@ if ($idem !== '' && !preg_match('/^[0-9a-f-]{8,36}$/i', $idem)) $idem = '';
    el detalle va en un renglón de operacion_insumos. Sin ese renglón la fila
    aparece con la columna Detalle en blanco. */
 $GRUPOS = ['siembra','cosecha','pulverizacion','fertilizacion','otros'];
-$TIPOS  = ['labor','insumo'];
+$TIPOS  = ['labor','insumo','receta'];
+
+/* ─── LOS RENGLONES DE INSUMO ────────────────────────────────────────────────
+ * Una aplicación lleva varios productos en la misma pasada —el herbicida, el
+ * coadyuvante, el aceite— y cada uno tiene su dosis y su precio. Llegan en una
+ * lista; los campos sueltos de arriba siguen valiendo para una carga de un solo
+ * insumo, que es lo que mandaba el chat hasta ahora.
+ *
+ * El precio de cada renglón viene DADO y no se deriva del monto: en una receta
+ * el monto incluye la labor, así que dividirlo por la cantidad daría un precio
+ * por kilo inflado con plata que no es del producto.
+ */
+$insumos_in = [];
+if (!empty($_POST['insumos'])) {
+    /* Se aceptan las dos formas en que puede llegar: un JSON —que es como lo manda
+       el chat— o ya desarmada en insumos[0][id], insumos[0][nombre]…, que es como
+       queda si el cliente arma el POST con los campos tal cual vienen. Sin esto lo
+       segundo entraba como el texto "Array" y se perdía la lista entera sin que
+       nada fallara: la operación se guardaba, pero sin un solo renglón. */
+    $lista = is_array($_POST['insumos'])
+        ? $_POST['insumos']
+        : json_decode((string)$_POST['insumos'], true);
+    if (is_array($lista)) {
+        foreach (array_slice($lista, 0, 20) as $i) {
+            if (!is_array($i)) continue;
+            $insumos_in[] = [
+                'id'       => (int)($i['id'] ?? 0),
+                'nombre'   => mb_substr(trim((string)($i['nombre'] ?? '')), 0, 150),
+                'cantidad' => (float)($i['cantidad'] ?? 0),
+                'precio'   => (float)($i['precio'] ?? 0),
+            ];
+        }
+    }
+}
+// La labor de una receta, POR HECTÁREA: es como la guarda y la muestra el formulario.
+$labor_ha = (float)($_POST['labor_costo'] ?? 0);
 
 $errores = [];
 if (!in_array($grupo, $GRUPOS, true))            $errores[] = 'la etapa no es válida';
 if (!in_array($tipo, $TIPOS, true))              $errores[] = 'el tipo no es válido';
-if ($tipo === 'insumo' && $insumo === '')        $errores[] = 'falta el nombre del insumo';
+$conInsumos = ($tipo === 'insumo' || $tipo === 'receta');
+
+if ($conInsumos && !$insumos_in) {
+    // Sin lista: es la carga de un insumo solo, con los campos sueltos de siempre.
+    if ($insumo === '')   $errores[] = 'falta el nombre del insumo';
+    /* La cantidad es obligatoria para un insumo, venga o no del catálogo. De ella
+       salen el precio unitario y la cantidad por hectárea, que son las dos cifras
+       con las que el resto de la app calcula. Sin cantidad habría que inventarla. */
+    if ($cantidad <= 0)   $errores[] = 'falta la cantidad del insumo';
+}
 if (mb_strlen($insumo) > 150)                    $errores[] = 'el nombre del insumo es demasiado largo';
-/* La cantidad es obligatoria para un insumo, venga o no del catálogo. De ella
-   salen el precio unitario y la cantidad por hectárea, que son las dos cifras con
-   las que el resto de la app calcula. Sin cantidad habría que inventarla. */
-if ($tipo === 'insumo' && $cantidad <= 0)        $errores[] = 'falta la cantidad del insumo';
+foreach ($insumos_in as $k => $i) {
+    if ($i['nombre'] === '' && $i['id'] <= 0) $errores[] = 'falta el nombre del insumo ' . ($k + 1);
+    if ($i['cantidad'] <= 0)                  $errores[] = 'falta la cantidad del insumo ' . ($k + 1);
+    if ($i['precio'] < 0)                     $errores[] = 'el precio del insumo ' . ($k + 1) . ' no puede ser negativo';
+}
+if ($tipo === 'receta' && $labor_ha < 0)         $errores[] = 'la labor no puede ser negativa';
 
 /* El insumo del catálogo tiene que ser del usuario de la sesión. Si no lo es, no
    se guarda a nombre de otro ni se rechaza en silencio: se corta, porque este id
    decide de qué stock se descuenta. */
 $insumoCat = null;
-if ($insumo_id > 0) {
+if ($insumo_id > 0 && !$insumos_in) {
     $st = $pdo->prepare("SELECT id, nombre FROM insumos WHERE id = ? AND usuario_id = ? AND estado = 'activo'");
     $st->execute([$insumo_id, $usuario_id]);
     $insumoCat = $st->fetch() ?: null;
     if (!$insumoCat) $errores[] = 'ese insumo no existe o no es tuyo';
+}
+/* Y cada renglón de la lista, uno por uno. Un id que no sea del usuario de la
+   sesión corta la carga entera: ese id decide de qué stock se descuenta, y
+   descontarle a otro es peor que no guardar nada. */
+$stCat = $pdo->prepare("SELECT id, nombre FROM insumos WHERE id = ? AND usuario_id = ? AND estado = 'activo'");
+foreach ($insumos_in as $k => $i) {
+    if ($i['id'] <= 0) { $insumos_in[$k]['cat'] = null; continue; }
+    $stCat->execute([$i['id'], $usuario_id]);
+    $fila = $stCat->fetch() ?: null;
+    if (!$fila) { $errores[] = 'el insumo ' . ($k + 1) . ' no existe o no es tuyo'; }
+    $insumos_in[$k]['cat'] = $fila;
 }
 if ($monto <= 0)                                 $errores[] = 'el monto tiene que ser mayor a cero';
 /* El formato solo no alcanza: "2026-02-31" lo cumple y no es una fecha. Según cómo
@@ -210,9 +267,16 @@ unset($d);
  * cambia es la superficie de cada uno—, y por eso la cuenta de cada lote da su
  * parte del costo y del stock sin necesidad de repartir nada aparte.
  */
+/* Cada renglón de la lista, pasado a lo que guarda la base: cantidad por hectárea
+   y precio por unidad. El precio ya viene por unidad, así que sólo hay que dividir
+   la cantidad. Es la misma división que abajo, escrita una sola vez. */
+foreach ($insumos_in as $k => $i) {
+    $insumos_in[$k]['cant_ha'] = round($supTotal > 0 ? $i['cantidad'] / $supTotal : $i['cantidad'], 4);
+}
+
 $cant_ha_ins = 0.0;
 $precio_ins  = 0.0;
-if ($tipo === 'insumo') {
+if ($conInsumos && !$insumos_in) {
     /* Redondeado a 4 decimales ANTES de usarlo, que es la precisión de la columna.
        El descuento de stock y la devolución tienen que salir del MISMO número: si
        se descontara con el valor exacto y la app devolviera con el guardado, cada
@@ -224,8 +288,11 @@ if ($tipo === 'insumo') {
     $precio_ins  = $cantidad > 0 ? $monto / $cantidad : 0.0;
 }
 
-// El formulario traduce "Insumo" a multi_insumo antes de guardar; se hace igual.
-$tipo_db = $tipo === 'insumo' ? 'multi_insumo' : 'labor';
+/* El formulario traduce "Insumo" a multi_insumo antes de guardar; se hace igual.
+   Y la aplicación es 'receta_labor', que es el tercer tipo que el formulario ya
+   sabía guardar y mostrar —con su ficha, su Excel y su PDF— y al que el chat
+   recién ahora puede llegar. */
+$tipo_db = $tipo === 'receta' ? 'receta_labor' : ($tipo === 'insumo' ? 'multi_insumo' : 'labor');
 
 /* ¿Esta misma carga ya entró? Pasa cuando el teléfono la mandó sin señal, llegó,
    y la respuesta se perdió. Se contesta que sí con los ids que ya tiene, así el
@@ -275,17 +342,51 @@ try {
            deja el formulario.
            Se deja marcado el origen: si mañana algo no cierra, se sabe qué entró
            por el chat y qué por el formulario. */
+        /* Qué va en cantidad_ha y precio_unitario de la OPERACIÓN, según el tipo:
+             · labor        → las horas/jornales y su precio, que es el gasto entero;
+             · insumo       → nada: el detalle vive en los renglones;
+             · receta_labor → la superficie y el precio de la labor POR HECTÁREA.
+               Así lo lee el panel para separar la labor de los insumos
+               (precio_unitario × cantidad_ha) y así lo muestra la ficha de la
+               receta ("Labor: fulano ($X/ha)"). */
+        if ($tipo === 'receta') {
+            $op_cant_ha = $d['sup_calc'];
+            $op_precio  = $labor_ha;
+        } elseif ($tipo === 'insumo') {
+            $op_cant_ha = 0;
+            $op_precio  = 0;
+        } else {
+            $op_cant_ha = $d['sup_calc'];
+            $op_precio  = $d['precio_ha'];
+        }
         $stmt->execute([$usuario_id, $d['id'], $grupo, $tipo_db, $d['monto'], $moneda, $fecha,
                         $campania ?: null, 'Cargado desde el chat',
                         $tipo === 'insumo' ? null : $detalle,
-                        $tipo === 'insumo' ? 0 : $d['sup_calc'],
-                        $tipo === 'insumo' ? 0 : $d['precio_ha'],
+                        $op_cant_ha,
+                        $op_precio,
                         $d['sup_calc'],
                         $idem !== '' ? $idem : null]);
         $op_id = (int)$pdo->lastInsertId();
         $ids[] = $op_id;
 
-        if ($tipo === 'insumo') {
+        /* Los renglones de la aplicación: uno por insumo, con su dosis y su
+           precio. Es la misma tabla y la misma cuenta que usa el formulario, así
+           que la operación se ve, se edita y se borra igual que si hubiera
+           entrado por ahí — incluido devolver el stock de cada producto. */
+        foreach ($insumos_in as $i) {
+            $stmtIns->execute([
+                $op_id,
+                $i['cat'] ? (int)$i['cat']['id'] : null,
+                $i['cat'] ? null : $i['nombre'],
+                $i['cant_ha'],
+                $i['precio'],
+            ]);
+            if ($i['cat']) {
+                $stmtStock->execute([$i['cant_ha'] * $d['sup_calc'], (int)$i['cat']['id'], $usuario_id]);
+            }
+        }
+
+        if ($conInsumos && !$insumos_in) {
             /* Dos formas, las mismas dos del formulario:
                  · del catálogo → insumo_id apuntando al insumo, y se descuenta
                    stock por la cantidad que le toca a este lote;
@@ -311,7 +412,18 @@ try {
 
     $pdo->commit();
 
-    $qué = $tipo === 'insumo' ? $insumo : $grupo;
+    /* Qué se cargó, dicho como lo entendería quien lo mandó. Con varios insumos
+       se nombran: "de Glifosato y Coadyuvante" dice más que "de pulverización", y
+       es lo que permite darse cuenta en el acto de que faltó uno. */
+    if (count($insumos_in) > 1) {
+        $nn = array_map(fn($i) => $i['cat']['nombre'] ?? $i['nombre'], $insumos_in);
+        $ultimo = array_pop($nn);
+        $qué = ($tipo === 'receta' ? 'la aplicación con ' : '') . implode(', ', $nn) . ' y ' . $ultimo;
+    } elseif ($conInsumos) {
+        $qué = $insumos_in ? ($insumos_in[0]['cat']['nombre'] ?? $insumos_in[0]['nombre']) : $insumo;
+    } else {
+        $qué = $grupo;
+    }
     $msg = $n === 1
         ? 'Listo, quedó cargado: ' . number_format($monto, 2, ',', '.')
           . ' de ' . $qué . ' en ' . $destinos[0]['nombre'] . '.'

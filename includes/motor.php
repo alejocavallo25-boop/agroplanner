@@ -121,10 +121,15 @@ function motor_metricas(): array {
  */
 function motor_grupos(): array {
     return [
-        'siembra'       => ['etiqueta' => 'siembra',       'sinonimos' => ['siembra','sembrar','sembre','sembrado']],
-        'cosecha'       => ['etiqueta' => 'cosecha',       'sinonimos' => ['cosecha','cosechar','coseche','trilla']],
-        'pulverizacion' => ['etiqueta' => 'pulverización', 'sinonimos' => ['pulverizacion','pulverizar','pulverizado','fumigacion','fumigar','aplicacion']],
-        'fertilizacion' => ['etiqueta' => 'fertilización', 'sinonimos' => ['fertilizacion','fertilizar','fertilizado']],
+        /* Van también las formas en que se cuenta lo que se hizo —"fertilicé",
+           "pulvericé"—, que es como se habla al cargar. Faltaban "fertilice" y
+           "pulverice" y por eso "fertilicé Cornaglia" no reconocía la etapa: no
+           se parecen lo bastante a "fertilizar" para que la tolerancia de tipeo
+           las alcance (tres letras de diferencia sobre diez). */
+        'siembra'       => ['etiqueta' => 'siembra',       'sinonimos' => ['siembra','sembrar','sembre','sembrado','sembramos']],
+        'cosecha'       => ['etiqueta' => 'cosecha',       'sinonimos' => ['cosecha','cosechar','coseche','cosechamos','trilla']],
+        'pulverizacion' => ['etiqueta' => 'pulverización', 'sinonimos' => ['pulverizacion','pulverizar','pulverice','pulverizamos','pulverizado','fumigacion','fumigar','fumigue','aplicacion']],
+        'fertilizacion' => ['etiqueta' => 'fertilización', 'sinonimos' => ['fertilizacion','fertilizar','fertilice','fertilizamos','fertilizado']],
         'otros'         => ['etiqueta' => 'otros gastos',  'sinonimos' => ['otros gastos','otros']],
     ];
 }
@@ -526,16 +531,51 @@ function motor_detectar_meses(PDO $pdo, int $uid, string $texto): array {
  * bien los números pero invertía el sujeto de la frase.
  */
 function motor_detectar_lotes(string $texto, array $lotes): array {
-    $out = [];
+    /* EL LITERAL LE GANA AL PARECIDO, Y ÉSTE ES EL MOTIVO
+       "Lote 1" y "Lote 2" están a distancia de edición 1, y la tolerancia para un
+       nombre de seis letras es justamente 1. O sea que preguntar por el lote 1
+       reconocía TAMBIÉN el lote 2, quedaban dos lotes nombrados, y con dos lotes
+       se dispara la rama de comparar. Medido contra producción: "¿cuánto gasté
+       en el lote 1?" contestaba "Gastaste menos en Lote 1 que en Lote 2".
+       El número del Lote 1 estaba bien, así que no se notaba que era la respuesta
+       a otra pregunta — y con más lotes cargados el segundo lo elegía el azar.
+
+       El parecido sigue existiendo, que para eso está: "rubai" tiene que seguir
+       encontrando "La rubia". Lo que cambia es que sólo se usa cuando NINGÚN
+       nombre apareció escrito tal cual. Si uno apareció literal, no hay nada que
+       adivinar. */
+    $literal = $aprox = [];
     foreach ($lotes as $l) {
         $n = motor_normalizar($l['nombre']);
+        if ($n === '') continue;
         $p = mb_strpos($texto, $n);
-        if ($p === false) {
-            if (!motor_coincide($texto, $n)) continue;
-            $p = PHP_INT_MAX;   // reconocido por aproximación: va al final
+        if ($p !== false) {
+            $literal[] = ['pos' => $p, 'largo' => mb_strlen($n), 'lote' => $l];
+        } elseif (motor_coincide($texto, $n)) {
+            $aprox[] = ['pos' => PHP_INT_MAX, 'largo' => mb_strlen($n), 'lote' => $l];
         }
-        $out[] = ['pos' => $p, 'lote' => $l];
     }
+
+    $out = $literal ?: $aprox;
+
+    /* Y entre los literales, el nombre más largo se queda con el tramo: con
+       "Lote 1" y "Lote 12" cargados, el texto "lote 12" contiene a los dos —"lote
+       1" es un pedazo de "lote 12"— y volvían a salir dos. Es el mismo criterio
+       de "gana el sinónimo más largo" que ya se usa para elegir la métrica. */
+    if ($literal) {
+        usort($out, fn($a, $b) => $b['largo'] <=> $a['largo']);
+        $elegidos = $tramos = [];
+        foreach ($out as $c) {
+            $desde = $c['pos']; $hasta = $c['pos'] + $c['largo'];
+            foreach ($tramos as $t) {
+                if ($desde < $t[1] && $hasta > $t[0]) continue 2;   // lo pisa uno más largo
+            }
+            $tramos[] = [$desde, $hasta];
+            $elegidos[] = $c;
+        }
+        $out = $elegidos;
+    }
+
     usort($out, fn($a, $b) => $a['pos'] <=> $b['pos']);
     return array_column($out, 'lote');
 }
@@ -593,6 +633,34 @@ function motor_pide_comparar(string $texto): bool {
  * Se exigen las frases con "por" o "cada" a propósito: "en qué lote gasté más"
  * es el ranking que ya existe, y no tiene que caer acá.
  */
+/**
+ * ¿Pide ver el gasto ABIERTO POR ETAPA — cuánto en siembra, cuánto en ferti?
+ *
+ * Es distinto de las tres cosas que ya había, y por eso hacía falta:
+ *   · "¿cuánto gasté?"            → un número solo, el total de laboreo
+ *   · "¿cuánto gasté en ferti?"   → un número solo, el de esa etapa
+ *   · "¿en qué gasté MÁS?"        → el ranking, que nombra al ganador
+ * Ninguna de las tres contesta "mostrame todo repartido". Verificado contra
+ * producción: "dame un desglose de gastos" devolvía "costos de laboreo:
+ * $52.418.250" — el total pelado, que es justo lo que no se preguntó.
+ *
+ * "Más" queda afuera a propósito: esa pregunta ya tiene su rama y elige un
+ * ganador, que es otra cosa que ver la lista entera.
+ */
+function motor_pide_desglose(string $t): bool {
+    if (preg_match('/\bmas\b|\bmás\b/u', $t)) return false;
+    foreach (['desglose','desglosa','desglosame','desglosar',
+              'detalle de gasto','detalle de los gasto','detalle de costo',
+              'en que gaste','en que se me fue','en que se fue',
+              'cuanto en cada','en cada cosa','cada cosa',
+              'por etapa','por etapas','por rubro','por rubros',
+              'abrime los gastos','abrir los gastos','abrime el gasto',
+              'como se reparte','como se reparten','reparto de gastos'] as $p) {
+        if (strpos($t, $p) !== false) return true;
+    }
+    return false;
+}
+
 function motor_pide_desglose_dimension(string $t): ?string {
     foreach (['por lote','por cada lote','en cada lote','lote por lote',
               'de cada lote','para cada lote','por los lotes',
@@ -670,6 +738,18 @@ function motor_pide_unidad(string $t): bool {
     return (bool)preg_match(
         '/(^|\s)(kg|kilo|kilos|kilogramo|kilogramos|lt|lts|litro|litros|'
         . 'bolsa|bolsas|dosis|unidad|unidades|cantidad)(\s|$)/u', $t);
+}
+
+/**
+ * ¿La pregunta habla de plata?
+ *
+ * Sirve para desempatar "cuánto fertilizante por hectárea", que sin ninguna
+ * palabra de dinero es una pregunta de kilos por hectárea —así se piensa una
+ * fertilización— y no de pesos por hectárea.
+ */
+function motor_pide_plata(string $t): bool {
+    return (bool)preg_match('/(gast|cost|plata|peso|dolar|dólar|presupuest|invert|pagu|'
+                          . 'cuesta|cuestan|sale|salio|salió|factur|\$)/u', $t);
 }
 
 /** ¿Pregunta a qué PRECIO compró un insumo, no cuánto gastó en total? */
@@ -760,6 +840,24 @@ function motor_coincide(string $texto, string $frase): bool {
         if (levenshtein($ventana, $frase) <= $tolerancia) return true;
     }
     return false;
+}
+
+/**
+ * ¿La pregunta pide el número repartido por hectárea?
+ *
+ * "Costo de fertilización POR HECTÁREA" y "costo de fertilización" son dos
+ * preguntas distintas, y hasta acá el motor contestaba la segunda a las dos: la
+ * etapa se reconocía, el "por hectárea" se ignoraba, y salía el total de la
+ * campaña. Verificado contra producción: a "¿cuál es el costo de fertilización
+ * por hectárea?" contestaba $16.916.400, que es la fertilización entera. Nadie
+ * fertiliza a diecisiete millones la hectárea, pero el número venía con la misma
+ * cara de seguridad que cualquier otro.
+ *
+ * No incluye "cuanto rinde" ni nada de kilos: eso ya tiene su propia métrica.
+ */
+function motor_pide_por_hectarea(string $texto): bool
+{
+    return (bool)preg_match('/\b(?:por|x|\/)\s*(?:hect[aá]reas?|has?)\b/u', $texto);
 }
 
 /**
@@ -1072,7 +1170,7 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
         /* Corregir un casillero. Va antes del reparto por tipo de alta para que
            valga en los cuatro formularios: se vacía el casillero y el paso a
            paso lo vuelve a preguntar solo, sin tocar el resto de lo cargado. */
-        $corregir = motor_alta_pide_correccion($texto, $slots['que']);
+        $corregir = motor_alta_pide_correccion($texto, $slots['que'], $slots);
         if ($corregir !== null) {
             $campos = motor_alta_campos($slots['que']);
             if ($corregir === '') {
@@ -1102,9 +1200,22 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
             /* El reparto depende del monto y de cuántos lotes hay: si se corrige
                alguno de esos, el que había deja de tener sentido. */
             if (in_array($corregir, ['costo_total', 'lotes'], true)) unset($slots['reparto']);
-            // Y el insumo arrastra su cantidad y su vínculo con el catálogo.
+            /* Y el insumo arrastra su vínculo con el catálogo, su unidad y las dos
+               cifras que dependen de esa unidad: una dosis de 120 kg/ha y un precio
+               por kilo no significan lo mismo si el insumo pasó a medirse en
+               litros. Se vuelven a preguntar en vez de quedar mal calladas. */
             if ($corregir === 'insumo_nombre') {
-                unset($slots['insumo_id'], $slots['insumo_cantidad'], $slots['insumo_unidad']);
+                unset($slots['insumo_id'], $slots['insumo_unidad'],
+                      $slots['insumo_dosis'], $slots['insumo_precio'], $slots['insumo_cantidad'],
+                      $slots['insumo_precio_de'], $slots['insumo_precio_usd']);
+            }
+            /* Si cambia de mano de obra a insumo (o al revés), lo que se había
+               cargado para el camino anterior ya no aplica. */
+            if ($corregir === 'tipo_componente') {
+                unset($slots['insumo_nombre'], $slots['insumo_id'], $slots['insumo_unidad'],
+                      $slots['insumo_dosis'], $slots['insumo_precio'], $slots['insumo_cantidad'],
+                      $slots['insumo_precio_de'], $slots['insumo_precio_usd'],
+                      $slots['costo_total'], $slots['reparto']);
             }
         }
 
@@ -1121,6 +1232,12 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
         $pasos = motor_alta_pasos();
         // Por qué no se aceptó la fecha, si es que dijo una. Vacío si no hubo problema.
         $avisoFecha = '';
+        // Y por qué el insumo que escribió no quedó vinculado al catálogo.
+        $avisoInsumo = '';
+        /* Una sola lectura del catálogo por vuelta. Antes se pedía dos veces
+           seguidas dentro del mismo paso —una por el nombre exacto y otra por el
+           parecido— y encima hacía falta acá para saber si el catálogo está vacío. */
+        $catalogoAlta = motor_insumos_catalogo($pdo, $usuarioId);
 
         /* Se interpreta la respuesta SEGÚN EL CASILLERO que se preguntó. "cosecha"
            es la etapa cuando se preguntó la etapa, y no otra cosa: acotar la
@@ -1137,7 +1254,12 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
                     /* Alcanza con distinguir dos cosas, y el productor puede decirlo
                        de muchas maneras. Nombrar un rubro también cuenta: quien
                        contesta "fertilizante" está diciendo que fue un insumo. */
-                    if (motor_detectar_dimension($texto, motor_tipos_insumo())
+                    /* La aplicación va PRIMERO: "aplicación (labor + insumos)" trae
+                       las dos palabras adentro, así que preguntando por labor o por
+                       insumo se la lleva cualquiera de los otros dos. */
+                    if (preg_match('/(^|\s)(aplicacion|aplicaci[oó]n|receta|pasada|labor \+ insumo|labor mas insumo)/u', $texto)) {
+                        $slots['tipo_componente'] = 'receta';
+                    } elseif (motor_detectar_dimension($texto, motor_tipos_insumo())
                         || preg_match('/(^|\s)(insumo|insumos|producto|comp[ré]|compra)/u', $texto)) {
                         $slots['tipo_componente'] = 'insumo';
                     } elseif (preg_match('/(^|\s)(mano de obra|labor|labores|jornal|contratista|trabajo|servicio)/u', $texto)) {
@@ -1155,11 +1277,11 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
                            después con tolerancia, igual que con los lotes: el chip
                            manda el nombre tal cual, pero también se puede tipear. */
                         $elegido = null;
-                        foreach (motor_insumos_catalogo($pdo, $usuarioId) as $ins) {
+                        foreach ($catalogoAlta as $ins) {
                             if (motor_normalizar($ins['nombre']) === motor_normalizar($n)) { $elegido = $ins; break; }
                         }
                         if (!$elegido && empty($slots['insumo_libre'])) {
-                            foreach (motor_insumos_catalogo($pdo, $usuarioId) as $ins) {
+                            foreach ($catalogoAlta as $ins) {
                                 if (motor_coincide(motor_normalizar($n), motor_normalizar($ins['nombre']))) { $elegido = $ins; break; }
                             }
                         }
@@ -1168,19 +1290,74 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
                             $slots['insumo_id']     = (int)$elegido['id'];
                             $slots['insumo_nombre'] = $elegido['nombre'];
                             $slots['insumo_unidad'] = $elegido['unidad_medida'];
+                            /* Y el precio, del catálogo. Es un dato que el productor
+                               ya cargó: volver a pedírselo es hacerle tipear algo que
+                               la aplicación tiene guardado, y encima es donde más
+                               fácil se equivoca un dígito.
+                               No queda escondido: la confirmación dice el precio, de
+                               dónde salió y en qué dólares estaba, así que se aprueba
+                               a la vista igual que todo lo demás. Si no tiene precio
+                               cargado, se pregunta como siempre. */
+                            $pc = motor_precio_catalogo($pdo, $usuarioId, $elegido);
+                            if ($pc !== null) {
+                                $slots['insumo_precio'] = round($pc, 2);
+                                $slots['insumo_precio_de'] = 'catalogo';
+                                $slots['insumo_precio_usd'] = (float)$elegido['precio_usd'];
+                            }
                         } elseif ($n !== '' && mb_strlen($n) <= 150) {
                             /* Escrito a mano: se guarda tal cual y NO se vincula. Es
-                               la opción "Sin Descontar Stock" del formulario. */
+                               la opción "Sin Descontar Stock" del formulario.
+                               Y SE AVISA, que es lo que faltaba: escribir un nombre
+                               que el catálogo no tiene se aceptaba en silencio y la
+                               charla seguía igual. Quien creía haber elegido su urea
+                               se enteraba —si se enteraba— recién en el resumen del
+                               final, en una línea que dice que no descuenta stock.
+                               El aviso sólo va cuando NO tocó "no está en la lista":
+                               si eligió escribirlo a mano, ya lo sabe. */
+                            if (empty($slots['insumo_libre']) && $catalogoAlta) {
+                                $avisoInsumo = 'No encontré "' . $n . '" en tu catálogo, '
+                                             . 'así que lo anoto como texto y no descuenta stock.';
+                            }
                             $slots['insumo_id']     = 0;
                             $slots['insumo_nombre'] = $n;
                         }
                     }
-                } elseif ($campo === 'insumo_cantidad') {
+                } elseif ($campo === 'insumo_dosis' || $campo === 'insumo_precio'
+                       || $campo === 'insumo_cantidad') {
+                    /* Los tres leen igual: un número, con o sin unidad al lado.
+                       Se acepta el número pelado porque la pregunta ya dijo de qué
+                       se trata —"¿cuántos kg por hectárea?"— y contestar "120" es
+                       lo natural. Cero o negativo no se toman: se vuelve a
+                       preguntar en vez de guardar una dosis imposible. */
                     $c = motor_detectar_monto($pregunta);
                     if ($c === null && preg_match('/(\d+(?:[.,]\d+)?)/u', $pregunta, $mm)) {
                         $c = (float)str_replace(',', '.', $mm[1]);
                     }
-                    if ($c !== null && $c > 0) $slots['insumo_cantidad'] = $c;
+                    if ($c !== null && $c > 0) {
+                        $slots[$campo] = $c;
+                        /* Si tipeó el precio a mano, deja de ser el del catálogo y
+                           la confirmación no puede seguir diciendo que lo es. */
+                        if ($campo === 'insumo_precio') {
+                            unset($slots['insumo_precio_de'], $slots['insumo_precio_usd']);
+                        }
+                    }
+                } elseif ($campo === 'labor_costo') {
+                    $m = motor_detectar_monto($pregunta);
+                    if ($m === null && preg_match('/\b(\d+)\b/', $pregunta, $mm)) $m = (float)$mm[1];
+                    if ($m !== null && $m > 0) $slots['labor_costo'] = $m;
+                } elseif ($campo === 'otro_insumo') {
+                    /* Acá está el bucle. Al decir que sí, el renglón que se venía
+                       llenando se guarda en la lista y se limpian los casilleros
+                       del insumo: la vuelta siguiente el motor ve que falta el
+                       nombre y lo pregunta de nuevo, sin código de bucle propio.
+                       Al decir que no, el renglón se guarda igual y se marca la
+                       lista como cerrada, para no volver a preguntar. */
+                    $si = (bool)preg_match('/(^|\s)(si|sí|otro|otra|agrego|agregar|dale|sumo|sumar|mas|más)(\s|$)/u', $texto);
+                    $no = (bool)preg_match('/(^|\s)(no|ya esta|ya está|listo|nada mas|nada más|terminar|termine|eso es todo)(\s|$)/u', $texto);
+                    if ($si || $no) {
+                        $slots = motor_alta_guardar_insumo($slots);
+                        if ($no) $slots['insumos_cerrado'] = 1;
+                    }
                 } elseif ($campo === 'lotes') {
                     /* "todos" primero: si el productor lo dice, no hace falta que
                        ninguno de los nombres aparezca en la frase. */
@@ -1212,9 +1389,11 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
             }
         }
 
-        // ¿Qué falta todavía?
-        if ($falta = motor_alta_siguiente($slots, $lotes, $avisoFecha,
-                                          motor_insumos_catalogo($pdo, $usuarioId))) return $falta;
+        /* ¿Qué falta todavía? Los dos avisos van juntos y no se pisan: son de
+           casilleros distintos y pueden pasar los dos en la misma carga. */
+        $aviso = trim($avisoInsumo . ' ' . $avisoFecha);
+        $usados = motor_insumos_usados($pdo, $usuarioId, $slots['grupo_gasto'] ?? null);
+        if ($falta = motor_alta_siguiente($slots, $lotes, $aviso, $catalogoAlta, $usados)) return $falta;
 
         // Están todos: se arma la MISMA confirmación que el modo de una sola frase.
         $prop = motor_armar_alta($slots, $lotes, $campania);
@@ -1237,14 +1416,18 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
     if (motor_pide_alta($texto)) {
         // Misma razón que en el alta guiada: para cargar valen todos los lotes.
         $lotes = motor_lotes_del_usuario($pdo, $usuarioId) ?: $lotes;
-        $slots = motor_interpretar_alta($texto, $pregunta, $lotes, $lote);
+        /* El catálogo va a la lectura de la frase, no sólo a los chips: es lo que
+           permite que "con 120 kg de urea" reconozca CUÁL urea, la vincule al
+           stock y le saque el precio. */
+        $catalogo = motor_insumos_catalogo($pdo, $usuarioId);
+        $slots = motor_interpretar_alta($texto, $pregunta, $lotes, $lote, $pdo, $usuarioId, $catalogo);
 
         /* Lo que la frase no traiga lo pregunta el paso a paso desde donde quedó,
            en vez de un cartel sin salida. El lote nunca se da por supuesto aunque
            haya uno solo: acá se está por escribir, y un gasto en el campo
            equivocado no se nota hasta que el margen ya salió mal. */
-        if ($falta = motor_alta_siguiente($slots, $lotes, '',
-                                          motor_insumos_catalogo($pdo, $usuarioId))) return $falta;
+        $usados = motor_insumos_usados($pdo, $usuarioId, $slots['grupo_gasto'] ?? null);
+        if ($falta = motor_alta_siguiente($slots, $lotes, '', $catalogo, $usados)) return $falta;
 
         $prop = motor_armar_alta($slots, $lotes, $campania);
         return [
@@ -2028,8 +2211,16 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
     /* Nombrar una unidad junto a un rubro también es preguntar por la cantidad:
        "cuántos kg de semilla tiré" no lleva ninguno de los verbos de la lista,
        y sin esta puerta caía en la rama del gasto y devolvía pesos. */
+    /* Y la tercera puerta: un rubro nombrado con "por hectárea" y sin una sola
+       palabra de plata. Una fertilización se piensa en kilos por hectárea, así
+       que "¿cuánto fertilizante por hectárea?" pregunta la dosis. Hasta acá no
+       llevaba ni verbo de consumo ni unidad, caía en la rama del gasto y
+       contestaba en pesos algo preguntado en kilos.
+       Si aparece "gasté", "costo" o cualquier otra palabra de dinero, la
+       pregunta es de plata y sigue de largo hasta el gasto por hectárea. */
     $pideCantidad = motor_pide_consumo($texto)
-                 || (motor_pide_unidad($texto) && $rubroTxt !== null);
+                 || (motor_pide_unidad($texto) && $rubroTxt !== null)
+                 || ($rubroTxt !== null && motor_pide_por_hectarea($texto) && !motor_pide_plata($texto));
 
     if ($pideCantidad || motor_pide_stock($texto) || motor_pide_precio_insumo($texto)) {
         $rubro  = $rubroTxt;
@@ -2128,9 +2319,15 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
                 $total += (float)$f['cantidad'];
                 $uni = $uni ?? $f['unidad'];
             }
+            /* La superficie del lote va escrita al lado del nombre. La dosis es
+               una división, y sin el divisor a la vista no hay forma de revisarla
+               contra el papel: si el lote tiene mal cargadas las hectáreas, la
+               dosis sale mal y nada lo delata. Con el número puesto, se ve. */
             $lineas = [];
             foreach ($porLote as $lote => $items) {
-                $lineas[] = '• ' . $lote . ': ' . implode(' · ', $items);
+                $ha = $sup[$lote] ?? 0;
+                $enc = $ha > 0 ? $lote . ' (' . number_format($ha, 1, ',', '.') . ' ha)' : $lote;
+                $lineas[] = '• ' . $enc . ': ' . implode(' · ', $items);
             }
 
             $qué  = $unIns ? $unIns['nombre'] : ($rubro ? $rubro['etiqueta'] : 'insumos');
@@ -2245,6 +2442,142 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
             'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => null],
             'link' => 'insumos.php',
             'sugerencias' => ['¿Cuántos kg de semilla usé en cada lote?', '¿Qué está por vencer?', '¿En qué gasté más?'],
+        ];
+    }
+
+    /* ═══ EL DESGLOSE DEL GASTO, Y CÓMO SE ENTRA EN ÉL ═══════════════════════
+       Se puede mirar el mismo gasto de dos maneras, y las dos hacen falta:
+
+         por ETAPA     "¿en qué gasté?"          → siembra, ferti, cosecha…
+         por LOTE      "la ferti en cada lote"   → una etapa abierta por campo
+
+       Y se entra de una a la otra: del desglose por etapa se elige una etapa y
+       se la abre por lote; de un lote se pide su desglose por etapa. Cada
+       respuesta sugiere el paso siguiente, que es lo que hace que se pueda
+       recorrer sin saber de antemano cómo hay que preguntar.
+
+       Va antes de todo lo demás por lo de siempre: si no, otra rama se queda con
+       la pregunta y contesta un número correcto de otra cosa. Verificado: "¿cuánto
+       de la fertilización fue en cada lote?" caía en el desglose por dimensión y
+       devolvía el MARGEN NETO por lote — ni fertilización ni gasto.
+       ═══════════════════════════════════════════════════════════════════════ */
+    $dimDesg  = motor_pide_desglose_dimension($texto);
+    $grupoDes = motor_detectar_dimension($texto, motor_grupos());
+    $rubroDes = $grupoDes ? null : motor_detectar_dimension($texto, motor_tipos_insumo());
+
+    // ── 1. Una etapa (o un rubro) abierta por lote o por cultivo ─────────────
+    if (($grupoDes || $rubroDes) && $dimDesg !== null) {
+        $qué = $grupoDes ? $grupoDes['etiqueta'] : $rubroDes['etiqueta'];
+        $items = $dimDesg === 'lote'
+            ? array_map(fn($l) => ['nombre' => $l['nombre'], 'id' => (int)$l['id']],
+                        $ctrl->getLotesDelCiclo($campania))
+            : array_map(fn($c) => ['nombre' => $c, 'id' => null],
+                        $ctrl->getCultivosDelCiclo($campania));
+
+        $filas = [];
+        foreach ($items as $it) {
+            $unLote = $dimDesg === 'lote' ? $it['id'] : $loteId;
+            $unCult = $dimDesg === 'lote' ? $cultivo : $it['nombre'];
+            /* El monto sale de las MISMAS funciones que usa la respuesta de un
+               número solo. Si acá se sumara distinto, abrir el desglose daría un
+               total que no coincide con el que se acaba de leer, y no habría
+               forma de saber cuál de los dos creer. */
+            $val = $grupoDes
+                ? motor_gasto($pdo, $usuarioId, $campania, $unLote, $unCult,
+                              ['col' => 'grupo_gasto', 'val' => $grupoDes['clave']])
+                : motor_gasto_por_insumo($pdo, $usuarioId, $campania, $unLote, $unCult, $rubroDes['clave']);
+            if ($val <= 0) continue;
+            $s  = $ctrl->getGlobalStats($campania, $unLote, $unCult);
+            $ha = (float)($s['hectareas'] ?? 0);
+            $filas[] = ['nombre' => $it['nombre'], 'val' => $val, 'ha' => $ha,
+                        'porHa' => $ha > 0 ? $val / $ha : null];
+        }
+
+        $etq = $dimDesg === 'lote' ? 'lote' : 'cultivo';
+        if (!$filas) {
+            return [
+                'ok' => false, 'tipo' => 'sin_datos',
+                'respuesta' => 'No tengo gastos de ' . $qué . ' en ' . $campania
+                             . ' para abrir por ' . $etq . '.',
+                'detalle' => 'Puede ser que no se haya cargado esa etapa todavía.',
+                'valor' => null,
+                'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => 'costos_directos'],
+                'link' => motor_link($campania, $loteId, $cultivo),
+                'sugerencias' => motor_sugerencias_gasto(),
+            ];
+        }
+
+        usort($filas, fn($a, $b) => $b['val'] <=> $a['val']);
+        $total = array_sum(array_column($filas, 'val'));
+        $lineas = array_map(function ($f) use ($total) {
+            $pct = $total > 0 ? ($f['val'] / $total) * 100 : 0;
+            $t = '• ' . $f['nombre'] . ': ' . motor_formatear($f['val'], 'dinero')
+               . ' — ' . number_format($pct, 0, ',', '.') . '%';
+            /* El por hectárea va siempre que se pueda: sin él un lote grande
+               parece caro sólo por ser grande, y la comparación no dice nada. */
+            if ($f['porHa'] !== null) $t .= ' (' . motor_formatear($f['porHa'], 'dinero') . '/ha)';
+            return $t;
+        }, $filas);
+
+        return [
+            'ok' => true, 'tipo' => 'desglose_gasto',
+            'respuesta' => 'En ' . $campania . ', ' . $qué . ' por ' . $etq . ': '
+                         . motor_formatear($total, 'dinero') . ' en total.',
+            'detalle' => implode("\n", $lineas),
+            'valor' => $total,
+            'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => 'costos_directos'],
+            'link' => motor_link($campania, $loteId, $cultivo),
+            'sugerencias' => ['¿En qué gasté?', '¿Cuál es el costo de ' . $qué . ' por hectárea?',
+                              $dimDesg === 'lote' ? '¿En qué gasté por cultivo?' : '¿En qué gasté por lote?'],
+        ];
+    }
+
+    // ── 2. El gasto abierto por etapa, en el recorte que se esté mirando ─────
+    if (motor_pide_desglose($texto) && $dimDesg === null) {
+        $filas = motor_ranking_grupos($pdo, $usuarioId, $campania, $loteId, $cultivo);
+        if (!$filas) {
+            return [
+                'ok' => false, 'tipo' => 'sin_datos',
+                'respuesta' => 'Todavía no hay gastos cargados en '
+                             . motor_frase_filtros($campania, $lote, $cultivo) . '.',
+                'detalle' => 'Registrá operaciones y te los desgloso por etapa.',
+                'valor' => null,
+                'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => 'costos_directos'],
+                'link' => motor_link($campania, $loteId, $cultivo),
+                'sugerencias' => motor_sugerencias_gasto(),
+            ];
+        }
+
+        $cat = motor_grupos();
+        $tot = array_sum(array_column($filas, 'total'));
+        $ha  = (float)($ctrl->getGlobalStats($campania, $loteId, $cultivo)['hectareas'] ?? 0);
+
+        $lineas = [];
+        foreach ($filas as $f) {
+            $val = (float)$f['total'];
+            $pct = $tot > 0 ? ($val / $tot) * 100 : 0;
+            $t = '• ' . ($cat[$f['g']]['etiqueta'] ?? $f['g']) . ': '
+               . motor_formatear($val, 'dinero') . ' — ' . number_format($pct, 0, ',', '.') . '%';
+            if ($ha > 0) $t .= ' (' . motor_formatear($val / $ha, 'dinero') . '/ha)';
+            $lineas[] = $t;
+        }
+        /* Se dice CÓMO entrar, con una etapa real de las que acaba de listar. La
+           alternativa era que quedara en una lista linda sin salida: el productor
+           ve que la ferti se llevó el 32% y no tiene modo de saber que puede
+           preguntar en qué lote se fue. */
+        $primera = $cat[$filas[0]['g']]['etiqueta'] ?? $filas[0]['g'];
+        $lineas[] = 'Para entrar en una: "' . $primera . ' en cada lote".';
+
+        return [
+            'ok' => true, 'tipo' => 'desglose_gasto',
+            'respuesta' => 'En ' . motor_frase_filtros($campania, $lote, $cultivo)
+                         . ' gastaste ' . motor_formatear($tot, 'dinero')
+                         . ($ha > 0 ? ' sobre ' . motor_formatear($ha, 'ha') : '') . ', así:',
+            'detalle' => implode("\n", $lineas),
+            'valor' => $tot,
+            'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => 'costos_directos'],
+            'link' => motor_link($campania, $loteId, $cultivo),
+            'sugerencias' => [$primera . ' en cada lote', '¿En qué gasté por lote?', '¿Cuál es el costo por hectárea?'],
         ];
     }
 
@@ -2462,6 +2795,48 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
                 'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => 'costos_directos'],
                 'link' => motor_link($campania, $loteId, $cultivo),
                 'sugerencias' => motor_sugerencias_gasto(),
+            ];
+        }
+
+        /* ── Repartido por hectárea ───────────────────────────────────────────
+           La superficie sale de getGlobalStats con los MISMOS filtros, que es de
+           donde sale el costo por hectárea general. Si acá se usara otra cuenta
+           —la suma de las superficies de los lotes, por ejemplo— el bot daría dos
+           denominadores distintos según cómo se le pregunte, y no habría forma de
+           saber cuál creer. */
+        if (motor_pide_por_hectarea($texto)) {
+            $ha = (float)($ctrl->getGlobalStats($campania, $loteId, $cultivo)['hectareas'] ?? 0);
+
+            if ($ha <= 0) {
+                return [
+                    'ok' => false, 'tipo' => 'sin_datos',
+                    'respuesta' => 'No puedo darte el gasto ' . $qué . ' por hectárea: no tengo '
+                                 . 'superficie registrada en ' . motor_frase_filtros($campania, $lote, $cultivo) . '.',
+                    'detalle' => 'El total sí lo tengo: ' . motor_formatear($monto, 'dinero') . '. '
+                               . 'Para repartirlo hacen falta las hectáreas de las operaciones.',
+                    'valor' => null,
+                    'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => 'costos_directos'],
+                    'link' => motor_link($campania, $loteId, $cultivo),
+                    'sugerencias' => motor_sugerencias_gasto(),
+                ];
+            }
+
+            $porHa = $monto / $ha;
+            return [
+                'ok' => true, 'tipo' => 'gasto_por_ha',
+                'respuesta' => 'En ' . motor_frase_filtros($campania, $lote, $cultivo) . ', '
+                             . str_replace('en ', '', $qué) . ': '
+                             . motor_formatear($porHa, 'dinero') . ' por hectárea.',
+                /* Va el total y las hectáreas, no por prolijidad: es la única
+                   forma de que se pueda comprobar la división a mano. */
+                'detalle' => 'Son ' . motor_formatear($monto, 'dinero') . ' repartidos en '
+                           . number_format($ha, 1, ',', '.') . ' ha. '
+                           . 'Representa el ' . number_format($pct, 1, ',', '.')
+                           . '% de los costos de laboreo.',
+                'valor' => $porHa,
+                'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => 'costos_directos'],
+                'link' => motor_link($campania, $loteId, $cultivo),
+                'sugerencias' => ['¿Cuál es el costo por hectárea?', '¿En qué gasté más?', '¿Cuál es mi mejor lote?'],
             ];
         }
 
@@ -2836,7 +3211,12 @@ function motor_pide_alta(string $t): bool {
        pregunta en cualquier lugar la vuelve consulta, y sin ningún número no hay
        nada que cargar. Ante la duda queda como consulta: contestar de más no
        rompe nada, proponer un alta que nadie pidió sí molesta. */
-    foreach (['gaste','pague','compre'] as $p) {
+    /* Y los verbos de la labor misma: "fertilicé Cornaglia con 120 kg de urea" es
+       una carga aunque no diga "cargá". Entran con la MISMA regla que los de
+       arriba —sin palabra de pregunta y con algún número— y por eso no se comen
+       "¿cuánto fertilicé?", que sigue siendo una consulta. */
+    foreach (['gaste','pague','compre',
+              'sembre','fertilice','pulverice','fumigue','coseche','aplique'] as $p) {
         if (!preg_match('/(^|\s)' . preg_quote($p, '/') . '/u', $t)) continue;
         if (preg_match('/(^|\s)(cuanto|cuantos|cuantas|cual|cuales|que|como|donde|cuando)(\s|$)/u', $t)) return false;
         return (bool)preg_match('/\d/u', $t);
@@ -2853,7 +3233,8 @@ function motor_pide_alta(string $t): bool {
  * el paso a paso pregunta el resto. Antes eran dos funciones que armaban la misma
  * pantalla por separado, y la que faltaba terminaba en un cartel sin salida.
  */
-function motor_interpretar_alta(string $texto, string $original, array $lotes, ?array $loteCtx): array {
+function motor_interpretar_alta(string $texto, string $original, array $lotes, ?array $loteCtx,
+                                PDO $pdo, int $uid, array $catalogo = []): array {
     /* El monto y la fecha se leen del texto ORIGINAL, no del normalizado: la
        normalización saca puntos y comas para poder comparar palabras, y eso
        convierte "15.000" en "15 000" y "14/08" en "14 08". Justo los dos datos
@@ -2864,8 +3245,45 @@ function motor_interpretar_alta(string $texto, string $original, array $lotes, ?
        cambiaría de formulario a mitad de camino. */
     $slots = ['que' => 'gasto'];
 
-    $monto = motor_detectar_monto($original);
-    if ($monto !== null && $monto > 0) $slots['costo_total'] = $monto;
+    /* LA DOSIS VA ANTES QUE EL MONTO, Y NO ES UN DETALLE DE ORDEN.
+       "fertilicé Cornaglia con 120 kg de urea" tiene un 120 que es una dosis. Si
+       primero corriera el detector de montos, ese 120 quedaría como el costo
+       total y se guardaría una fertilización de ciento veinte pesos. Cuando la
+       frase trae dosis, el número ya está explicado y no se lo vuelve a leer
+       como plata. */
+    $dos = motor_detectar_dosis($original, $catalogo);
+    if ($dos !== null) {
+        $slots['tipo_componente'] = 'insumo';
+        $slots['insumo_dosis']    = $dos['dosis'];
+        $slots['insumo_unidad']   = $dos['unidad'];
+        /* Marca de que esto vino en una sola frase, y sirve para UNA cosa: no
+           preguntarle "¿va otro insumo?" a alguien que ya dijo todo lo que quería
+           cargar. El atajo tiene que seguir siendo un atajo — quien quiera meter
+           tres productos en la misma pasada arranca por "aplicación" y los va
+           agregando de a uno. */
+        $slots['alta_de_frase']   = 1;
+        if ($dos['insumo']) {
+            // Uno del catálogo: se vincula, descuenta stock y trae su precio.
+            $slots['insumo_id']     = (int)$dos['insumo']['id'];
+            $slots['insumo_nombre'] = $dos['insumo']['nombre'];
+            $slots['insumo_unidad'] = $dos['insumo']['unidad_medida'] ?: $dos['unidad'];
+            $pc = motor_precio_catalogo($pdo, $uid, $dos['insumo']);
+            if ($pc !== null) {
+                $slots['insumo_precio']     = round($pc, 2);
+                $slots['insumo_precio_de']  = 'catalogo';
+                $slots['insumo_precio_usd'] = (float)$dos['insumo']['precio_usd'];
+            }
+        } else {
+            /* Lo nombró pero no lo tiene cargado. Se acepta igual —no se pierde lo
+               que escribió— pero no hay precio de dónde sacarlo, así que el paso a
+               paso lo va a preguntar, y no descuenta stock. */
+            $slots['insumo_id']     = 0;
+            $slots['insumo_nombre'] = mb_substr($dos['nombre'], 0, 150);
+        }
+    } else {
+        $monto = motor_detectar_monto($original);
+        if ($monto !== null && $monto > 0) $slots['costo_total'] = $monto;
+    }
 
     if ($grupo = motor_detectar_dimension($texto, motor_grupos())) $slots['grupo_gasto'] = $grupo['clave'];
 
@@ -2888,9 +3306,14 @@ function motor_interpretar_alta(string $texto, string $original, array $lotes, ?
        mano de obra: es lo que el propio formulario tiene elegido por defecto. */
     $rubro = motor_detectar_dimension($texto, motor_tipos_insumo());
     $comp  = $rubro ? null : motor_detectar_dimension($texto, motor_componentes());
-    if ($rubro) {
+    /* Si la frase ya nombró un insumo concreto, el rubro no lo pisa: "120 kg de
+       urea" contiene además la palabra del rubro, y sin esta guarda el nombre
+       terminaba siendo "fertilizantes" en vez de "Urea". */
+    if ($rubro && empty($slots['insumo_nombre'])) {
         $slots['tipo_componente'] = 'insumo';
         $slots['insumo_nombre']   = $rubro['etiqueta'];
+    } elseif ($rubro) {
+        $slots['tipo_componente'] = 'insumo';
     } elseif ($comp && $comp['clave'] === 'insumo') {
         $slots['tipo_componente'] = 'insumo';   // dijo "insumo" pero no cuál: se le pregunta
     } elseif ($comp && $comp['clave'] === 'labor') {
@@ -2977,7 +3400,11 @@ function motor_alta_campos(string $que = 'gasto'): array {
         'grupo_gasto'      => ['etiqueta' => 'la etapa',    'sinonimos' => ['etapa','grupo','en que gaste','labor']],
         'tipo_componente'  => ['etiqueta' => 'el tipo',     'sinonimos' => ['tipo','componente']],
         'insumo_nombre'    => ['etiqueta' => 'el insumo',   'sinonimos' => ['insumo','producto']],
-        'insumo_cantidad'  => ['etiqueta' => 'la cantidad', 'sinonimos' => ['cantidad','cuanto use']],
+        'insumo_dosis'     => ['etiqueta' => 'la dosis',    'sinonimos' => ['dosis','cantidad','por hectarea','por ha','cuanto use','kilos por hectarea']],
+        /* "precio" también nombra al monto de más abajo. Va primero el de la dosis
+           porque en un gasto de insumo el monto ya no se pregunta: el único precio
+           que se puede corregir es el de la unidad. */
+        'insumo_precio'    => ['etiqueta' => 'el precio por unidad', 'sinonimos' => ['precio unitario','precio por unidad','precio por kilo','precio por litro','precio del kilo','precio del litro','a cuanto','precio del insumo']],
         'lotes'            => ['etiqueta' => 'el lote',     'sinonimos' => ['lote','lotes','campo']],
         'costo_total'      => ['etiqueta' => 'el monto',    'sinonimos' => ['monto','importe','plata','costo','valor','precio']],
         'reparto'          => ['etiqueta' => 'el reparto',  'sinonimos' => ['reparto','repartir','por hectarea','por hectárea']],
@@ -2992,7 +3419,7 @@ function motor_alta_campos(string $que = 'gasto'): array {
  * nombre no alcanza —contestar "el monto" a "¿cuánto fue?" es una respuesta, no
  * una corrección— y con sólo el verbo no se sabe qué tocar, así que se pregunta.
  */
-function motor_alta_pide_correccion(string $t, string $que = 'gasto'): ?string {
+function motor_alta_pide_correccion(string $t, string $que = 'gasto', array $slots = []): ?string {
     if (!preg_match('/(corregir|corregi|corrig|cambiar|cambia|cambi|modific|editar|edita|'
                   . 'esta mal|está mal|me equivoque|equivoque|no era|volver a)/u', $t)) {
         return null;
@@ -3006,6 +3433,19 @@ function motor_alta_pide_correccion(string $t, string $que = 'gasto'): ?string {
             }
         }
     }
+
+    /* "El precio" quiere decir dos cosas distintas según por dónde venga la carga,
+       y el motor sabe por cuál viene. En un gasto de insumo el monto total no se
+       pregunta —sale de la dosis por el precio—, así que corregir "el precio" sólo
+       puede ser el de la unidad. Sin esto la corrección apuntaba a costo_total,
+       que en ese camino no existe: se borraba un casillero vacío, no se preguntaba
+       nada, y la frase caía como respuesta del paso en curso. */
+    if ($mejor === 'costo_total'
+        && ($slots['tipo_componente'] ?? null) === 'insumo'
+        && !empty($slots['insumo_dosis'])) {
+        $mejor = 'insumo_precio';
+    }
+
     return $mejor ?? '';   // dijo que está mal, pero no dijo qué
 }
 
@@ -3019,15 +3459,44 @@ function motor_alta_pasos(string $que = 'gasto'): array {
             'ayuda'    => 'Siembra, cosecha, pulverización, fertilización u otros.',
             'opciones' => ['Siembra', 'Cosecha', 'Pulverización', 'Fertilización', 'Otros'],
         ],
-        /* Las dos primeras opciones del "Tipo Componente" del formulario de Costos
-           y Labores, con sus palabras. Falta la tercera —Aplicación / Receta—
-           porque separa la mano de obra de los insumos y necesita la cantidad y el
-           precio de cada uno: eso es un formulario, no una charla. Se dice, para
-           que quien la busque sepa dónde está en vez de creer que no existe. */
+        /* EL LOTE VA ACÁ, JUSTO DESPUÉS DE LA ETAPA.
+           Antes se preguntaba recién sobre el final, después del insumo y de la
+           cantidad. Se adelantó por dos motivos. El que se ve: es lo primero que
+           uno sabe cuando vuelve del campo —"fertilicé La rubia"—, y dejarlo para
+           el final obliga a acordarse de para qué lote era todo lo que ya se venía
+           contestando. El que no se ve, y es el que manda: sin el lote no hay
+           superficie, y sin superficie no se puede convertir una dosis por hectárea
+           en un total. El orden de este arreglo ES el orden de las preguntas. */
+        'lotes' => [
+            'pregunta' => '¿En qué lote?',
+            'ayuda'    => 'Podés nombrar varios de una: "La rubia y El bajo", o decir todos.',
+            'opciones' => [],   // se completan con los lotes del productor
+        ],
+        /* Las TRES opciones del "Tipo Componente" del formulario de Costos y
+           Labores, con sus palabras. La tercera —Aplicación / Receta— no estaba, y
+           el motivo escrito acá era que "necesita la cantidad y el precio de cada
+           insumo: eso es un formulario, no una charla". Dejó de ser cierto cuando
+           la carga pasó a pedir dosis y precio: preguntar eso mismo dos o tres
+           veces seguidas es una charla igual de corta, y es lo que de verdad se
+           hace en el campo — una pulverización lleva el herbicida, el coadyuvante
+           y a veces el aceite, todo en la misma pasada. */
         'tipo_componente' => [
-            'pregunta' => '¿Fue mano de obra o insumo?',
-            'ayuda'    => 'Si fue una aplicación con receta (labor + insumos juntos), esa se carga desde Costos y Labores.',
-            'opciones' => ['Mano de obra', 'Insumo'],
+            'pregunta' => '¿Qué fue?',
+            'ayuda'    => 'Una aplicación es la labor y los insumos juntos, en una sola pasada.',
+            'opciones' => ['Mano de obra', 'Insumo', 'Aplicación (labor + insumos)'],
+        ],
+        /* La parte de labor de una aplicación: lo que se le paga al que la hizo.
+           Va POR HECTÁREA, y no es una elección de estilo: así la guarda y la
+           muestra el formulario —la ficha de una receta dice "Labor: fulano
+           ($X/ha)"—, y así queda todo en la misma unidad que los insumos. Con la
+           labor por hectárea la aplicación entera tiene un solo costo por
+           hectárea, y repartirla entre varios lotes es la multiplicación de
+           siempre en vez de dos repartos distintos conviviendo. */
+        'labor_costo' => [
+            'pregunta' => '¿Cuánto costó la labor por hectárea?',
+            'ayuda'    => 'Sólo el trabajo, sin los insumos: esos van después, uno por uno.',
+            'opciones' => [],
+            'solo_si'  => ['tipo_componente' => 'receta'],
         ],
         /* Sólo si dijo insumo. Las mismas dos opciones que el desplegable del
            formulario: uno del catálogo, o uno escrito a mano. La diferencia no es
@@ -3039,39 +3508,93 @@ function motor_alta_pasos(string $que = 'gasto'): array {
             'pregunta' => '¿Qué insumo fue?',
             'ayuda'    => 'Elegí uno de los tuyos, o escribí el nombre si no lo tenés cargado.',
             'opciones' => [],   // se completan con el catálogo del productor
-            'solo_si'  => ['tipo_componente' => 'insumo'],
+            'solo_si_alguno' => ['tipo_componente' => ['insumo', 'receta']],
+            /* Con la lista cerrada no se pregunta más: al decir "ya está" el
+               último renglón se guarda y los casilleros del insumo quedan vacíos,
+               así que sin esta traba el paso a paso los ve vacíos y los vuelve a
+               pedir — la charla no terminaba nunca.
+               Va sólo 'insumos_cerrado' y NO 'costo_total': el atajo de la frase
+               suelta trae el monto pero puede no traer el nombre, y ahí sí hay que
+               preguntarlo. */
+            'solo_si_falta' => 'insumos_cerrado',
         ],
-        /* La cantidad es lo que hace que el gasto se pueda vincular al catálogo.
-           Sin ella habría que inventar una —y el borrado de la operación devuelve
-           stock por "cantidad × hectáreas", así que una cantidad inventada
-           devolvería stock que nunca se descontó—. Con ella salen exactos el precio
-           unitario (costo ÷ cantidad) y la cantidad por hectárea, que son las dos
-           cifras con las que el formulario calcula todo. */
+        /* ── DOSIS Y PRECIO, QUE ES COMO SE COMPRA Y COMO SE APLICA ────────────
+           Antes se pedían las dos puntas ya resueltas: la cantidad TOTAL y el
+           costo TOTAL. Nadie tiene esos dos números en la cabeza — se sabe que se
+           pusieron 120 kg/ha y que la urea estaba a $850 el kilo. Los totales
+           salían de una cuenta que el productor tenía que hacer aparte, y una
+           cuenta hecha aparte es una cuenta donde equivocarse sin que nada avise.
+
+           Ahora se piden los dos números que sí se saben y el total lo calcula la
+           aplicación:  dosis × precio × hectáreas.
+
+           No cambia nada de lo que se guarda. La base ya archiva cantidad_ha y
+           precio_unitario, y api/registrar.php los deriva dividiendo los totales;
+           al mandarle totales hechos con estas mismas dos cifras, la división le
+           devuelve exactamente lo que se tipeó. */
+        'insumo_dosis' => [
+            'pregunta' => '¿Cuánto por hectárea?',
+            'ayuda'    => 'La dosis: 120 si pusiste 120 por hectárea.',
+            'opciones' => [],
+            'solo_si_alguno' => ['tipo_componente' => ['insumo', 'receta']],
+            'solo_si_falta' => ['costo_total', 'insumos_cerrado'],
+        ],
+        'insumo_precio' => [
+            'pregunta' => '¿A cuánto la unidad?',
+            'ayuda'    => 'Lo que sale un kilo o un litro, no el total de la compra.',
+            'opciones' => [],
+            'solo_si_alguno' => ['tipo_componente' => ['insumo', 'receta']],
+            'solo_si_falta' => ['costo_total', 'insumos_cerrado'],
+        ],
+        /* ¿Va otro insumo en la misma pasada? Es lo que convierte esta carga en
+           una aplicación de verdad: una pulverización rara vez lleva un solo
+           producto. Al decir que sí, el renglón que se venía llenando se guarda en
+           la lista y se vuelve a preguntar cuál, desde cero. */
+        'otro_insumo' => [
+            'pregunta' => '¿Va otro insumo en la misma aplicación?',
+            'ayuda'    => '',
+            'opciones' => ['Sí, agrego otro', 'Ya está'],
+            'solo_si_alguno' => ['tipo_componente' => ['insumo', 'receta']],
+            'solo_si_falta' => ['costo_total', 'insumos_cerrado', 'alta_de_frase'],
+        ],
+        /* El camino de antes, que sigue vivo para el atajo de la frase suelta: si
+           el productor ya dijo el monto, no se le vuelve a pedir de dónde sale —
+           falta sólo la cantidad, que es lo que descuenta del stock. */
         'insumo_cantidad' => [
             'pregunta' => '¿Qué cantidad usaste en total?',
             'ayuda'    => '',
             'opciones' => [],
-            'solo_si'  => ['tipo_componente' => 'insumo'],
+            'solo_si_alguno' => ['tipo_componente' => ['insumo', 'receta']],
+            'solo_si_hay' => 'costo_total',
         ],
-        'lotes' => [
-            'pregunta' => '¿En qué lote?',
-            'ayuda'    => 'Podés nombrar varios de una: "La rubia y El bajo", o decir todos.',
-            'opciones' => [],   // se completan con los lotes del productor
-        ],
+        /* Para la mano de obra no hay dosis ni precio unitario: se paga un monto y
+           listo. Ése es el único caso que sigue preguntando el total. */
         'costo_total' => [
             'pregunta' => '¿Cuánto fue?',
             'ayuda'    => 'Escribilo como quieras: 15000 o 15.000,50.',
             'opciones' => [],
+            // Sólo la mano de obra sola: en las otras dos el monto sale de la cuenta.
+            'solo_si_alguno' => ['tipo_componente' => ['labor']],
         ],
         /* Sólo cuando hay más de un lote, y es imprescindible: "500.000 de
            fertilizante para todos" puede ser la factura entera a repartir o el
            precio por hectárea. Sin preguntarlo habría que adivinar, y adivinar
-           mal acá multiplica el error por la cantidad de lotes. */
+           mal acá multiplica el error por la cantidad de lotes.
+           Con un insumo ya no hace falta: una dosis por hectárea ES por hectárea,
+           y preguntarlo sería pedir dos veces lo mismo. */
         'reparto' => [
             'pregunta' => '¿Ese monto es el total de todo, o es por hectárea?',
             'ayuda'    => 'Si es el total, lo reparto entre los lotes según la superficie de cada uno.',
             'opciones' => ['Es el total', 'Es por hectárea'],
             'solo_si_varios' => 'lotes',
+            /* Se mira la dosis y no el tipo: un insumo cargado por el atajo de la
+               frase suelta trae un monto total y SÍ hay que preguntarle cómo
+               repartirlo. El único caso que no lo necesita es el de la dosis, que
+               ya viene expresada por hectárea.
+               Va también la lista: al cerrar un renglón la dosis se vacía, y sin
+               mirar la lista el motor creía que no había ninguna y preguntaba el
+               reparto de una aplicación que ya está expresada por hectárea. */
+            'solo_si_falta' => ['insumo_dosis', 'insumos_lista'],
         ],
         'fecha' => [
             'pregunta' => '¿Cuándo fue?',
@@ -3225,6 +3748,30 @@ function motor_alta_paso_aplica(array $paso, array $slots): bool {
     foreach ($paso['solo_si'] ?? [] as $campo => $valor) {
         if (($slots[$campo] ?? null) !== $valor) return false;
     }
+    /* Lo mismo pero contra varios valores. Existe porque los pasos del insumo
+       —cuál, qué dosis, a cuánto— son idénticos para una carga de insumos y para
+       una aplicación con labor: cambia lo que va alrededor, no ellos. */
+    foreach ($paso['solo_si_alguno'] ?? [] as $campo => $valores) {
+        if (!in_array($slots[$campo] ?? null, $valores, true)) return false;
+    }
+    /* Y el revés: pasos que sólo corresponden cuando NO se dio esa respuesta. Es
+       lo que saca de la charla el monto total y el reparto cuando es un insumo,
+       porque ahí el total lo calcula la dosis por el precio. */
+    foreach ($paso['solo_si_no'] ?? [] as $campo => $valor) {
+        if (($slots[$campo] ?? null) === $valor) return false;
+    }
+    /* Y los dos que miran si un casillero está lleno, sin importar con qué.
+       Existen por el atajo de la frase suelta: "cargá 500.000 de urea en La rubia"
+       ya trae el monto, y ahí preguntar la dosis y el precio para volver a
+       calcularlo sería tirar a la basura el número que el productor escribió. Con
+       el monto puesto se sigue el camino de antes —falta sólo la cantidad, para
+       el stock—; sin monto, se pregunta dosis y precio. */
+    foreach ((array)($paso['solo_si_falta'] ?? []) as $falta) {
+        if (!empty($slots[$falta])) return false;
+    }
+    if ($hay = $paso['solo_si_hay'] ?? null) {
+        if (empty($slots[$hay])) return false;
+    }
     // "Sólo si ese casillero junta más de uno": es lo que separa un gasto de un
     // lote de un gasto repartido, y con uno solo no hay nada que preguntar.
     if ($varios = $paso['solo_si_varios'] ?? null) {
@@ -3248,6 +3795,74 @@ function motor_alta_paso_aplica(array $paso, array $slots): bool {
  *
  * @return array [['lote'=>array, 'monto'=>float, 'sup'=>float], ...]
  */
+/** Techo de insumos por aplicación. Nadie mezcla veinte, y evita una lista sin fin. */
+const MOTOR_MAX_INSUMOS = 20;
+
+/**
+ * Cierra el renglón de insumo que se venía llenando y deja lugar para el siguiente.
+ *
+ * ES TODO EL BUCLE. No hay código de repetición en ninguna parte: al vaciar los
+ * casilleros del insumo, el paso a paso vuelve a ver que falta el nombre y lo
+ * pregunta de nuevo, con los mismos pasos de siempre. Lo único que hace falta
+ * recordar es lo ya cargado, y para eso está la lista.
+ */
+function motor_alta_guardar_insumo(array $slots): array {
+    if (empty($slots['insumo_nombre'])) return $slots;   // no había nada a medio llenar
+
+    $lista = $slots['insumos_lista'] ?? [];
+    if (count($lista) < MOTOR_MAX_INSUMOS) {
+        $lista[] = [
+            'id'         => (int)($slots['insumo_id'] ?? 0),
+            'nombre'     => (string)$slots['insumo_nombre'],
+            'unidad'     => (string)($slots['insumo_unidad'] ?? ''),
+            'dosis'      => (float)($slots['insumo_dosis'] ?? 0),
+            'precio'     => (float)($slots['insumo_precio'] ?? 0),
+            'precio_de'  => (string)($slots['insumo_precio_de'] ?? ''),
+            'precio_usd' => (float)($slots['insumo_precio_usd'] ?? 0),
+        ];
+    }
+    $slots['insumos_lista'] = $lista;
+
+    unset($slots['insumo_id'], $slots['insumo_nombre'], $slots['insumo_unidad'],
+          $slots['insumo_dosis'], $slots['insumo_precio'],
+          $slots['insumo_precio_de'], $slots['insumo_precio_usd'],
+          $slots['insumo_libre'], $slots['otro_insumo']);
+    return $slots;
+}
+
+/**
+ * La superficie sumada de los lotes elegidos.
+ *
+ * Es el puente entre la dosis y la plata: sin esto, "120 kg/ha a $850" no se
+ * puede convertir en un monto. Por eso el lote se pregunta antes que la dosis.
+ *
+ * @param array $ids    ids elegidos, como vienen del casillero
+ * @param array $lotes  los lotes del productor, con su superficie
+ */
+function motor_alta_superficie(array $ids, array $lotes): float {
+    $ids = array_map('intval', $ids);
+    $sup = 0.0;
+    foreach ($lotes as $l) {
+        if (in_array((int)$l['id'], $ids, true)) $sup += max(0.0, (float)($l['superficie'] ?? 0));
+    }
+    return $sup;
+}
+
+/**
+ * El total de un gasto de insumo: dosis × precio × hectáreas.
+ *
+ * Devuelve null mientras falte alguna de las tres, para que quien llame sepa que
+ * todavía no hay cuenta que mostrar en vez de recibir un 0 que parece un total.
+ */
+function motor_alta_total_insumo(array $slots, array $lotes): ?float {
+    if (($slots['tipo_componente'] ?? null) !== 'insumo') return null;
+    $dosis  = (float)($slots['insumo_dosis'] ?? 0);
+    $precio = (float)($slots['insumo_precio'] ?? 0);
+    $sup    = motor_alta_superficie($slots['lotes'] ?? [], $lotes);
+    if ($dosis <= 0 || $precio <= 0 || $sup <= 0) return null;
+    return round($dosis * $precio * $sup, 2);
+}
+
 function motor_alta_reparto(array $lotesSel, float $monto, string $modo): array {
     // ?? 0: si la superficie no viniera, se cae al reparto sin prorrateo de abajo
     // en vez de romper. El guardado igual recalcula todo con lo que lee de la base.
@@ -3291,13 +3906,75 @@ function motor_alta_reparto(array $lotesSel, float $monto, string $modo): array 
 function motor_armar_alta(array $slots, array $lotes, string $campania): array {
     $ids = array_map('intval', $slots['lotes']);
     $sel = array_values(array_filter($lotes, fn($l) => in_array((int)$l['id'], $ids, true)));
-    $modo = count($sel) > 1 ? ($slots['reparto'] ?? 'total') : 'total';
-    $partes = motor_alta_reparto($sel, (float)$slots['costo_total'], $modo);
-    $total  = array_sum(array_column($partes, 'monto'));
+    /* Una aplicación lleva insumos igual que una carga de insumos: lo que le suma
+       es la labor. Por eso $esInsumo abarca las dos, y $esReceta marca la que
+       además tiene trabajo pago. */
+    $tipo     = $slots['tipo_componente'] ?? 'labor';
+    $esReceta = $tipo === 'receta';
+    $esInsumo = $tipo === 'insumo' || $esReceta;
 
-    $esInsumo = ($slots['tipo_componente'] ?? 'labor') === 'insumo';
-    // insumo_id > 0 quiere decir que salió del catálogo: ése descuenta stock.
-    $delCatalogo = $esInsumo && !empty($slots['insumo_id']);
+    /* DOS CAMINOS PARA LLEGAR AL MISMO MONTO.
+       El normal es por dosis y precio: el productor dice 120 kg/ha a $850 y el
+       total lo saca la aplicación. El otro es el atajo de la frase suelta —"cargá
+       500.000 de urea en La rubia"—, donde el monto ya vino escrito y lo que falta
+       es la cantidad, para poder descontar el stock. Se distinguen por si hay
+       dosis: no se puede deducir del tipo, porque los dos son insumos. */
+    /* La lista de insumos de una aplicación. Cuando hay lista, manda la lista: los
+       casilleros sueltos ya se volcaron en ella al cerrar cada renglón. */
+    $lista = $slots['insumos_lista'] ?? [];
+    $lista = array_values(array_filter($lista,
+        fn($i) => ($i['dosis'] ?? 0) > 0 && ($i['precio'] ?? 0) > 0));
+
+    /* Un solo insumo cargado por el atajo de la frase suelta no pasa por la lista.
+       Se lo trata como una lista de uno y de ahí para abajo hay un solo camino:
+       sin esto habría dos cuentas paralelas para lo mismo, que es como aparecen
+       las diferencias de un peso entre lo que se muestra y lo que se guarda. */
+    $dosis  = (float)($slots['insumo_dosis'] ?? 0);
+    $precio = (float)($slots['insumo_precio'] ?? 0);
+    if (!$lista && $esInsumo && $dosis > 0 && $precio > 0) {
+        $lista = [[
+            'id'         => (int)($slots['insumo_id'] ?? 0),
+            'nombre'     => (string)($slots['insumo_nombre'] ?? ''),
+            'unidad'     => (string)($slots['insumo_unidad'] ?? ''),
+            'dosis'      => $dosis,
+            'precio'     => $precio,
+            'precio_de'  => (string)($slots['insumo_precio_de'] ?? ''),
+            'precio_usd' => (float)($slots['insumo_precio_usd'] ?? 0),
+        ]];
+    }
+    $porDosis = $esInsumo && (bool)$lista;
+
+    /* Todo en la misma unidad: cada insumo aporta dosis × precio por hectárea, la
+       labor viene por hectárea, y la suma es el costo por hectárea de la
+       aplicación entera. Con eso el reparto entre lotes es el modo 'hectarea' de
+       siempre —multiplicar por la superficie de cada uno— y no hay dos repartos
+       distintos conviviendo, que es de donde salen las diferencias de un peso
+       entre lo que se muestra y lo que se guarda. */
+    $labor  = $esReceta ? (float)($slots['labor_costo'] ?? 0) : 0.0;
+    $porHa  = $labor;
+    foreach ($lista as $i) $porHa += (float)$i['dosis'] * (float)$i['precio'];
+
+    $modo = $porDosis
+        ? 'hectarea'
+        : (count($sel) > 1 ? ($slots['reparto'] ?? 'total') : 'total');
+    $partes = motor_alta_reparto($sel, $porDosis ? $porHa : (float)($slots['costo_total'] ?? 0), $modo);
+    $supTotal = array_sum(array_column($partes, 'sup'));
+    $total = array_sum(array_column($partes, 'monto'));
+
+    /* La cantidad TOTAL de cada insumo, que es lo que espera el guardado:
+       api/registrar.php la vuelve a dividir por la superficie para archivar
+       cantidad_ha, así que dividir lo que acá se multiplicó devuelve exactamente
+       la dosis que se tipeó, sin dar una vuelta de más. */
+    foreach ($lista as $k => $i) {
+        $lista[$k]['cantidad'] = round((float)$i['dosis'] * $supTotal, 4);
+    }
+    $cantidadTotal = $porDosis
+        ? array_sum(array_column($lista, 'cantidad'))
+        : ($esInsumo ? (float)($slots['insumo_cantidad'] ?? 0) : 0.0);
+    // id > 0 quiere decir que salió del catálogo: ésos descuentan stock.
+    $delCatalogo = $esInsumo && ($lista
+        ? (bool)array_filter($lista, fn($i) => (int)$i['id'] > 0)
+        : !empty($slots['insumo_id']));
 
     $datos = [
         'lotes'           => array_map(fn($l) => (int)$l['id'], $sel),
@@ -3306,25 +3983,72 @@ function motor_armar_alta(array $slots, array $lotes, string $campania): array {
            el productor aprueba la moneda junto con el número. */
         'moneda'          => motor_moneda(),
         'grupo_gasto'     => $slots['grupo_gasto'],
-        'tipo_componente' => $esInsumo ? 'insumo' : 'labor',
-        'insumo_nombre'   => $esInsumo ? ($slots['insumo_nombre'] ?? '') : '',
-        'insumo_id'       => $delCatalogo ? (int)$slots['insumo_id'] : 0,
-        'insumo_cantidad' => $esInsumo ? (float)($slots['insumo_cantidad'] ?? 0) : 0,
+        'tipo_componente' => $esReceta ? 'receta' : ($esInsumo ? 'insumo' : 'labor'),
+        /* Los renglones, cada uno con su cantidad total y su precio. El guardado
+           escribe uno por insumo y por lote, y descuenta el stock de cada uno.
+           Los campos sueltos de abajo quedan por compatibilidad: son el primer
+           renglón, y es lo que lee una versión vieja del cliente. */
+        'insumos'         => array_map(fn($i) => [
+            'id'       => (int)$i['id'],
+            'nombre'   => (string)$i['nombre'],
+            'cantidad' => (float)$i['cantidad'],
+            'precio'   => (float)$i['precio'],
+        ], $lista),
+        'labor_costo'     => $labor,
+        'insumo_nombre'   => $esInsumo ? (string)($lista[0]['nombre'] ?? ($slots['insumo_nombre'] ?? '')) : '',
+        'insumo_id'       => $esInsumo ? (int)($lista[0]['id'] ?? ($slots['insumo_id'] ?? 0)) : 0,
+        'insumo_cantidad' => $esInsumo ? round((float)($lista[0]['cantidad'] ?? $cantidadTotal), 4) : 0,
         'costo_total'     => $total,
         'reparto'         => $modo,
         'fecha'           => $slots['fecha'],
         'campania'        => $campania,
     ];
 
+    // Las mismas palabras que usa el desplegable del formulario.
+    $comoSeLlama = $esReceta ? 'Aplicación (labor + insumos)'
+                 : ($esInsumo ? 'Insumo' . (count($lista) === 1 ? ' — ' . $lista[0]['nombre'] : '')
+                              : 'Mano de obra');
     $lineas = [
-        'Etapa: '   . motor_grupos()[$slots['grupo_gasto']]['etiqueta'],
-        // La misma palabra que usa el desplegable del formulario.
-        'Tipo: '    . ($esInsumo ? 'Insumo — ' . ($slots['insumo_nombre'] ?? '') : 'Mano de obra'),
+        'Etapa: ' . motor_grupos()[$slots['grupo_gasto']]['etiqueta'],
+        'Tipo: '  . $comoSeLlama,
     ];
+    if ($labor > 0) $lineas[] = 'Labor: ' . motor_formatear($labor, 'dinero') . '/ha';
 
-    if ($esInsumo && !empty($slots['insumo_cantidad'])) {
+    if ($porDosis) {
+        foreach ($lista as $i) {
+            $uni = $i['unidad'] !== '' ? ' ' . (motor_unidades()[$i['unidad']] ?? '') : '';
+            $sg  = $i['unidad'] !== '' ? '/' . (motor_unidades_singular()[$i['unidad']] ?? '') : '';
+            /* De dónde salió el precio, dicho renglón por renglón. Cuando lo trajo
+               el catálogo el productor no lo tipeó en esta carga, así que no puede
+               quedar como un número más: va marcado y con el dólar original al
+               lado, que es la única forma de revisar la conversión. */
+            $deDonde = '';
+            if ($i['precio_de'] === 'catalogo') {
+                $usd = (float)$i['precio_usd'];
+                $deDonde = ' — de tu catálogo'
+                         . ($usd > 0 && motor_moneda() !== 'USD'
+                            ? ' (USD ' . number_format($usd, 2, ',', '.') . ')' : '');
+            }
+            $lineas[] = '• ' . $i['nombre'] . ': '
+                      . number_format($i['dosis'], 2, ',', '.') . $uni . '/ha × '
+                      . motor_formatear($i['precio'], 'dinero') . $sg . ' = '
+                      . motor_formatear($i['dosis'] * $i['precio'], 'dinero') . '/ha'
+                      . $deDonde;
+            $lineas[] = '   ' . number_format($i['cantidad'], 2, ',', '.') . $uni . ' en total';
+        }
+        /* La cuenta de arriba escrita entera. Es la última pantalla antes de que
+           esto se escriba en la base: si una dosis o un precio salieron con un
+           cero de más, el total solo no lo delata —cualquier número grande parece
+           plausible— pero verlo multiplicar sí. */
+        $lineas[] = 'Cuenta: ' . motor_formatear($porHa, 'dinero') . '/ha'
+                  . ($labor > 0 ? ' (labor incluida)' : '')
+                  . ' × ' . number_format($supTotal, 1, ',', '.') . ' ha = '
+                  . motor_formatear($total, 'dinero');
+    } elseif ($esInsumo && $cantidadTotal > 0) {
+        // El atajo de la frase suelta: el monto ya vino dado y la cantidad se
+        // preguntó, así que no hay cuenta que mostrar — sólo lo que se cargó.
         $uni = isset($slots['insumo_unidad']) ? ' ' . (motor_unidades()[$slots['insumo_unidad']] ?? '') : '';
-        $lineas[] = 'Cantidad: ' . number_format($slots['insumo_cantidad'], 2, ',', '.') . $uni;
+        $lineas[] = 'Cantidad: ' . number_format($cantidadTotal, 2, ',', '.') . $uni;
     }
 
     if (count($partes) === 1) {
@@ -3335,8 +4059,13 @@ function motor_armar_alta(array $slots, array $lotes, string $campania): array {
            Es una sola carga pero son varios gastos, y el productor tiene que poder
            ver el reparto antes de aprobarlo: si la superficie de un lote está mal
            cargada, acá es donde se nota. */
+        /* En un insumo el monto por hectárea no está en ningún casillero: sale de
+           dosis × precio. Leer costo_total acá daba $0,00 en la confirmación de
+           una carga de insumo repartida, que es la pantalla donde eso se aprueba. */
+        $unitario = $porDosis ? $porHa : (float)($slots['costo_total'] ?? 0);
         $lineas[] = $modo === 'hectarea'
-            ? 'Monto: ' . motor_formatear((float)$slots['costo_total'], 'dinero') . ' por hectárea'
+            ? 'Monto: ' . motor_formatear($unitario, 'dinero') . ' por hectárea'
+                        . ($labor > 0 ? ', labor incluida' : '')
             : 'Monto: ' . motor_formatear($total, 'dinero') . ' repartido por superficie';
         foreach ($partes as $p) {
             $lineas[] = '   · ' . $p['lote']['nombre'] . ' (' . motor_formatear($p['sup'], 'ha') . '): '
@@ -3360,11 +4089,28 @@ function motor_armar_alta(array $slots, array $lotes, string $campania): array {
     /* Lo que va a pasar con el stock, dicho antes de que confirme. Es la única
        consecuencia de esta carga que no se ve en ninguna pantalla del panel, y es
        la misma distinción que hace el formulario en su desplegable. */
-    if ($esInsumo && !empty($slots['insumo_cantidad'])) {
-        $uni = isset($slots['insumo_unidad']) ? ' ' . (motor_unidades()[$slots['insumo_unidad']] ?? '') : '';
-        $lineas[] = $delCatalogo
-            ? 'Descuenta ' . number_format($slots['insumo_cantidad'], 2, ',', '.') . $uni . ' del stock.'
-            : 'No descuenta stock: no está en tu catálogo de insumos.';
+    if ($esInsumo && $cantidadTotal > 0) {
+        if ($lista) {
+            /* Renglón por renglón: en una aplicación puede haber uno del catálogo
+               y otro escrito a mano, y decir "descuenta stock" a secas taparía que
+               de uno de los dos no se descuenta nada. */
+            $bajan = $sueltos = [];
+            foreach ($lista as $i) {
+                $u = $i['unidad'] !== '' ? ' ' . (motor_unidades()[$i['unidad']] ?? '') : '';
+                if ((int)$i['id'] > 0) {
+                    $bajan[] = number_format($i['cantidad'], 2, ',', '.') . $u . ' de ' . $i['nombre'];
+                } else {
+                    $sueltos[] = $i['nombre'];
+                }
+            }
+            if ($bajan)   $lineas[] = 'Descuenta del stock: ' . implode(' · ', $bajan) . '.';
+            if ($sueltos) $lineas[] = 'No descuenta stock (no está en tu catálogo): ' . implode(', ', $sueltos) . '.';
+        } else {
+            $uni = isset($slots['insumo_unidad']) ? ' ' . (motor_unidades()[$slots['insumo_unidad']] ?? '') : '';
+            $lineas[] = $delCatalogo
+                ? 'Descuenta ' . number_format($cantidadTotal, 2, ',', '.') . $uni . ' del stock.'
+                : 'No descuenta stock: no está en tu catálogo de insumos.';
+        }
     }
 
     return ['datos' => $datos, 'detalle' => implode("\n", $lineas)];
@@ -4310,10 +5056,18 @@ function motor_dolar_referencia(PDO $pdo, int $uid): float {
     }
 }
 
-/** El catálogo de insumos activos del productor, para ofrecerlo y poder vincularlo. */
+/**
+ * El catálogo de insumos activos del productor, para ofrecerlo y poder vincularlo.
+ *
+ * Trae también el precio, que es lo que evita tener que tipearlo de nuevo en cada
+ * carga. OJO CON LA MONEDA: la columna se llama precio_estimado_usd y está en
+ * dólares por definición. Para mostrarlo o usarlo va SIEMPRE por motor_desde_usd();
+ * pasarlo por la función de pesos lo deja mil veces más chico.
+ */
 function motor_insumos_catalogo(PDO $pdo, int $uid): array {
     $st = $pdo->prepare(
-        "SELECT id, nombre, unidad_medida, stock_actual
+        "SELECT id, nombre, tipo_insumo, unidad_medida, stock_actual,
+                precio_estimado_usd AS precio_usd
            FROM insumos
           WHERE usuario_id = ? AND estado = 'activo'
           ORDER BY nombre"
@@ -4322,8 +5076,156 @@ function motor_insumos_catalogo(PDO $pdo, int $uid): array {
     return $st->fetchAll();
 }
 
+/**
+ * "120 kg de urea", "con 2,5 lt de glifosato": la dosis y el insumo, de una frase.
+ *
+ * Es lo que permite cargar diciendo "fertilicé Cornaglia con 120 kg de urea" en vez
+ * de contestar cuatro preguntas. Devuelve null si la frase no tiene esa forma.
+ *
+ * El número NO se puede leer como plata, y por eso esto corre ANTES que el
+ * detector de montos: "120 kg de urea" tiene un 120 que es una dosis, y tomarlo
+ * como el costo total dejaría una operación de ciento veinte pesos.
+ *
+ * @return array|null ['dosis','unidad','nombre','insumo'=>fila del catálogo|null]
+ */
+function motor_detectar_dosis(string $original, array $catalogo): ?array {
+    $u = [
+        'kg'    => 'kg|kgs|kilo|kilos|kilogramo|kilogramos',
+        'lt'    => 'lt|lts|l|litro|litros',
+        'dosis' => 'dosis',
+        'bolsa' => 'bolsa|bolsas',
+    ];
+    foreach ($u as $clave => $alt) {
+        /* El "de" es obligatorio: sin él, "120 kg" solo no dice de qué insumo, y
+           adivinarlo sería inventar. El nombre se toma hasta el fin de la frase o
+           hasta una preposición, para que "urea en el lote 3" no se lleve el lote. */
+        $re = '/(\d+(?:[.,]\d+)?)\s*(?:' . $alt . ')\s+de\s+([^,.;]+?)'
+            . '(?:\s+(?:en|para|el|la|los|las|por|a)\s|\s*$)/iu';
+        if (!preg_match($re, $original, $m)) continue;
+
+        $dosis  = (float)str_replace(',', '.', $m[1]);
+        $nombre = trim($m[2]);
+        if ($dosis <= 0 || $nombre === '') continue;
+
+        // Contra el catálogo: si es uno suyo se vincula y descuenta stock.
+        $ins = null;
+        $n = motor_normalizar($nombre);
+        foreach ($catalogo as $c) {
+            $cn = motor_normalizar($c['nombre']);
+            if ($cn === $n || strpos($cn, $n) !== false || strpos($n, $cn) !== false) { $ins = $c; break; }
+        }
+        if ($ins === null) {
+            foreach ($catalogo as $c) {
+                if (motor_coincide($n, motor_normalizar($c['nombre']))) { $ins = $c; break; }
+            }
+        }
+        return ['dosis' => $dosis, 'unidad' => $clave, 'nombre' => $nombre, 'insumo' => $ins];
+    }
+    return null;
+}
+
+/**
+ * El precio del catálogo, ya en la moneda que se está mirando.
+ *
+ * Devuelve null cuando el insumo no tiene precio cargado: ahí se pregunta, que es
+ * mejor que multiplicar por cero y mostrar un total de $0 con cara de dato.
+ */
+function motor_precio_catalogo(PDO $pdo, int $uid, ?array $insumo): ?float {
+    $usd = (float)($insumo['precio_usd'] ?? 0);
+    if ($usd <= 0) return null;
+    $p = motor_desde_usd($pdo, $uid, $usd);
+    return $p > 0 ? $p : null;
+}
+
 /** El chip para cuando el insumo no está cargado. Es la opción manual del formulario. */
 const MOTOR_INSUMO_LIBRE = 'No está en la lista';
+
+/** Cuántos insumos se ofrecen como chips antes de que la lista tape la pregunta. */
+const MOTOR_CHIPS_INSUMO = 8;
+
+/**
+ * Cuántas veces usó cada insumo EN ESA ETAPA, de todo lo que lleva cargado.
+ *
+ * Es el dato que ordena la lista de verdad. Un catálogo real tiene cuarenta
+ * productos y el mismo hombre usa siempre los mismos cinco para pulverizar: la
+ * historia sabe cuáles son, y ninguna otra regla lo sabe.
+ *
+ * Sin filtro de campaña a propósito: lo que se usó el año pasado sigue diciendo
+ * qué se usa, y arrancando una campaña nueva es justo cuando no hay nada de este
+ * año con qué ordenar.
+ */
+function motor_insumos_usados(PDO $pdo, int $uid, ?string $grupo): array {
+    $sql = "SELECT oi.insumo_id AS id, COUNT(*) AS veces
+              FROM operacion_insumos oi
+              JOIN operaciones o ON oi.operacion_id = o.id
+             WHERE o.usuario_id = ? AND oi.insumo_id IS NOT NULL";
+    $p = [$uid];
+    if ($grupo !== null) { $sql .= " AND o.grupo_gasto = ?"; $p[] = $grupo; }
+    $sql .= " GROUP BY oi.insumo_id";
+    try {
+        $st = $pdo->prepare($sql);
+        $st->execute($p);
+        $out = [];
+        foreach ($st->fetchAll() as $f) $out[(int)$f['id']] = (int)$f['veces'];
+        return $out;
+    } catch (Throwable $e) {
+        return [];   // sin historia se ordena por lo de siempre, no se rompe nada
+    }
+}
+
+/**
+ * Los insumos del catálogo ordenados por lo que se está cargando.
+ *
+ * EL PROBLEMA
+ * Salían en orden alfabético y nada más. Cargando una fertilización sobre un
+ * catálogo de doce, la lista era: 2,4-D, Atrazina, Cipermetrina, Coadyuvante,
+ * Fosfato, Glifosato, Maíz, Rizobio, Soja, Trigo, UAN, Urea. Los tres
+ * fertilizantes desparramados entre herbicidas y semillas, y la urea ÚLTIMA.
+ * Con un catálogo de cuarenta, que es lo normal, no se encuentra nada.
+ *
+ * Primero van los del rubro que corresponde a la etapa, y después el resto. Los
+ * otros NO se esconden —se puede echar un coadyuvante en una fertilización— pero
+ * dejan de estar delante. Y dentro de cada grupo manda el stock: lo que más se
+ * tiene es lo que más se usa, y lo que tiene cero probablemente ya no está.
+ *
+ * El corte en diez es para que la lista no tape la pregunta. Lo que quede afuera
+ * se sigue pudiendo escribir: los chips son un atajo, no la única puerta.
+ */
+function motor_insumos_para_etapa(array $catalogo, ?string $etapa, array $usados = []): array {
+    // Qué rubro del catálogo va con cada etapa del gasto.
+    $porEtapa = [
+        'siembra'       => 'semilla',
+        'fertilizacion' => 'fertilizante',
+        'pulverizacion' => 'agroquimico',
+    ];
+    $rubro = $porEtapa[$etapa ?? ''] ?? null;
+
+    $orden = array_values($catalogo);
+    usort($orden, function ($a, $b) use ($rubro, $usados) {
+        /* 1. Lo que YA usó en esta etapa, de más veces a menos. Es la señal más
+              fuerte de todas y por eso va primero: contra un catálogo de cuarenta,
+              ninguna regla general le acierta como la propia historia. */
+        $ua = $usados[(int)$a['id']] ?? 0;
+        $ub = $usados[(int)$b['id']] ?? 0;
+        if ($ua !== $ub) return $ub <=> $ua;
+
+        // 2. El rubro que corresponde a la etapa: fertilización → fertilizantes.
+        if ($rubro !== null) {
+            $ra = ($a['tipo_insumo'] ?? '') === $rubro ? 0 : 1;
+            $rb = ($b['tipo_insumo'] ?? '') === $rubro ? 0 : 1;
+            if ($ra !== $rb) return $ra <=> $rb;
+        }
+
+        // 3. Con stock antes que sin stock, y de más a menos.
+        $sa = (float)($a['stock_actual'] ?? 0);
+        $sb = (float)($b['stock_actual'] ?? 0);
+        if (($sa > 0) !== ($sb > 0)) return $sb > 0 ? 1 : -1;
+        if ($sa !== $sb) return $sb <=> $sa;
+        return strcasecmp((string)$a['nombre'], (string)$b['nombre']);
+    });
+
+    return array_map(fn($i) => $i['nombre'], array_slice($orden, 0, MOTOR_CHIPS_INSUMO));
+}
 
 /**
  * Las unidades del formulario de Insumos. En plural para nombrar la unidad y en
@@ -4370,7 +5272,8 @@ function motor_alta_nombres_lotes(array $ids, array $lotes): array {
  * se entendió. Antes esa frase terminaba en un cartel de "me falta la etapa" sin
  * salida; ahora es simplemente el paso a paso empezado más adelante.
  */
-function motor_alta_siguiente(array $slots, array $lotes, string $aviso = '', array $catalogo = []): ?array {
+function motor_alta_siguiente(array $slots, array $lotes, string $aviso = '', array $catalogo = [],
+                              array $usados = []): ?array {
     foreach (motor_alta_pasos() as $campo => $paso) {
         if (isset($slots[$campo])) continue;
         if (!motor_alta_paso_aplica($paso, $slots)) continue;
@@ -4383,21 +5286,49 @@ function motor_alta_siguiente(array $slots, array $lotes, string $aviso = '', ar
                escribir, y volver a mostrarle la lista es volver a preguntarle lo
                mismo. Sin catálogo tampoco hay chips que mostrar. */
             if (empty($slots['insumo_libre']) && $catalogo) {
-                $ops = array_map(fn($i) => $i['nombre'], $catalogo);
+                $ops = motor_insumos_para_etapa($catalogo, $slots['grupo_gasto'] ?? null, $usados);
                 $ops[] = MOTOR_INSUMO_LIBRE;
+                /* Con un catálogo grande se muestran los de arriba y NO todos, así
+                   que hay que decir que los demás siguen estando: si no, la lista
+                   corta se lee como "estos son los que tengo" y quien no ve el
+                   suyo cree que lo tiene que cargar de nuevo. */
+                $quedan = count($catalogo) - count($ops) + 1;
+                if ($quedan > 0) {
+                    $paso['ayuda'] = 'Éstos son los que más usás en ' . (motor_grupos()[$slots['grupo_gasto'] ?? '']['etiqueta'] ?? 'esta etapa')
+                                   . '. Tenés ' . $quedan . ' más: escribime el nombre y lo busco.';
+                }
             } else {
                 $ops = [];
                 $paso['ayuda'] = 'Escribime el nombre. Al no estar en tu catálogo, este gasto no descuenta stock.';
             }
         }
 
+        /* Con la unidad del catálogo las dos preguntas son concretas —"¿cuántos
+           kilos por hectárea?", "¿a cuánto el kilo?"— en vez de hablar de una
+           "unidad" abstracta. Sin catálogo el insumo se escribió a mano y no hay
+           unidad que poner, así que quedan en genérico. */
+        $uniPl = isset($slots['insumo_unidad']) ? (motor_unidades()[$slots['insumo_unidad']] ?? '') : '';
+        $uniSg = isset($slots['insumo_unidad']) ? (motor_unidades_singular()[$slots['insumo_unidad']] ?? '') : '';
+
+        if ($campo === 'insumo_dosis') {
+            $sup = motor_alta_superficie($slots['lotes'] ?? [], $lotes);
+            if ($uniPl !== '') $paso['pregunta'] = '¿Cuántos ' . $uniPl . ' por hectárea?';
+            $paso['ayuda'] = 'La dosis, no el total: 120 si pusiste 120'
+                           . ($uniPl !== '' ? ' ' . $uniPl : '') . ' por hectárea.'
+                           . ($sup > 0 ? ' Lo multiplico por las ' . number_format($sup, 1, ',', '.') . ' ha.' : '');
+        }
+
+        if ($campo === 'insumo_precio') {
+            if ($uniSg !== '') $paso['pregunta'] = '¿A cuánto el ' . $uniSg . '?';
+            $paso['ayuda'] = 'Lo que sale ' . ($uniSg !== '' ? 'un ' . $uniSg : 'una unidad')
+                           . ', no el total de la compra. Con eso saco el total.';
+        }
+
         if ($campo === 'insumo_cantidad') {
             // Con la unidad del catálogo la pregunta es concreta: "¿cuántos kilos?"
-            $uni = isset($slots['insumo_unidad']) ? (motor_unidades()[$slots['insumo_unidad']] ?? '') : '';
-            if ($uni !== '') {
-                $paso['pregunta'] = '¿Cuántos ' . $uni . ' usaste en total?';
-                $paso['ayuda']    = 'Con eso saco el precio por ' . motor_unidades_singular()[$slots['insumo_unidad']]
-                                  . ' y descuento el stock.';
+            if ($uniPl !== '') {
+                $paso['pregunta'] = '¿Cuántos ' . $uniPl . ' usaste en total?';
+                $paso['ayuda']    = 'Con eso saco el precio por ' . $uniSg . ' y descuento el stock.';
             } else {
                 $paso['ayuda'] = 'La cantidad total, en la unidad que lo compres.';
             }
@@ -4423,21 +5354,41 @@ function motor_alta_siguiente(array $slots, array $lotes, string $aviso = '', ar
         // seguidas se sienten un interrogatorio en vez de un formulario.
         $hechos = [];
         if (isset($slots['grupo_gasto']))     $hechos[] = motor_grupos()[$slots['grupo_gasto']]['etiqueta'];
-        if (isset($slots['tipo_componente'])) $hechos[] = $slots['tipo_componente'] === 'insumo' ? 'insumo' : 'mano de obra';
+        if (isset($slots['tipo_componente'])) {
+            $hechos[] = ['insumo' => 'insumo', 'receta' => 'aplicación'][$slots['tipo_componente']] ?? 'mano de obra';
+        }
         /* No alcanza con isset: en un gasto de mano de obra estos dos casilleros
            se llenan vacíos —nombre '' y cantidad 0— y aparecían en el resumen
            como un renglón en blanco y un "0,00" sueltos. Se nota al volver sobre
            un paso, que es cuando el resumen se arma con todo ya cargado. */
-        if (!empty($slots['insumo_nombre']))   $hechos[] = $slots['insumo_nombre'];
-        if (!empty($slots['insumo_cantidad'])) {
-            $u = isset($slots['insumo_unidad']) ? ' ' . (motor_unidades()[$slots['insumo_unidad']] ?? '') : '';
-            $hechos[] = number_format($slots['insumo_cantidad'], 2, ',', '.') . $u;
+        /* Los insumos ya cerrados, para que al agregar el tercero se siga viendo
+           cuáles son los dos anteriores. Sin esto la lista es invisible hasta la
+           confirmación y no hay forma de saber si uno quedó cargado o no. */
+        foreach ($slots['insumos_lista'] ?? [] as $ya) {
+            $u = !empty($ya['unidad']) ? ' ' . (motor_unidades()[$ya['unidad']] ?? '') : '';
+            $hechos[] = $ya['nombre'] . ' ' . number_format((float)$ya['dosis'], 2, ',', '.') . $u . '/ha';
         }
+        if (!empty($slots['labor_costo'])) $hechos[] = 'labor ' . motor_formatear($slots['labor_costo'], 'dinero');
+        if (!empty($slots['insumo_nombre']))   $hechos[] = $slots['insumo_nombre'];
         if (!empty($slots['lotes'])) {
             $nn = motor_alta_nombres_lotes($slots['lotes'], $lotes);
             // Con muchos lotes la lista tapa la pregunta; se dice cuántos son.
             $hechos[] = count($nn) > 3 ? count($nn) . ' lotes' : implode(' y ', $nn);
         }
+        if (!empty($slots['insumo_dosis'])) {
+            $hechos[] = number_format($slots['insumo_dosis'], 2, ',', '.')
+                      . ($uniPl !== '' ? ' ' . $uniPl : '') . '/ha';
+        }
+        if (!empty($slots['insumo_precio'])) {
+            $hechos[] = motor_formatear($slots['insumo_precio'], 'dinero')
+                      . ($uniSg !== '' ? '/' . $uniSg : ' c/u');
+        }
+        /* El total, ya calculado, apenas están los tres números. Aparece antes de
+           la pantalla de confirmación a propósito: si la dosis o el precio se
+           tipearon con un cero de más, acá se ve en el acto y no dos preguntas
+           después, cuando ya no se sabe cuál de las dos estaba mal. */
+        $tot = motor_alta_total_insumo($slots, $lotes);
+        if ($tot !== null) $hechos[] = 'total ' . motor_formatear($tot, 'dinero');
         if (isset($slots['costo_total']))     $hechos[] = motor_formatear($slots['costo_total'], 'dinero');
 
         return [

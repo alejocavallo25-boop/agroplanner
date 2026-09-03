@@ -103,6 +103,39 @@ if (!empty($_GET['alta'])) {
         if (isset($a['insumo_id']))       $limpio['insumo_id']       = (int)$a['insumo_id'];
         if (isset($a['insumo_unidad']))   $limpio['insumo_unidad']   = (string)$a['insumo_unidad'];
         if (isset($a['insumo_cantidad'])) $limpio['insumo_cantidad'] = (float)$a['insumo_cantidad'];
+        /* La dosis por hectárea y el precio por unidad, que son de donde sale el
+           total de un gasto de insumo. Van con el mismo criterio que el resto: se
+           les da forma acá y el guardado los vuelve a validar. */
+        if (isset($a['insumo_dosis']))    $limpio['insumo_dosis']    = (float)$a['insumo_dosis'];
+        if (isset($a['insumo_precio']))   $limpio['insumo_precio']   = (float)$a['insumo_precio'];
+        /* De dónde salió el precio. Es sólo para el texto de la confirmación —no
+           entra en ninguna cuenta— pero igual se limpia: llega de afuera. */
+        if (isset($a['insumo_precio_de']))
+            $limpio['insumo_precio_de'] = $a['insumo_precio_de'] === 'catalogo' ? 'catalogo' : '';
+        if (isset($a['insumo_precio_usd'])) $limpio['insumo_precio_usd'] = (float)$a['insumo_precio_usd'];
+        /* Los insumos ya cerrados de una aplicación. Viaja por la URL como todo el
+           resto del estado, así que se le da forma campo por campo y con techo:
+           sin eso es una lista de largo libre que llega de afuera. El guardado los
+           vuelve a validar contra el catálogo del usuario. */
+        if (isset($a['insumos_lista']) && is_array($a['insumos_lista'])) {
+            $lim = [];
+            foreach (array_slice($a['insumos_lista'], 0, 20) as $i) {
+                if (!is_array($i)) continue;
+                $lim[] = [
+                    'id'         => (int)($i['id'] ?? 0),
+                    'nombre'     => mb_substr(trim((string)($i['nombre'] ?? '')), 0, 150),
+                    'unidad'     => mb_substr((string)($i['unidad'] ?? ''), 0, 10),
+                    'dosis'      => (float)($i['dosis'] ?? 0),
+                    'precio'     => (float)($i['precio'] ?? 0),
+                    'precio_de'  => ($i['precio_de'] ?? '') === 'catalogo' ? 'catalogo' : '',
+                    'precio_usd' => (float)($i['precio_usd'] ?? 0),
+                ];
+            }
+            $limpio['insumos_lista'] = $lim;
+        }
+        if (isset($a['insumos_cerrado'])) $limpio['insumos_cerrado'] = 1;
+        if (isset($a['alta_de_frase']))   $limpio['alta_de_frase']   = 1;
+        if (isset($a['labor_costo']))     $limpio['labor_costo']     = (float)$a['labor_costo'];
         if (isset($a['insumo_libre']))    $limpio['insumo_libre']    = 1;
         /* Los lotes elegidos, que pueden ser varios. Se recorta la lista a un
            máximo razonable: nadie tiene doscientos lotes, y sin techo esto es una
