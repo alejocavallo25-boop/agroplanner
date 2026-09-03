@@ -846,6 +846,189 @@ function motor_coincide(string $texto, string $frase): bool {
     return false;
 }
 
+/* =====================================================================
+   SIMULAR UN GASTO QUE TODAVÍA NO OCURRIÓ
+
+   "¿Qué pasa si le tiro 2 lt de glifosato?" — la pregunta que se hace ANTES de
+   decidir, y que hasta acá había que contestar con una calculadora al lado.
+
+   NO ESCRIBE NADA. Es una consulta: toma los números que ya están, les suma un
+   costo que no existe, y rehace las mismas cuentas del panel.
+
+   LAS FÓRMULAS SON LAS DEL PANEL, COPIADAS DE getGlobalStats():
+       costos_totales        = costos_directos + costos_alquiler
+       precio_promedio       = ingresos / kg
+       rinde_indiferencia    = (costos_totales / precio_promedio) / hectareas
+       margen_neto           = ingresos - costos_directos - costos_alquiler
+   Si acá se usara una parecida, el número simulado no sería comparable con el
+   que se lee en la pantalla, y comparar es todo el punto de simular.
+
+   DE DÓNDE SALE EL COSTO EXTRA, en este orden:
+     1. dosis × precio del catálogo   "2 lt de glifosato"
+     2. un monto por hectárea         "15.000 por hectárea"
+     3. un monto total                "2 millones más"
+   La primera es la que se usa de verdad: el productor piensa en dosis, y el
+   precio ya está cargado.
+   ===================================================================== */
+
+function motor_simular(PDO $pdo, $ctrl, int $uid, string $original, string $texto,
+                       string $campania, ?int $loteId, ?array $lote, ?string $cultivo): array
+{
+    $sinDatos = function (string $qué, string $porqué) use ($campania, $loteId, $cultivo) {
+        return [
+            'ok' => false, 'tipo' => 'sin_datos',
+            'respuesta' => $qué, 'detalle' => $porqué, 'valor' => null,
+            'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => 'punto_equilibrio_kg_ha'],
+            'link' => motor_link($campania, $loteId, $cultivo),
+            'sugerencias' => ['¿Cuál es el rinde de indiferencia?', '¿Cuál es el costo por hectárea?', '¿En qué gasté?'],
+        ];
+    };
+
+    $s   = $ctrl->getGlobalStats($campania, $loteId, $cultivo);
+    $ha  = (float)($s['hectareas'] ?? 0);
+    $kg  = (float)($s['kg'] ?? 0);
+    $ing = (float)($s['ingresos'] ?? 0);
+    $cos = (float)($s['costos_directos'] ?? 0) + (float)($s['costos_alquiler'] ?? 0);
+
+    if ($ha <= 0) {
+        return $sinDatos('No puedo simularlo sin superficie en ' . motor_frase_filtros($campania, $lote, $cultivo) . '.',
+                         'Todo esto se calcula por hectárea, así que hace falta saber sobre cuántas.');
+    }
+
+    // ── Cuánto costaría ──────────────────────────────────────────────────────
+    $catalogo = motor_insumos_catalogo($pdo, $uid);
+    $dos = motor_detectar_dosis($original, $catalogo);
+    $porHa = 0.0; $comoSale = ''; $sinPrecio = null;
+
+    if ($dos !== null) {
+        $precio = motor_precio_catalogo($pdo, $uid, $dos['insumo']);
+        if ($precio === null) {
+            // Se sabe QUÉ, pero no a cuánto. Se dice, en vez de inventar un precio.
+            $sinPrecio = $dos['insumo']['nombre'] ?? $dos['nombre'];
+        } else {
+            $porHa = $dos['dosis'] * $precio;
+            $uni = motor_unidades()[$dos['insumo']['unidad_medida'] ?? $dos['unidad']] ?? '';
+            $sg  = motor_unidades_singular()[$dos['insumo']['unidad_medida'] ?? $dos['unidad']] ?? '';
+            $comoSale = number_format($dos['dosis'], 2, ',', '.') . ($uni ? ' ' . $uni : '') . '/ha de '
+                      . ($dos['insumo']['nombre'] ?? $dos['nombre'])
+                      . ' a ' . motor_formatear($precio, 'dinero') . ($sg ? '/' . $sg : '')
+                      . ' = ' . motor_formatear($porHa, 'dinero') . '/ha';
+        }
+    }
+
+    if ($porHa <= 0 && $sinPrecio === null) {
+        // Un monto suelto: por hectárea si lo dice, total si no.
+        $monto = motor_detectar_monto($original);
+        if ($monto !== null && $monto > 0) {
+            if (motor_pide_por_hectarea($texto)) {
+                $porHa = $monto;
+                $comoSale = motor_formatear($monto, 'dinero') . '/ha';
+            } else {
+                $porHa = $monto / $ha;
+                $comoSale = motor_formatear($monto, 'dinero') . ' repartidos en '
+                          . motor_formatear($ha, 'ha') . ' = ' . motor_formatear($porHa, 'dinero') . '/ha';
+            }
+        }
+    }
+
+    if ($sinPrecio !== null) {
+        return $sinDatos('Sé qué querés tirar, pero no a cuánto: ' . $sinPrecio . ' no tiene precio en tu catálogo.',
+                         'Cargale el precio en Insumos y te lo simulo, o decímelo acá: "y si le tiro '
+                         . number_format($dos['dosis'], 2, ',', '.') . ' a $X el litro".');
+    }
+    if ($porHa <= 0) {
+        return $sinDatos('No entendí cuánto habría que gastar.',
+                         'Decímelo como una dosis —"y si le tiro 2 lt de glifosato"— o como plata: '
+                         . '"y si gasto 15.000 por hectárea".');
+    }
+
+    // ── Las mismas cuentas, con el costo de más ──────────────────────────────
+    $extra    = $porHa * $ha;
+    $cosNuevo = $cos + $extra;
+    $precioKg = $kg > 0 ? $ing / $kg : 0.0;
+
+    $cphAntes = $cos / $ha;
+    $cphAhora = $cosNuevo / $ha;
+    $mgAntes  = $ing - $cos;
+    $mgAhora  = $ing - $cosNuevo;
+
+    $lineas = [
+        'Costo por hectárea: ' . motor_formatear($cphAntes, 'dinero')
+            . ' → ' . motor_formatear($cphAhora, 'dinero'),
+    ];
+
+    if ($precioKg > 0) {
+        $peAntes = ($cos / $precioKg) / $ha;
+        $peAhora = ($cosNuevo / $precioKg) / $ha;
+        $masKg   = $peAhora - $peAntes;
+        $rinde   = (float)($s['rendimiento_ha'] ?? 0);
+
+        array_unshift($lineas,
+            'Rinde de indiferencia: ' . motor_formatear($peAntes, 'kg_ha')
+            . ' → ' . motor_formatear($peAhora, 'kg_ha')
+            . ' (' . motor_formatear($masKg, 'kg_ha') . ' más)');
+
+        /* La pregunta de atrás de la pregunta: ¿lo aguanta el rinde que ya tengo?
+           Es lo único que convierte estos números en una decisión. */
+        if ($rinde > 0) {
+            $holgura = $rinde - $peAhora;
+            $lineas[] = $holgura >= 0
+                ? 'Con tu rinde de ' . motor_formatear($rinde, 'kg_ha') . ' te sigue sobrando '
+                  . motor_formatear($holgura, 'kg_ha') . '.'
+                : 'Ojo: con tu rinde de ' . motor_formatear($rinde, 'kg_ha') . ' quedarías '
+                  . motor_formatear(abs($holgura), 'kg_ha') . ' POR DEBAJO.';
+        }
+        $lineas[] = 'Se paga con ' . motor_formatear($masKg, 'kg_ha')
+                  . ' más, al precio al que venís vendiendo ('
+                  . motor_formatear($precioKg, 'dinero') . '/kg).';
+    } else {
+        $lineas[] = 'Todavía no puedo decirte el rinde de indiferencia: hace falta '
+                  . 'producción vendida para saber a qué precio se paga.';
+    }
+
+    $lineas[] = 'Margen: ' . motor_formatear($mgAntes, 'dinero') . ' → ' . motor_formatear($mgAhora, 'dinero') . '.';
+    $lineas[] = 'La cuenta: ' . $comoSale . ' × ' . motor_formatear($ha, 'ha')
+              . ' = ' . motor_formatear($extra, 'dinero') . ' de más.';
+
+    return [
+        'ok' => true, 'tipo' => 'simulacion',
+        /* Que es una simulación va PRIMERO y no al pie: si se lee después de los
+           números, ya se leyeron como si fueran los de la campaña. */
+        'respuesta' => 'Simulación, no queda cargado nada. En '
+                     . motor_frase_filtros($campania, $lote, $cultivo)
+                     . ', ese gasto sumaría ' . motor_formatear($porHa, 'dinero') . ' por hectárea.',
+        'detalle' => implode("\n", $lineas),
+        'valor' => $extra,
+        'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo,
+                      'metrica' => 'punto_equilibrio_kg_ha'],
+        'link' => motor_link($campania, $loteId, $cultivo),
+        'sugerencias' => ['¿Cuál es el rinde de indiferencia?', '¿Cuál es mi mejor lote?', '¿En qué gasté?'],
+    ];
+}
+
+/**
+ * ¿Es una pregunta de "¿y si…?" — una simulación y no una carga?
+ *
+ * "¿Qué pasa si le tiro dos litros de glifosato?" no es un gasto que ocurrió: es
+ * una cuenta para decidir si conviene hacerlo. La diferencia importa por dos
+ * motivos. Uno: una carga ESCRIBE y esto no escribe nada. El otro: la respuesta
+ * útil no es cuánto sale, es adónde se va el rinde de indiferencia — cuántos
+ * kilos más por hectárea hay que sacar para pagarlo.
+ *
+ * Se exige el "si": sin él, "cuánto me sale tirar dos litros" es una consulta de
+ * precio, que ya tiene su rama.
+ */
+function motor_pide_simulacion(string $t): bool {
+    foreach (['que pasa si','y si le','y si les','y si tiro','y si pongo',
+              'y si agrego','y si sumo','y si gasto','si le tiro','si le pongo',
+              'si le agrego','si aplico','si le aplico','simula','simular','simulacion',
+              'cuanto me cambia si','como queda si','como cambia si','suponiendo que',
+              'que pasaria si','probemos con','proyecta si','proyectar si'] as $p) {
+        if (strpos($t, $p) !== false) return true;
+    }
+    return false;
+}
+
 /**
  * ¿La pregunta pide el número repartido por hectárea?
  *
@@ -1448,6 +1631,20 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
                           'cultivo' => $cultivo, 'metrica' => null],
             'link' => null, 'sugerencias' => [],
         ];
+    }
+
+    /* ═══ "¿Y SI LE TIRO…?" — LA CUENTA ANTES DE GASTAR ══════════════════════
+       Un gasto que todavía no ocurrió, para ver adónde se va el rinde de
+       indiferencia. NO ESCRIBE NADA: es la misma cuenta del panel con un costo
+       de más, y por eso la respuesta lo dice en la primera línea.
+
+       Va antes que todo lo demás porque la frase trae un insumo, una cantidad y
+       a veces un lote: cualquiera de las ramas de abajo se la quedaría y
+       contestaría el consumo, el stock o el precio — un número correcto para
+       una pregunta que nadie hizo. */
+    if (motor_pide_simulacion($texto)) {
+        return motor_simular($pdo, $ctrl, $usuarioId, $pregunta, $texto,
+                             $campania, $loteId, $lote, $cultivo);
     }
 
     /* ── Lo que no se puede contestar con datos ──────────────────────────────
