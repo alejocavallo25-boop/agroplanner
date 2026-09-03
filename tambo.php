@@ -357,7 +357,7 @@ $data_costos = array_values($ranking_costos);
             <div style="font-size:0.8rem;color:var(--text-muted);margin-top:2px;">Los cálculos en USD usan el dólar de hoy ($<?= number_format($dolar_cache,2) ?>). Ingresá el TC real de ese mes para cerrar correctamente.</div>
         </div>
     </div>
-    <button onclick="document.getElementById('formTCPanel').style.display=document.getElementById('formTCPanel').style.display==='none'?'flex':'none'" style="background:var(--warning-soft);border:1px solid var(--warning-soft);color:var(--se-warning);border-radius:8px;padding:7px 14px;font-size:0.83rem;font-weight:600;cursor:pointer;white-space:nowrap;">
+    <button class="ap-tc-accion" onclick="document.getElementById('formTCPanel').style.display=document.getElementById('formTCPanel').style.display==='none'?'flex':'none'" style="background:var(--warning-soft);border:1px solid var(--warning-soft);color:var(--se-warning);border-radius:8px;padding:7px 14px;font-size:0.83rem;font-weight:600;cursor:pointer;white-space:nowrap;">
         <i class="fas fa-lock"></i> Fijar TC del mes
     </button>
 </div>
@@ -372,12 +372,20 @@ $data_costos = array_values($ranking_costos);
     </div>
     <div style="display: flex; align-items: center; gap: 8px; flex-wrap:wrap;">
         <div style="display:flex; background:rgba(255,255,255,0.1); border-radius:8px; overflow:hidden; border: 1px solid var(--border);">
-            <button onclick="toggleAnalisis('ars')" id="btn-ars" style="background:var(--accent); color:var(--on-accent); border:none; padding:6px 14px; font-weight:600; font-size:0.85rem; cursor:pointer;">ARS</button>
-            <button onclick="toggleAnalisis('usd')" id="btn-usd" style="background:transparent; color:var(--text-muted); border:none; padding:6px 14px; font-weight:600; font-size:0.85rem; cursor:pointer;">USD</button>
+            <?php /* La clase btn-currency es la que ya usan ganadería, operaciones
+                     y egresos para este mismo conmutador. Acá no cambia el aspecto
+                     —esta pantalla no define esa clase, el estilo sigue en el
+                     style= de al lado—: entra para que le llegue la regla de
+                     tamaño para el dedo de style.css, que la nombra. */ ?>
+            <button onclick="toggleAnalisis('ars')" id="btn-ars" class="btn-currency" style="background:var(--accent); color:var(--on-accent); border:none; padding:6px 14px; font-weight:600; font-size:0.85rem; cursor:pointer;">ARS</button>
+            <button onclick="toggleAnalisis('usd')" id="btn-usd" class="btn-currency" style="background:transparent; color:var(--text-muted); border:none; padding:6px 14px; font-weight:600; font-size:0.85rem; cursor:pointer;">USD</button>
         </div>
         <input type="month" value="<?= $mes_sel ?>" onchange="location.href='tambo.php?mes='+this.value" style="padding: 8px 14px; border-radius: 20px; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--text-primary); cursor: pointer; font-weight: 500;">
+        <?php /* Es un <div> con onclick, así que ningún medidor de accesibilidad
+                 lo cuenta como botón — pero se toca igual, y abre el mismo panel
+                 que "Fijar TC del mes". Lleva la misma clase por eso. */ ?>
         <!-- Indicador TC -->
-        <div onclick="document.getElementById('formTCPanel').style.display=document.getElementById('formTCPanel').style.display==='none'?'flex':'none'"
+        <div class="ap-tc-accion" onclick="document.getElementById('formTCPanel').style.display=document.getElementById('formTCPanel').style.display==='none'?'flex':'none'"
              style="display:flex;align-items:center;gap:6px;background:var(--n-100);border:1px solid var(--border);border-radius:20px;padding:6px 12px;cursor:pointer;transition:all .2s;"
              title="Tipo de cambio — click para editar">
             <i class="fas fa-dollar-sign" style="font-size:0.75rem;color:<?= $dolar_sin_dato ? 'var(--se-warning)' : ($dolar_fuente==='manual' ? 'var(--mod-tambo)' : 'var(--accent)') ?>;"></i>

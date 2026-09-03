@@ -1,14 +1,22 @@
-    <footer style="margin-top: auto; width: 100%; padding-top: 40px; padding-bottom: 20px; display: flex; justify-content: center; align-items: center; text-align: center;">
-        <div style="background: transparent; padding: 10px 24px; display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--text-muted); flex-wrap: wrap; justify-content: center;">
-            <i class="fas fa-code" style="color: var(--accent); font-size: 0.9em;"></i>
+    <?php /* Esto estaba todo en atributos style="". Se pasó a clases por un motivo
+             concreto: un style="" en la etiqueta le gana a CUALQUIER regla de la
+             hoja, así que los tres enlaces eran los únicos de la aplicación a los
+             que la regla de tamaño para el dedo no podía llegar — medían 27 de
+             alto y "Términos" y "Privacidad" quedaban a 2 píxeles uno del otro.
+             Se ve igual que antes; lo que cambia es que ahora se puede gobernar
+             desde style.css. El hover pasó de onmouseover= a :hover, que además
+             funciona sin JavaScript. */ ?>
+    <footer class="ap-pie">
+        <div class="ap-pie__caja">
+            <i class="fas fa-code ap-pie__icono"></i>
             <span>Plataforma desarrollada por</span>
-            <a href="https://cafra.site/" target="_blank" style="color: var(--text-primary); text-decoration: none; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--border); transition: all 0.2s;">
-                CaFra <i class="fas fa-external-link-alt" style="color: var(--text-muted); font-size: 0.9em;"></i>
+            <a href="https://cafra.site/" target="_blank" class="ap-pie__marca">
+                CaFra <i class="fas fa-external-link-alt"></i>
             </a>
-            <span style="margin: 0 4px; color: var(--rule-strong);">|</span>
-            <a href="terminos.php" style="color: var(--text-muted); text-decoration: none; transition: color 0.2s;" onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-muted)'">Términos</a>
-            <span style="margin: 0 2px; color: var(--rule-strong);">-</span>
-            <a href="privacidad.php" style="color: var(--text-muted); text-decoration: none; transition: color 0.2s;" onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-muted)'">Privacidad</a>
+            <span class="ap-pie__sep">|</span>
+            <a href="terminos.php" class="ap-pie__link">Términos</a>
+            <span class="ap-pie__sep">-</span>
+            <a href="privacidad.php" class="ap-pie__link">Privacidad</a>
         </div>
     </footer>
 </main> <!-- Cierra .main-content -->

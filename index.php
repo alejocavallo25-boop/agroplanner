@@ -166,7 +166,9 @@ require_once 'includes/header.php';
 <style>
     .tab-nav { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 10px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
     .tab-nav::-webkit-scrollbar { display: none; }
-    .tab-btn { padding: 9px 18px; border-radius: 8px; background: var(--n-0); color: var(--text-muted); cursor: pointer; border: 1px solid var(--border); white-space: nowrap; transition: all 0.2s; flex-shrink: 0; font-size: 0.9rem; min-height: 40px; }
+    /* 44 y no 40: 40 fue un primer intento y se quedó corto. Lo que se toca con
+       el dedo va en 44, que es lo que ya usa .fl-tab en el feedlot. */
+    .tab-btn { padding: 9px 18px; border-radius: 8px; background: var(--n-0); color: var(--text-muted); cursor: pointer; border: 1px solid var(--border); white-space: nowrap; transition: all 0.2s; flex-shrink: 0; font-size: 0.9rem; min-height: 44px; }
     .tab-btn:hover { background: var(--n-100); color: var(--text-primary); }
     /* Blanco sobre el verde de campo = 8:1. Con el emerald anterior daba 2,54:1. */
     .tab-btn.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 600; }
@@ -442,7 +444,7 @@ require_once 'includes/header.php';
                 <?php /* aria-label porque no hay etiqueta visible: al lado sólo hay un
                          ícono de embudo, que un lector de pantalla no lee. Sin esto se
                          anuncian tres listas desplegables sin decir de qué son. */ ?>
-                <select aria-label="Filtrar por campaña" onchange="navFiltro('ciclo', this.value)" style="padding:9px 14px; border-radius:8px; border:1px solid var(--accent); background:var(--accent-soft); color:var(--text-primary); cursor:pointer; font-weight:600; min-width:0; max-width:180px; min-height:40px;">
+                <select aria-label="Filtrar por campaña" onchange="navFiltro('ciclo', this.value)" style="padding:9px 14px; border-radius:8px; border:1px solid var(--accent); background:var(--accent-soft); color:var(--text-primary); cursor:pointer; font-weight:600; min-width:0; max-width:180px; min-height:44px;">
                     <?php foreach($ciclos as $c): ?>
                         <option value="<?= htmlspecialchars($c) ?>" <?= $c == $ciclo_sel ? 'selected' : '' ?>>Campaña <?= htmlspecialchars($c) ?></option>
                     <?php endforeach; ?>
@@ -453,7 +455,7 @@ require_once 'includes/header.php';
 
                 <?php if($ciclo_sel && !empty($lotes_filtro)): ?>
                 <!-- Lote -->
-                <select aria-label="Filtrar por lote" onchange="navFiltro('lote', this.value)" style="padding:9px 14px; border-radius:8px; border:1px solid var(--border); background:var(--n-0); color:var(--text-primary); cursor:pointer; font-weight:500; min-width:0; max-width:180px; min-height:40px;">
+                <select aria-label="Filtrar por lote" onchange="navFiltro('lote', this.value)" style="padding:9px 14px; border-radius:8px; border:1px solid var(--border); background:var(--n-0); color:var(--text-primary); cursor:pointer; font-weight:500; min-width:0; max-width:180px; min-height:44px;">
                     <option value="">Todos los lotes</option>
                     <?php foreach($lotes_filtro as $lf): ?>
                         <option value="<?= (int)$lf['id'] ?>" <?= ((int)$lf['id'] === $lote_sel) ? 'selected' : '' ?>><?= htmlspecialchars($lf['nombre']) ?></option>
@@ -463,7 +465,7 @@ require_once 'includes/header.php';
 
                 <?php if($ciclo_sel && !empty($cultivos_filtro)): ?>
                 <!-- Cultivo -->
-                <select aria-label="Filtrar por cultivo" onchange="navFiltro('cultivo', this.value)" style="padding:9px 14px; border-radius:8px; border:1px solid var(--border); background:var(--n-0); color:var(--text-primary); cursor:pointer; font-weight:500; min-width:0; max-width:180px; min-height:40px;">
+                <select aria-label="Filtrar por cultivo" onchange="navFiltro('cultivo', this.value)" style="padding:9px 14px; border-radius:8px; border:1px solid var(--border); background:var(--n-0); color:var(--text-primary); cursor:pointer; font-weight:500; min-width:0; max-width:180px; min-height:44px;">
                     <option value="">Todos los cultivos</option>
                     <?php foreach($cultivos_filtro as $cf): ?>
                         <option value="<?= htmlspecialchars($cf) ?>" <?= ($cf === $cultivo_sel) ? 'selected' : '' ?>><?= htmlspecialchars($cf) ?></option>

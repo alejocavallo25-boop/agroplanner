@@ -1665,3 +1665,193 @@ input[type="password"], select, textarea {
         scroll-behavior: auto !important;
     }
 }
+
+/* =====================
+   TAMAÑO PARA EL DEDO
+
+   Medido pantalla por pantalla en un teléfono de 390 píxeles. La estructura
+   estaba bien —ni una sola pantalla se desbordaba de costado, en ningún
+   tamaño— pero varios controles eran más chicos de lo que una yema puede
+   acertar. Los peores, por orden de cuánto se usan:
+
+     el botón del menú          37x40   es el más tocado de todos
+     los de acción de la tabla  30x44   altos pero angostos: editar y borrar,
+                                        uno al lado del otro
+     el conmutador de moneda    64x24   en todas las pantallas
+     las pestañas de filtro    102x31
+     el conmutador $ / %        36x25
+
+   Nada de esto se veía mal: se veía bien y se erraba al tocarlo. La medida de
+   referencia es 44 píxeles, que es el ancho aproximado de la yema de un dedo
+   adulto. Errarle a "borrar" y darle a "editar" es molesto; al revés, no.
+
+   POR QUÉ (pointer: coarse) Y NO SÓLO EL ANCHO DE PANTALLA
+   Lo que decide cuánto tiene que medir un botón no es el tamaño de la pantalla
+   sino con qué se lo toca. Una tablet de 1024 se maneja con el dedo igual que
+   un teléfono, y una ventana angosta en una computadora se maneja con el mouse
+   y no necesita nada de esto. Se deja también el ancho como respaldo, porque
+   algunos navegadores viejos no informan el tipo de puntero.
+
+   En escritorio con mouse no cambia NADA: agrandar todo ahí sería inflar la
+   interfaz sin motivo.
+   ===================== */
+@media (pointer: coarse), (max-width: 760px) {
+
+    /* El menú: es lo primero que se toca al entrar. */
+    .mobile-menu-btn {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    /* Editar y borrar, en las filas de las tablas. Van pegados uno al lado del
+       otro, así que acá el ancho importa más que en cualquier otro lado. */
+    td .btn,
+    td button,
+    td form button {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    /* El conmutador de moneda es un <a> en cinco pantallas, y un elemento en
+       línea ignora min-height: sin cambiarle el display no crece. Acá se puede
+       porque su contenido es texto suelto ("$ ARS") y no ícono más texto —ver
+       la nota de abajo, que es justamente el caso contrario—. */
+    .ap-moneda__op {
+        min-height: 44px;
+        min-width: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* NO TOCAR EL DISPLAY DE ESTOS.
+       Son <button>, que ya centran su contenido solos: con min-height alcanza.
+       Ponerles inline-flex se probó y rompe: el espacio entre el ícono y la
+       palabra es un nodo de texto en blanco, y flex lo descarta — las pastillas
+       pasaban de "🌱 Siembra" a "🌱Siembra", pegado. Se vio en la captura. */
+    .btn-currency,
+    .grupo-tab,
+    .tipo-tab,
+    .tab-btn,
+    .fl-tab {
+        min-height: 44px;
+        min-width: 44px;
+    }
+
+    /* Los desplegables de filtro rondaban los 36-40. */
+    select,
+    .filter-select {
+        min-height: 44px;
+    }
+
+    /* Cosas que se tocan y no son ni <a> ni <button>, así que ningún medidor de
+       accesibilidad las cuenta — pero el dedo no sabe de etiquetas:
+         .nav-section-header   los títulos del menú que pliegan la sección
+         .ap-tc-accion         "Fijar TC del mes" y el indicador de al lado
+         .lote-ubicacion       la ubicación de cada lote, que centra el mapa */
+    .nav-section-header,
+    .ap-tc-accion,
+    .lote-ubicacion {
+        min-height: 44px;
+        box-sizing: border-box;
+    }
+
+    /* .lote-ubicacion crece con relleno y NO con flex, por dos razones: adentro
+       tiene un ícono y un <span> separados por un espacio, que flex descarta
+       —el mismo problema de las pastillas de más arriba—, y además recorta el
+       nombre largo con puntos suspensivos, que deja de funcionar si el texto
+       pasa a ser hijo de un contenedor flex. 12 arriba y 12 abajo sobre 20 de
+       texto dan los 44, y de paso queda centrado. */
+    .lote-ubicacion {
+        padding-top: 12px;
+        padding-bottom: 12px;
+    }
+
+    /* LOS CONTROLES DEL MAPA
+       Vienen de Leaflet en 30x30, más los dos propios en 34x34. Sobre un mapa
+       importa el doble: si se le erra al zoom se arrastra el mapa, que es una
+       acción distinta y encima hay que deshacerla a mano.
+       Leaflet los dimensiona con width/height fijos; min-* le gana a eso porque
+       el ancho final es el mayor de los dos, no hace falta !important. */
+    .leaflet-control-zoom a,
+    .btn-mi-ubicacion,
+    .btn-pantalla-completa {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    /* Las opciones de capa (Satélite / Radar): la fila entera se vuelve el
+       objetivo. La casilla sigue midiendo lo que mide —es lo normal en todos
+       lados— pero tocar el nombre alcanza, que es lo que uno intenta igual. */
+    .leaflet-control-layers label {
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+    }
+}
+
+/* =====================
+   EL PIE
+
+   Estaba escrito entero en atributos style="" dentro de includes/footer.php.
+   Se trajo acá sin cambiarle el aspecto, por un motivo concreto: un style="" en
+   la etiqueta le gana a cualquier regla de la hoja, así que mientras estuvo ahí
+   estos tres enlaces eran los únicos de la aplicación a los que la regla de
+   arriba no podía llegar.
+   ===================== */
+.ap-pie {
+    margin-top: auto;
+    width: 100%;
+    padding-top: 40px;
+    padding-bottom: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+}
+.ap-pie__caja {
+    padding: 10px 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+.ap-pie__icono { color: var(--accent); font-size: 0.9em; }
+.ap-pie__sep   { color: var(--rule-strong); }
+.ap-pie__marca {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-weight: 700;
+    text-decoration: none;
+    transition: all 0.2s;
+}
+.ap-pie__marca i { color: var(--text-muted); font-size: 0.9em; }
+.ap-pie__marca:hover { border-color: var(--accent); }
+.ap-pie__link {
+    color: var(--text-muted);
+    text-decoration: none;
+    transition: color 0.2s;
+}
+.ap-pie__link:hover { color: var(--text-primary); }
+
+/* Con el dedo: alto de sobra y separados entre sí. "Términos" y "Privacidad"
+   estaban a 2 píxeles uno del otro, que es bastante menos que el error de una
+   yema. El separador "-" queda al medio y no se toca. */
+@media (pointer: coarse), (max-width: 760px) {
+    .ap-pie__marca,
+    .ap-pie__link {
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+}

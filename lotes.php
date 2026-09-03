@@ -101,6 +101,22 @@ require_once 'includes/header.php';
         box-shadow: 0 1px 5px rgba(0,0,0,0.4);
         transition: background 0.2s;
     }
+    /* Pantalla completa. El tamaño estaba escrito en el style= del enlace, donde
+       ninguna hoja podía alcanzarlo; se trajo acá para que la regla de tamaño
+       para el dedo de style.css lo pueda agrandar en el teléfono. */
+    .btn-pantalla-completa {
+        display: flex; align-items: center; justify-content: center;
+        width: 34px; height: 34px;
+        color: #333; text-decoration: none;
+    }
+    /* La ubicación de cada lote, que centra el mapa al tocarla. */
+    .lote-ubicacion {
+        font-size: 0.85em; max-width: 180px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        margin-bottom: 3px; cursor: pointer;
+        color: var(--accent); transition: color 0.2s;
+    }
+    .lote-ubicacion:hover { color: var(--text-primary); }
     .btn-mi-ubicacion:hover { background: #f4f4f4; }
     .btn-mi-ubicacion.locating { color: var(--se-warning); animation: spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -170,7 +186,13 @@ require_once 'includes/header.php';
                     </td>
                     <td data-label="Ubicación & Suelo">
                         <?php if(!empty($lote['latitud']) && !empty($lote['longitud'])): ?>
-                            <div style="font-size: 0.85em; max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 3px; cursor: pointer; color: var(--accent); transition: color 0.2s;" onclick="focusOnMap(<?= $lote['id'] ?>, <?= $lote['latitud'] ?>, <?= $lote['longitud'] ?>)" title="Ver en mapa: <?= htmlspecialchars($lote['ubicacion']) ?>" onmouseover="this.style.color='#93c5fd'" onmouseout="this.style.color='#60a5fa'">
+                            <?php /* Tenía el hover en onmouseover/onmouseout, y el
+                                     onmouseout devolvía a #60a5fa: un celeste de la
+                                     paleta vieja. O sea que salía verde acento y, en
+                                     cuanto le pasabas el dedo o el mouse una vez,
+                                     quedaba celeste para siempre. Ahora es :hover y
+                                     vuelve solo al color que corresponde. */ ?>
+                            <div class="lote-ubicacion" onclick="focusOnMap(<?= $lote['id'] ?>, <?= $lote['latitud'] ?>, <?= $lote['longitud'] ?>)" title="Ver en mapa: <?= htmlspecialchars($lote['ubicacion']) ?>">
                                 <i class="fas fa-map-marker-alt" style="color: var(--danger); width: 14px; text-align:center;"></i> <span style="text-decoration: underline;"><?= htmlspecialchars($lote['ubicacion'] ?: 'Sin ubicación') ?></span>
                             </div>
                         <?php else: ?>
@@ -342,7 +364,7 @@ $lotes_json = json_encode(array_values(array_map(function($l) {
             options: { position: 'topleft' },
             onAdd: function() {
                 const btn = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
-                btn.innerHTML = '<a href="#" style="display:flex; align-items:center; justify-content:center; width:34px; height:34px; color:#333; text-decoration:none;" title="Pantalla Completa"><i class="fas fa-expand"></i></a>';
+                btn.innerHTML = '<a href="#" class="btn-pantalla-completa" title="Pantalla Completa"><i class="fas fa-expand"></i></a>';
                 
                 btn.onclick = function(e) {
                     e.preventDefault();
