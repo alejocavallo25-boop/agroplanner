@@ -2090,7 +2090,11 @@ function impMostrarLectura(data) {
     const basura = (texto.match(/[^\wáéíóúüñÁÉÍÓÚÜÑ\s.,:;%$()\/\-+°ºª]/g) || []).length;
     const proporcionBasura = basura / Math.max(1, texto.length);
 
-    const utiles = impRenglonesUtiles(texto);
+    /* Se filtra sobre el texto PODADO, no sobre el crudo: la cola de basura del
+       final de cada renglón se saca antes de buscar los renglones de mercadería.
+       Si la lectura no trajo bloques no hay confianza por palabra y no se puede
+       podar; ahí sigue de largo con el crudo, como antes. */
+    const utiles = impRenglonesUtiles(impTextoPodado(data) || texto);
 
     /* SÓLO LOS RENGLONES QUE SIRVEN, no todo lo que leyó.
      *
@@ -2184,6 +2188,134 @@ function impRenglonesUtiles(texto) {
         salida.push(l);
     });
     return salida;
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════
+   LA COLA DE BASURA AL FINAL DEL RENGLÓN
+
+   EL CASO QUE LO MOTIVÓ
+   Un remito real dio este renglón:
+
+       1.00 FOSFURO DE ALUMINIO TECNOFOS x BOTELLA rvonacasos Jsaganas
+
+   Hasta "BOTELLA" está bien. Las dos últimas no existen: son las columnas de
+   precio de la derecha, que el lector barrió como si fueran parte del nombre.
+   Pasa porque las columnas de un remito están cerca y la foto sale con la hoja
+   apenas torcida, así que el renglón de una columna se solapa con el de la otra.
+
+   HACEN FALTA DOS SEÑALES, Y ESTO ESTÁ MEDIDO
+   Lo primero que probé fue cortar sólo por confianza baja, que suena a lo más
+   sensato: es lo que el propio lector dice de lo que acaba de leer. Lo probé
+   con Tesseract de verdad sobre un renglón dibujado a propósito, con una
+   columna de precios sucia pegada a la derecha, y salió esto:
+
+       90  "FOSFURO"      93  "ALUMINIO"     91  "TECNOFOS"
+       37  "x"            37  "BOTELLA"      19  "“*"
+
+   O sea que "BOTELLA" —una palabra real y necesaria— vino con la MISMA
+   confianza que la basura. Es lógico: el ruido de la columna vecina la toca, y
+   el lector duda de las dos por igual. Cortando por confianza sola en 60 le
+   borraba "x BOTELLA" al producto. Mal.
+
+   Y al revés tampoco alcanza mirar sólo la forma de la palabra: "rvonacasos" no
+   se puede pronunciar, pero el catálogo está lleno de "TECNOFOS", siglas y
+   marcas que a cualquier regla de ortografía también le parecen basura.
+
+   Entonces se piden las dos cosas a la vez, y cada una tapa el agujero de la
+   otra:
+     · la FORMA decide — sólo se borra lo que no se puede pronunciar;
+     · la CONFIANZA protege — una marca rara pero leída NÍTIDA no se toca nunca,
+       por más impronunciable que sea.
+   "BOTELLA" se salva por la forma aunque tenga confianza 37; un "Xzzyk" leído
+   con confianza 90 se salva por la confianza aunque no se pueda pronunciar.
+
+   LAS CINCO TRABAS
+   Borrar es destructivo, así que sólo se corta cuando se cumple todo:
+     1. la palabra no tiene ningún dígito — jamás se borra algo numérico, que es
+        donde están los precios y las cantidades;
+     2. no se puede pronunciar (o es puro símbolo);
+     3. la confianza está por debajo del umbral;
+     4. el renglón tiene al menos tres palabras — con dos no hay contexto para
+        decidir nada, aunque lo que queda sí puede terminar en dos;
+     5. lo que queda sigue teniendo una palabra de cinco letras, o sea que sigue
+        pareciendo una descripción. Por eso "1 Glifosato xxvvzz" sí se poda a
+        "1 Glifosato", que es un ítem entero, pero nada que borre el nombre del
+        producto llega a pasar.
+   Y como mucho tres palabras por renglón: si hay que sacar más, el renglón está
+   mal de entrada y lo tiene que ver la persona, no taparlo yo.
+   ═════════════════════════════════════════════════════════════════════════════ */
+
+/* El umbral acá NO es el que decide: decide la forma de la palabra. Esto es sólo
+   el techo que protege lo que el lector leyó nítido, así que va alto a propósito
+   —el mismo 80 con el que se avisa de un número dudoso más arriba—. Bajarlo no
+   hace el corte más prudente: lo hace depender de un número que, según la
+   medición de arriba, no distingue "BOTELLA" de la basura. */
+const IMP_CONF_BORRAR = 80;
+const IMP_COLA_MAX = 3;
+
+/* Arranques de palabra con dos consonantes que sí existen — en castellano y en
+   los nombres de producto, que traen inglés y siglas. Lo que empieza con dos
+   consonantes fuera de esta lista no lo puede pronunciar nadie: "rvonacasos",
+   "Jsaganas". */
+const IMP_ARRANQUES = /^(?:bl|br|cl|cr|dr|fl|fr|gl|gr|kl|kn|kr|pl|pr|ps|pn|qu|sc|sh|sk|sl|sm|sn|sp|st|sw|th|tl|tr|tw|ph|gn|gh|wh|wr|ch|ll|rr)/i;
+
+/** ¿Es una palabra que nadie podría pronunciar, o puro símbolo suelto? */
+function impPalabraImposible(t) {
+    const letras = (t.match(/\p{L}/gu) || []).length;
+    // Puro símbolo, sin una letra ni un número: basura segura.
+    if (!letras && !/\d/.test(t)) return true;
+    /* De tres letras para abajo no se opina: ahí viven "x", "kg", "un" y las
+       siglas, y no hay con qué distinguirlas de un error. */
+    if (letras < 4) return false;
+
+    const limpia = t.replace(/[^\p{L}]/gu, '');
+    const VOCAL = /[aeiouáéíóúüàèìòùâêîôûyAEIOUÁÉÍÓÚÜÀÈÌÒÙÂÊÎÔÛY]/;
+    if (!VOCAL.test(limpia)) return true;                    // sin una sola vocal
+    if (/[^aeiouáéíóúüy\W\d]{4,}/i.test(limpia)) return true; // cuatro consonantes seguidas
+    // Dos consonantes al principio que no forman un arranque posible.
+    if (!VOCAL.test(limpia[0]) && !VOCAL.test(limpia[1]) && !IMP_ARRANQUES.test(limpia)) return true;
+    return false;
+}
+
+/** Los renglones con la confianza de cada palabra, que en data.text ya se perdió. */
+function impRenglonesConPalabras(data) {
+    const renglones = [];
+    (data.blocks || []).forEach(bl => (bl.paragraphs || []).forEach(
+        pa => (pa.lines || []).forEach(li => {
+            const palabras = (li.words || [])
+                .map(p => ({ texto: (p.text || '').trim(), conf: p.confidence || 0 }))
+                .filter(p => p.texto);
+            if (palabras.length) renglones.push(palabras);
+        })));
+    return renglones;
+}
+
+/** Le saca a un renglón la cola de palabras que el lector leyó mal. */
+function impPodarCola(palabras) {
+    const hayDescripcion = ps => ps.some(p => /\p{L}{5,}/u.test(p.texto));
+    let fin = palabras.length;
+    for (let i = 0; i < IMP_COLA_MAX; i++) {
+        if (fin < 3) break;
+        const u = palabras[fin - 1];
+        if (/\d/.test(u.texto)) break;              // nunca un número
+        if (!impPalabraImposible(u.texto)) break;   // se puede pronunciar: se queda
+        if (u.conf >= IMP_CONF_BORRAR) break;       // lo leyó nítido: se queda
+        if (!hayDescripcion(palabras.slice(0, fin - 1))) break;
+        fin--;
+    }
+    return palabras.slice(0, fin);
+}
+
+/**
+ * El texto leído, ya sin las colas.
+ *
+ * Devuelve null si la lectura no trajo bloques —hay fotos donde no vienen—; ahí
+ * el que llama se queda con data.text tal cual, que es lo que había antes.
+ */
+function impTextoPodado(data) {
+    const renglones = impRenglonesConPalabras(data);
+    if (!renglones.length) return null;
+    return renglones.map(r => impPodarCola(r).map(p => p.texto).join(' ')).join('\n');
 }
 
 /** Todo lo leído, plegado: la salida de emergencia si el filtro se pasó. */
