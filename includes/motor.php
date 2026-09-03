@@ -653,6 +653,10 @@ function motor_pide_desglose(string $t): bool {
               'detalle de gasto','detalle de los gasto','detalle de costo',
               'en que gaste','en que se me fue','en que se fue',
               'cuanto en cada','en cada cosa','cada cosa',
+              /* "en cada etapa" caía en el cartel de "no tengo cada como
+                 categoría de gasto", porque el guardián de las etapas
+                 inexistentes va antes y se quedaba con la palabra "cada". */
+              'en cada etapa','cada etapa','en cada rubro','cada rubro',
               'por etapa','por etapas','por rubro','por rubros',
               'abrime los gastos','abrir los gastos','abrime el gasto',
               'como se reparte','como se reparten','reparto de gastos'] as $p) {
