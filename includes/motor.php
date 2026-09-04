@@ -957,11 +957,52 @@ function motor_simular(PDO $pdo, $ctrl, int $uid, string $original, string $text
             . ' → ' . motor_formatear($cphAhora, 'dinero'),
     ];
 
-    if ($precioKg > 0) {
-        $peAntes = ($cos / $precioKg) / $ha;
-        $peAhora = ($cosNuevo / $precioKg) / $ha;
-        $masKg   = $peAhora - $peAntes;
-        $rinde   = (float)($s['rendimiento_ha'] ?? 0);
+    /* ── A QUÉ PRECIO SE PAGA ────────────────────────────────────────────────
+       Convertir plata en kilos necesita un precio, y hay dos, que contestan
+       preguntas distintas:
+
+         · el promedio al que YA VENDISTE   — lo que efectivamente entró
+         · la pizarra de HOY                — a lo que se pagaría esto
+
+       Para decidir sobre una aplicación que todavía no se hizo, la pizarra suele
+       ser la más honesta: el gasto es de ahora y se cobra con grano de ahora. Se
+       usa el promedio propio cuando existe —porque es TU número, no una
+       referencia— y se muestra al lado lo que daría a precio de hoy cuando los
+       dos existen y no dicen lo mismo.
+
+       Y sin ventas cargadas la pizarra deja de ser un agregado: es la única
+       forma de contestar. Antes de esto, la respuesta era que no se podía. */
+    $pizarra = null;
+    $espSim = $cultivo !== null ? motor_normalizar(explode(' ', trim($cultivo))[0]) : null;
+    if ($espSim === null) {
+        // Sin cultivo en el filtro sólo vale si la campaña tiene uno solo:
+        // valuar con el precio de otro grano sería un número prolijo y falso.
+        $esp = array_values(array_filter(
+            array_keys($ctrl->getCultivosData($campania)),
+            fn($e) => $e !== '' && $e !== 'Sin Especificar'));
+        if (count($esp) === 1) $espSim = motor_normalizar(explode(' ', trim($esp[0]))[0]);
+    }
+    if ($espSim !== null) {
+        $ref = motor_precio_referencia($pdo, ucfirst($espSim));
+        // La pizarra viene en pesos; el panel puede estar en dólares.
+        if ($ref) $pizarra = motor_a_moneda_actual($pdo, $uid, $ref['precio_kg']);
+    }
+
+    /* Cuánto pesa el gasto medido en kilos, a un precio dado. Es la misma cuenta
+       del panel; se la escribe una vez y se la usa con los dos precios. */
+    $enKg = function (float $precio) use ($cos, $cosNuevo, $ha) {
+        $antes = ($cos / $precio) / $ha;
+        $ahora = ($cosNuevo / $precio) / $ha;
+        return [$antes, $ahora, $ahora - $antes];
+    };
+
+    $usado = $precioKg > 0 ? $precioKg : ($pizarra ?: 0.0);
+    $deDondeElPrecio = $precioKg > 0 ? 'al precio al que venís vendiendo' : 'a precio de pizarra de hoy';
+
+    if ($usado > 0) {
+        [$peAntes, $peAhora, $masKg] = $enKg($usado);
+        $rinde = (float)($s['rendimiento_ha'] ?? 0);
+        $fmtP  = $usado < 10 ? 'dinero_fino' : 'dinero';
 
         array_unshift($lineas,
             'Rinde de indiferencia: ' . motor_formatear($peAntes, 'kg_ha')
@@ -978,12 +1019,22 @@ function motor_simular(PDO $pdo, $ctrl, int $uid, string $original, string $text
                 : 'Ojo: con tu rinde de ' . motor_formatear($rinde, 'kg_ha') . ' quedarías '
                   . motor_formatear(abs($holgura), 'kg_ha') . ' POR DEBAJO.';
         }
-        $lineas[] = 'Se paga con ' . motor_formatear($masKg, 'kg_ha')
-                  . ' más, al precio al que venís vendiendo ('
-                  . motor_formatear($precioKg, 'dinero') . '/kg).';
+        $lineas[] = 'Se paga con ' . motor_formatear($masKg, 'kg_ha') . ' más, '
+                  . $deDondeElPrecio . ' (' . motor_formatear($usado, $fmtP) . '/kg).';
+
+        /* El segundo precio, sólo cuando aporta: si la pizarra dice casi lo mismo
+           que tu promedio, repetirlo es ruido. El 2% es el umbral por debajo del
+           cual los dos números se redondean igual en kilos. */
+        if ($precioKg > 0 && $pizarra > 0 && abs($pizarra - $precioKg) / $precioKg > 0.02) {
+            [, , $masKgHoy] = $enKg($pizarra);
+            $fmtH = $pizarra < 10 ? 'dinero_fino' : 'dinero';
+            $lineas[] = 'A precio de hoy (' . motor_formatear($pizarra, $fmtH) . '/kg de '
+                      . $espSim . ') serían ' . motor_formatear($masKgHoy, 'kg_ha') . ' más.';
+        }
     } else {
         $lineas[] = 'Todavía no puedo decirte el rinde de indiferencia: hace falta '
-                  . 'producción vendida para saber a qué precio se paga.';
+                  . 'producción vendida, o la pizarra del cultivo de esta campaña, '
+                  . 'para saber a qué precio se paga.';
     }
 
     $lineas[] = 'Margen: ' . motor_formatear($mgAntes, 'dinero') . ' → ' . motor_formatear($mgAhora, 'dinero') . '.';
