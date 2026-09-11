@@ -46,6 +46,18 @@ consulta filtra por `usuario_id` de la sesión.
 - Las preguntas que no entiende quedan en `motor_consultas_fallidas`: es la
   lista de qué falta enseñarle.
 
+## Stock (`insumos.php`)
+
+- **Los filtros son enlaces, y viven en tres lugares.** `urlFiltro()` arma la URL
+  conservando los demás parámetros; el WHERE los aplica; y `$exp_params` se los
+  pasa a `api/reporte_excel.php` y `api/reporte_pdf.php`. Un filtro nuevo que no
+  se agregue a los tres hace que el archivo que baja el productor no sea lo que
+  tiene en pantalla.
+- **El orden sale de la lista blanca `ORDENES`**, nunca de interpolar el GET.
+- Una sola lista de depósitos: los chips son a la vez el filtro y el resumen. No
+  volver a poner tarjetas aparte — eso duplicaba los mismos nombres dos veces en
+  la misma pantalla.
+
 ## Trampas de la base
 
 - **Colaciones mezcladas en producción** (`1267 Illegal mix of collations`):

@@ -232,10 +232,32 @@ $page  = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 if ($page < 1) $page = 1;
 $offset = ($page - 1) * $limit;
 
+$hoy   = date('Y-m-d');
+$en30d = date('Y-m-d', strtotime('+30 days'));
+
 // Filtros desde GET
-$f_tipo = $_GET['tipo'] ?? 'todos';
-$f_dep  = $_GET['deposito_id'] ?? 'todos';
-$q      = trim($_GET['q'] ?? '');
+$f_tipo   = $_GET['tipo'] ?? 'todos';
+$f_dep    = $_GET['deposito_id'] ?? 'todos';
+$f_alerta = $_GET['alerta'] ?? '';   // '', 'bajo' o 'vencido': los avisos, como filtro
+$f_order  = $_GET['order'] ?? 'nombre-az';
+$q        = trim($_GET['q'] ?? '');
+
+/* El orden lo hace la base, y sale de esta tabla y de ninguna otra parte.
+   Antes el <select> recargaba la página con ?order=... pero la consulta tenía
+   "ORDER BY i.nombre ASC" fijo: el control se movía y la tabla no cambiaba.
+   Es una lista blanca porque lo que llega por GET nunca se interpola en SQL. */
+const ORDENES = [
+    'nombre-az'   => 'i.nombre ASC',
+    'nombre-za'   => 'i.nombre DESC',
+    'precio-asc'  => 'i.precio_estimado_usd ASC,  i.nombre ASC',
+    'precio-desc' => 'i.precio_estimado_usd DESC, i.nombre ASC',
+    'stock-asc'   => 'COALESCE(i.stock_actual, 0) ASC,  i.nombre ASC',
+    'stock-desc'  => 'COALESCE(i.stock_actual, 0) DESC, i.nombre ASC',
+    // Los que no vencen van al final, no arriba de todo como haría un NULL suelto.
+    'vencimiento' => 'i.fecha_vencimiento IS NULL, i.fecha_vencimiento ASC, i.nombre ASC',
+];
+if (!isset(ORDENES[$f_order])) $f_order = 'nombre-az';
+$order_sql = ORDENES[$f_order];
 
 $where = "WHERE i.usuario_id = ? AND i.estado = 'activo'";
 $params = [$usuario_id];
@@ -247,6 +269,15 @@ if ($f_tipo !== 'todos') {
 if ($f_dep !== 'todos') {
     if ($f_dep === 'sin') $where .= " AND i.deposito_id IS NULL";
     else                  { $where .= " AND i.deposito_id = ?"; $params[] = $f_dep; }
+}
+/* Bajo mínimo con COALESCE porque stock_actual puede ser NULL y el recuento de
+   arriba lo cuenta como cero: si acá no se hiciera igual, el aviso diría "4" y
+   la tabla filtrada mostraría 3. */
+if ($f_alerta === 'bajo') {
+    $where .= " AND i.stock_minimo IS NOT NULL AND COALESCE(i.stock_actual, 0) <= i.stock_minimo";
+} elseif ($f_alerta === 'vencido') {
+    $where .= " AND i.fecha_vencimiento IS NOT NULL AND i.fecha_vencimiento < ?";
+    $params[] = $hoy;
 }
 // Búsqueda universal: nombre, tipo, unidad, precio, stock, vencimiento y depósito.
 if ($q !== '') {
@@ -286,7 +317,7 @@ $stmt = $pdo->prepare("
     FROM insumos i
     LEFT JOIN depositos d ON i.deposito_id = d.id
     $where
-    ORDER BY i.nombre ASC
+    ORDER BY $order_sql
     LIMIT $limit OFFSET $offset
 ");
 $stmt->execute($params);
@@ -296,15 +327,21 @@ $insumos = $stmt->fetchAll();
 $alertas_stock = array_filter($insumos_full, fn($i) =>
     $i['stock_minimo'] !== null && (float)($i['stock_actual'] ?? 0) <= (float)$i['stock_minimo']
 );
+$n_bajo    = count($alertas_stock);
+$n_vencido = count(array_filter($insumos_full, fn($i) =>
+    !empty($i['fecha_vencimiento']) && $i['fecha_vencimiento'] < $hoy
+));
 
-// Resumen por depósito (para las tarjetas) (usando set completo)
+/* Resumen por depósito. Es la única lista de depósitos de la pantalla: los chips
+   la usan para filtrar y para mostrar cuántos ítems tiene cada uno, y la línea de
+   detalle saca de acá la valuación. Antes había además una grilla de tarjetas con
+   los mismos nombres, ochenta píxeles más arriba de los mismos chips. */
 $resumen_dep = [];
 foreach ($insumos_full as $ins) {
-    $dep = $ins['deposito_nombre'] ?? '📦 Sin depósito';
     $dep_id = $ins['deposito_id'] ?? 'sin';
     if (!isset($resumen_dep[$dep_id])) {
         $resumen_dep[$dep_id] = [
-            'nombre'   => $dep,
+            'nombre'   => $ins['deposito_nombre'] ?? 'Sin depósito',
             'items'    => 0,
             'valor_usd'=> 0,
         ];
@@ -312,21 +349,42 @@ foreach ($insumos_full as $ins) {
     $resumen_dep[$dep_id]['items']++;
     $resumen_dep[$dep_id]['valor_usd'] += (float)($ins['stock_actual'] ?? 0) * (float)$ins['precio_estimado_usd'];
 }
+$valor_total_usd = array_sum(array_column($resumen_dep, 'valor_usd'));
 
-$hoy   = date('Y-m-d');
-$en30d = date('Y-m-d', strtotime('+30 days'));
-
-$conVenc = array_values(array_filter($insumos_full, fn($i) => !empty($i['fecha_vencimiento'])));
+/* Sólo lo que urge: vencido, o vence dentro de 30 días. El resto ya se ve en la
+   columna Vencimiento de la tabla, y listarlo entero acá repetía nombre, tipo,
+   stock y depósito de cada fila una segunda vez. */
+$conVenc = array_values(array_filter($insumos_full, fn($i) =>
+    !empty($i['fecha_vencimiento']) && $i['fecha_vencimiento'] <= $en30d
+));
 usort($conVenc, fn($a, $b) => strcmp($a['fecha_vencimiento'], $b['fecha_vencimiento']));
 
 require_once 'includes/header.php';
 
+/**
+ * La misma URL que se está mirando, con algunos parámetros cambiados.
+ *
+ * Los filtros son navegación, no acciones: así son enlaces de verdad —se abren
+ * en otra pestaña, se copian, el teclado los recorre— en vez de botones que
+ * arman la URL con JavaScript. Un valor null saca el parámetro.
+ */
+function urlFiltro(array $cambios): string {
+    $qs = array_merge($_GET, $cambios);
+    unset($qs['page']);                                   // otro filtro, otra primera página
+    $qs = array_filter($qs, fn($v) => $v !== null && $v !== '');
+    return '?' . http_build_query($qs);
+}
+
+/** Días entre hoy y la fecha: negativo si ya pasó. */
+function diasHasta(string $fv, string $hoy): int {
+    return (int)(new DateTime($hoy))->diff(new DateTime($fv))->format('%r%a');
+}
+
 function badgeVenc($fv, $hoy, $en30d) {
-    if (!$fv) return '<span style="color:var(--text-muted);font-size:0.8em;">—</span>';
-    if ($fv < $hoy)   return '<span class="badge" style="background:oklch(0.450 0.160 28 / 0.10);color:var(--danger);border:1px solid oklch(0.450 0.160 28 / 0.10);">⚠ Vencido</span>';
-    if ($fv <= $en30d) return '<span class="badge" style="background:oklch(0.470 0.120 70 / 0.10);color:var(--se-warning);border:1px solid oklch(0.470 0.120 70 / 0.10);">⏰ Próximo</span>';
-    $dias = (new DateTime($fv))->diff(new DateTime($hoy))->days;
-    return '<span style="color:var(--accent);font-size:0.82em;">✓ '.$dias.'d</span>';
+    if (!$fv) return '<span class="venc-nada">—</span>';
+    if ($fv < $hoy)    return '<span class="venc-chip vencido">Vencido</span>';
+    if ($fv <= $en30d) return '<span class="venc-chip proximo">Próximo</span>';
+    return '<span class="venc-chip lejos">' . diasHasta($fv, $hoy) . ' días</span>';
 }
 
 function tipoBadge($tipo) {
@@ -342,194 +400,306 @@ function tipoBadge($tipo) {
 ?>
 
 <style>
-/* ── TIPO TABS ── */
-.tipo-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
-.tipo-tab {
-    padding: 7px 16px; border-radius: 20px; font-size: 0.82rem; font-weight: 600;
-    cursor: pointer; border: 1px solid var(--border); background: var(--n-25);
-    color: var(--text-muted); transition: all 0.2s; white-space: nowrap;
-}
-.tipo-tab:hover { border-color: var(--accent); color: var(--text-primary); }
-.tipo-tab.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
+/* ═══ PANEL DE CONTROL ═══════════════════════════════════════════════════════
+   Buscar, filtrar y ordenar el inventario: todo junto y en este orden. Antes
+   estaba repartido en dos paneles —tipo, moneda y orden arriba; depósito abajo
+   de una línea divisoria; el buscador adentro del panel del inventario— y había
+   que pasar por tres bloques antes de ver un insumo. */
+.ctrl { display: flex; flex-direction: column; gap: 14px; }
 
-/* ── DEPÓSITO CHIPS (filtro) ── */
-.dep-filter-btn {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 6px 14px; border-radius: 20px; font-size: 0.82rem; font-weight: 600;
-    cursor: pointer; border: 1px solid var(--border); background: var(--n-25);
-    color: var(--text-muted); transition: all 0.2s; white-space: nowrap;
-}
-.dep-filter-btn:hover { border-color: var(--accent); color: var(--accent); }
-.dep-filter-btn.active { background:var(--accent-soft); color:var(--accent); border-color: var(--border); }
+.ctrl-fila { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ctrl-fila .ap-search-box { flex: 1 1 260px; }
+.ctrl-fila-fin { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 
-/* ── TARJETAS DEPÓSITO ── */
-.dep-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; margin-bottom: 24px; }
-.dep-card {
-    background:var(--n-0); border:1px solid var(--border);
-    border-radius: 14px; padding: 18px; position: relative;
-    transition: background 0.2s, transform 0.2s;
+/* Cada grupo de filtros lleva su etiqueta al costado: sin ella, dos hileras de
+   chips seguidas no dicen qué separa a una de la otra. */
+.ctrl-grupo { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.ctrl-grupo > h3 {
+    flex: none; width: 74px; margin: 0; padding-top: 6px;
+    font-size: 0.78rem; font-weight: 600; color: var(--text-muted);
 }
-.dep-card:hover { background: var(--n-50); transform: translateY(-2px); }
-.dep-card-actions { position: absolute; top: 10px; right: 10px; display: flex; gap: 4px; opacity: 0; transition: opacity 0.2s; }
-.dep-card:hover .dep-card-actions { opacity: 1; }
+.ctrl-chips { display: flex; gap: 7px; flex-wrap: wrap; flex: 1; }
+
+/* Un solo chip para todos los filtros: mismo alto, mismo radio, mismo estado
+   activo. El grupo de tipo es el filtro primario y va relleno; el de depósito,
+   secundario, va en tinte. Sin glow: el color ya dice cuál está puesto. */
+.chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 7px 14px; min-height: 34px;
+    border-radius: 8px; border: 1px solid var(--border); background: var(--n-25);
+    font-size: 0.82rem; font-weight: 600; color: var(--text-muted);
+    text-decoration: none; cursor: pointer; white-space: nowrap;
+    transition: background 0.18s ease-out, border-color 0.18s ease-out, color 0.18s ease-out;
+}
+.chip:hover { background: var(--n-50); border-color: var(--rule-strong); color: var(--text-primary); }
+.chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chip i { font-size: 0.85em; opacity: 0.75; }
+
+.chip.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.chip.on:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--on-accent); }
+.chip.on i { opacity: 1; }
+
+.chip-2.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.chip-2.on:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+
+/* El recuento: mismo tamaño que la etiqueta pero sin peso, para que se lea como
+   un dato al costado y no como parte del nombre del depósito. */
+.chip .n { font-weight: 400; opacity: 0.7; font-variant-numeric: tabular-nums; }
+
+/* Chip de agregar: el "+" vive donde el productor está pensando en depósitos. */
+.chip-mas { background: transparent; border-style: dashed; }
+
+/* ── Detalle del depósito elegido ──
+   Lo que antes eran cinco tarjetas de 190px: ubicación, cuántos ítems tiene y
+   cuánto vale. Ahora sale una sola, la del depósito que se está mirando, y con
+   ella vienen las acciones de editar y borrar. Los botones están siempre
+   visibles: aparecer sólo en hover los deja inalcanzables en el celular. */
+.dep-detalle {
+    display: flex; align-items: center; gap: 8px 18px; flex-wrap: wrap;
+    padding: 12px 14px; border-radius: 10px;
+    background: var(--surface-sunk); border: 1px solid var(--border);
+}
+.dep-detalle .nom { font-weight: 600; color: var(--text-primary); }
+.dep-detalle .ubic { color: var(--text-muted); font-size: 0.85rem; }
+.dep-detalle .cifra { font-variant-numeric: tabular-nums; }
+.dep-detalle .cifra b { font-weight: 700; color: var(--text-primary); }
+.dep-detalle .cifra span { color: var(--text-muted); font-size: 0.85rem; }
+.dep-detalle .acciones { margin-left: auto; display: flex; gap: 6px; }
+.dep-detalle .acciones .btn { padding: 7px 12px; font-size: 0.8rem; min-height: 36px; }
+
+/* ── Avisos ──
+   Una línea, no cuatro tarjetas: dice cuántos hay y filtra la tabla al tocarla.
+   El aviso deja de ser una lista para leer y pasa a ser la forma de llegar a
+   esos insumos. */
+.avisos { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 0.87rem; }
+.avisos > i { color: var(--se-warning); }
+.aviso-link {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 5px 11px; min-height: 32px; border-radius: 7px;
+    border: 1px solid transparent; text-decoration: none; font-weight: 600;
+    transition: background 0.18s ease-out, border-color 0.18s ease-out;
+}
+.aviso-link.bajo    { color: var(--se-warning); background: var(--warning-soft); }
+.aviso-link.vencido { color: var(--danger);     background: var(--danger-soft); }
+.aviso-link:hover        { border-color: currentColor; }
+.aviso-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.aviso-link.on { border-color: currentColor; }
+.aviso-link.on i { font-size: 0.8em; }
 
 /* ── STOCK DISPLAY ── */
 .stock-display { display: flex; flex-direction: column; gap: 4px; min-width: 90px; }
 .stock-val { font-weight: 700; font-size: 1rem; }
 .stock-unit { font-size: 0.78rem; color: var(--text-muted); }
 
-/* ── VENC ── */
-.venc-item { display: flex; align-items: center; gap: 14px; padding: 12px 16px; border-radius: 10px; border: 1px solid var(--border); background: var(--n-25); transition: background 0.2s; }
-.venc-item:hover { background: var(--n-25); }
-.venc-date { font-size: 0.8rem; font-weight: 700; min-width: 72px; text-align: center; padding: 6px 10px; border-radius: 8px; }
-.venc-date.vencido { background: oklch(0.450 0.160 28 / 0.10); color: var(--danger); }
-.venc-date.proximo { background: oklch(0.470 0.120 70 / 0.10); color: var(--se-warning); }
-.venc-date.ok      { background: var(--accent-soft);  color: var(--accent); }
+/* ── Vencimiento en la tabla ──
+   Texto con color, no pastilla con fondo: quince filas con un recuadro de color
+   cada una convertían la columna en un semáforo y tapaban el stock, que es el
+   número por el que se entra a esta pantalla. */
+.venc-nada { color: var(--text-muted); font-size: 0.85em; }
+.venc-chip { font-size: 0.84rem; font-weight: 600; white-space: nowrap; }
+.venc-chip.vencido { color: var(--danger); }
+.venc-chip.proximo { color: var(--se-warning); }
+.venc-chip.lejos   { color: var(--text-muted); font-weight: 400; }
+
+/* ── Vencimientos próximos ──
+   Filas, no tarjetas: separadas por una línea y nada más. */
+.venc-lista { display: flex; flex-direction: column; }
+.venc-item {
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+    padding: 11px 2px; border-top: 1px solid var(--border);
+}
+.venc-item:first-child { border-top: 0; }
+.venc-item .fecha {
+    flex: none; width: 78px; font-size: 0.84rem; font-weight: 600;
+    font-variant-numeric: tabular-nums; color: var(--text-muted);
+}
+.venc-item .nom { flex: 1 1 180px; font-weight: 600; }
+.venc-item .dep { color: var(--text-muted); font-size: 0.84rem; }
+.venc-item .cuando { margin-left: auto; font-size: 0.84rem; font-weight: 600; white-space: nowrap; }
+.venc-item .cuando.vencido { color: var(--danger); }
+.venc-item .cuando.proximo { color: var(--se-warning); }
 
 /* ── SORT ── */
 .sort-select { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--n-100); color: var(--text-primary); font-size: 0.85rem; cursor: pointer; }
 .sort-select:focus { outline: none; border-color: var(--accent); }
+
+/* En el celular las etiquetas de grupo van arriba de sus chips: al costado
+   dejaban 74px menos de ancho para una hilera que ya venía justa. */
+@media (max-width: 640px) {
+    .ctrl-grupo { flex-direction: column; gap: 7px; }
+    .ctrl-grupo > h3 { width: auto; padding-top: 0; }
+    .ctrl-fila-fin { margin-left: 0; }
+    .dep-detalle .acciones { margin-left: 0; width: 100%; }
+}
+
+/* Misma condición que usa style.css para los targets táctiles. Va acá y no allá
+   porque la regla global no alcanza: este <style> viene después en el documento
+   y con la misma especificidad le ganaría, dejando los chips en 34px con el dedo.
+   El gap separa ícono de texto, así que inline-flex no los pega —el problema que
+   avisa el comentario de style.css— porque acá no hay nodo de texto en blanco. */
+@media (pointer: coarse), (max-width: 760px) {
+    .chip, .aviso-link { min-height: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .chip, .aviso-link { transition: none; }
+}
+
+/* ── ZUPLI ──
+   Salida a la tienda del convenio. Lleva los colores de Zupli y no los del
+   sistema a propósito: es un sitio de otro, y el productor tiene que darse
+   cuenta antes de hacer clic de que se va de AgroPlanner. El navy es el mismo
+   del logo (#113250), así que el isotipo se apoya sobre el botón sin recuadro. */
+.btn-zupli {
+    background: #113250;
+    border: 1px solid #1d4a73;
+    color: #fff;
+    font-size: 0.85rem;
+    gap: 8px;
+}
+.btn-zupli:hover { background: #1a4670; border-color: #2a6296; color: #fff; }
+.btn-zupli img { width: 20px; height: 20px; display: block; }
+.btn-zupli .fa-arrow-up-right-from-square { font-size: 0.72em; opacity: 0.7; }
 </style>
 
-<!-- ===== ALERTAS DE STOCK ===== -->
-<?php if (!empty($alertas_stock)): ?>
-<div class="glass-panel" style="margin-bottom: 20px; border-color: oklch(0.470 0.120 70 / 0.10);">
-    <h2 style="font-size:1rem; font-weight:600; margin-bottom:14px; color:var(--se-warning);">
-        <i class="fas fa-exclamation-triangle" style="margin-right:8px;"></i>
-        Alertas de Stock Bajo (<?= count($alertas_stock) ?> insumo<?= count($alertas_stock) > 1 ? 's' : '' ?>)
-    </h2>
-    <div style="display:flex; flex-wrap:wrap; gap:10px;">
-        <?php foreach ($alertas_stock as $al): ?>
-        <div style="display:flex; align-items:center; gap:10px; background:oklch(0.470 0.120 70 / 0.10); border:1px solid oklch(0.470 0.120 70 / 0.10); border-radius:10px; padding:10px 14px;">
-            <i class="fas fa-box-open" style="color:var(--se-warning);"></i>
-            <div>
-                <div style="font-weight:600; font-size:0.9rem;"><?= htmlspecialchars($al['nombre']) ?></div>
-                <div style="font-size:0.78rem; color:var(--text-muted);">
-                    Stock actual: <strong style="color:var(--se-warning)"><?= number_format((float)$al['stock_actual'],2,',','.') ?></strong>
-                    &nbsp;/&nbsp; Mínimo: <strong><?= number_format((float)$al['stock_minimo'],2,',','.') ?></strong>
-                    <?= $al['unidad_stock'] ? htmlspecialchars($al['unidad_stock']) : '' ?>
-                </div>
+<!-- ═══ PANEL DE CONTROL ═══════════════════════════════════════════════════ -->
+<div class="glass-panel" style="padding:16px 20px; margin-bottom:12px;">
+    <div class="ctrl">
+
+        <!-- Buscar, ver en qué moneda, ordenar -->
+        <div class="ctrl-fila">
+            <?php $buscador_placeholder = 'Buscar insumo, tipo, precio, depósito, vencimiento...'; include 'includes/buscador.php'; ?>
+            <div class="ctrl-fila-fin">
+                <?php moneda_toggle(); ?>
+                <select class="sort-select" id="sortSelect" aria-label="Ordenar el listado" onchange="setOrden(this.value)">
+                    <option value="nombre-az"   <?= $f_order === 'nombre-az'   ? 'selected' : '' ?>>Nombre A → Z</option>
+                    <option value="nombre-za"   <?= $f_order === 'nombre-za'   ? 'selected' : '' ?>>Nombre Z → A</option>
+                    <option value="precio-asc"  <?= $f_order === 'precio-asc'  ? 'selected' : '' ?>>Precio ↑</option>
+                    <option value="precio-desc" <?= $f_order === 'precio-desc' ? 'selected' : '' ?>>Precio ↓</option>
+                    <option value="stock-asc"   <?= $f_order === 'stock-asc'   ? 'selected' : '' ?>>Stock ↑</option>
+                    <option value="stock-desc"  <?= $f_order === 'stock-desc'  ? 'selected' : '' ?>>Stock ↓</option>
+                    <option value="vencimiento" <?= $f_order === 'vencimiento' ? 'selected' : '' ?>>Vencimiento próximo</option>
+                </select>
             </div>
         </div>
-        <?php endforeach; ?>
-    </div>
-</div>
-<?php endif; ?>
 
-<!-- ===== TARJETAS DE DEPÓSITOS ===== -->
-<div class="glass-panel" style="margin-bottom: 20px;">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px;">
-        <h2 style="font-size:1.1rem; font-weight:600; margin:0;">
-            <i class="fas fa-warehouse" style="color: var(--accent); margin-right:8px;"></i>
-            Mis Depósitos / Almacenes
-        </h2>
-        <button class="btn" onclick="openDepositoModal()"
-            style="background:var(--n-0); border:1px solid var(--border); color:var(--text-primary); font-size:0.85rem;">
-            <i class="fas fa-plus"></i> Nuevo Depósito
-        </button>
-    </div>
-
-    <?php if (empty($depositos)): ?>
-    <div style="text-align:center; padding:24px; color:var(--text-muted); font-size:0.9rem;">
-        <i class="fas fa-warehouse" style="font-size:2rem; opacity:0.2; display:block; margin-bottom:10px;"></i>
-        No tenés depósitos cargados. Creá uno para organizar tus insumos por ubicación.
-    </div>
-    <?php else: ?>
-    <div class="dep-grid">
-        <?php foreach ($depositos as $dep):
-            $dep_resumen = $resumen_dep[$dep['id']] ?? ['items'=>0,'valor_usd'=>0];
+        <!-- Tipo -->
+        <?php
+        $tipos = [
+            'todos'        => ['Todos',         'fa-layer-group'],
+            'semilla'      => ['Semillas',      'fa-seedling'],
+            'fertilizante' => ['Fertilizantes', 'fa-flask'],
+            'agroquimico'  => ['Agroquímicos',  'fa-spray-can'],
+            'inoculante'   => ['Inoculantes',   'fa-vial'],
+            'otro'         => ['Otros',         'fa-box'],
+        ];
         ?>
-        <div class="dep-card">
-            <div class="dep-card-actions">
-                <button type="button" class="btn"
-                    style="padding:3px 7px; font-size:0.75rem; color:var(--accent); background:var(--n-100); border-radius:6px;"
-                    onclick='editDeposito(<?= json_encode($dep, JSON_HEX_APOS|JSON_HEX_QUOT) ?>)'>
-                    <i class="fas fa-edit"></i>
-                </button>
-                <form method="POST" style="display:inline;" onsubmit="if(!confirm('¿Eliminar este depósito? Los insumos asociados quedarán sin depósito.')) return false; const b=this.querySelector('button[type=submit]'); if(b) b.disabled=true; return true;">
-                    <?php csrf_field(); ?>
-                    <input type="hidden" name="action" value="delete_deposito">
-                    <input type="hidden" name="dep_id" value="<?= $dep['id'] ?>">
-                    <button type="submit" class="btn"
-                        style="padding:3px 7px; font-size:0.75rem; color:var(--danger); background:var(--n-100); border-radius:6px;">
-                        <i class="fas fa-trash"></i>
-                    </button>
-                </form>
-            </div>
-            <div style="font-size:1.5rem; margin-bottom:8px;">🏚</div>
-            <div style="font-weight:700; font-size:1rem; margin-bottom:4px;"><?= htmlspecialchars($dep['nombre']) ?></div>
-            <?php if ($dep['ubicacion']): ?>
-            <div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:8px;">
-                <i class="fas fa-map-pin" style="opacity:0.5;"></i> <?= htmlspecialchars($dep['ubicacion']) ?>
-            </div>
-            <?php endif; ?>
-            <div style="display:flex; gap:14px; margin-top:10px;">
-                <div>
-                    <div style="font-size:1.3rem; font-weight:800; color: var(--accent);"><?= $dep_resumen['items'] ?></div>
-                    <div style="font-size: 0.8rem; color:var(--text-muted);">ítems</div>
-                </div>
-                <div>
-                    <div style="font-size:1.1rem; font-weight:700; color:var(--accent);"><?= ap_plata(moneda_convertir($pdo, $usuario_id, $dep_resumen['valor_usd'], 'USD'), 0) ?></div>
-                    <div style="font-size: 0.8rem; color:var(--text-muted);">valor est. <?= moneda_actual() ?></div>
-                </div>
+        <div class="ctrl-grupo">
+            <h3>Tipo</h3>
+            <div class="ctrl-chips">
+                <?php foreach ($tipos as $clave => [$etiqueta, $icono]): $on = $f_tipo === $clave; ?>
+                <a class="chip <?= $on ? 'on' : '' ?>" href="<?= htmlspecialchars(urlFiltro(['tipo' => $clave === 'todos' ? null : $clave])) ?>"
+                   <?= $on ? 'aria-current="true"' : '' ?>>
+                    <i class="fas <?= $icono ?>" aria-hidden="true"></i><?= $etiqueta ?>
+                </a>
+                <?php endforeach; ?>
             </div>
         </div>
-        <?php endforeach; ?>
 
-        <!-- Tarjeta: Sin depósito -->
-        <?php if (isset($resumen_dep['sin']) && $resumen_dep['sin']['items'] > 0): ?>
-        <div class="dep-card" style="background:var(--n-25); border-color:var(--border);">
-            <div style="font-size:1.5rem; margin-bottom:8px; opacity:0.4;">📦</div>
-            <div style="font-weight:600; font-size:0.95rem; color:var(--text-muted); margin-bottom:10px;">Sin depósito asignado</div>
-            <div style="font-size:1.3rem; font-weight:800; color:var(--text-muted);"><?= $resumen_dep['sin']['items'] ?> <span style="font-size:0.7rem;">ítems</span></div>
+        <!-- Depósito: la lista de depósitos y su filtro son la misma cosa -->
+        <div class="ctrl-grupo">
+            <h3>Depósito</h3>
+            <div class="ctrl-chips">
+                <a class="chip chip-2 <?= $f_dep === 'todos' ? 'on' : '' ?>" href="<?= htmlspecialchars(urlFiltro(['deposito_id' => null])) ?>"
+                   <?= $f_dep === 'todos' ? 'aria-current="true"' : '' ?>>
+                    Todos <span class="n"><?= count($insumos_full) ?></span>
+                </a>
+                <?php foreach ($depositos as $dep):
+                    $on = (string)$f_dep === (string)$dep['id'];
+                    $r  = $resumen_dep[$dep['id']] ?? ['items' => 0, 'valor_usd' => 0];
+                ?>
+                <a class="chip chip-2 <?= $on ? 'on' : '' ?>" href="<?= htmlspecialchars(urlFiltro(['deposito_id' => $dep['id']])) ?>"
+                   <?= $on ? 'aria-current="true"' : '' ?>>
+                    <?= htmlspecialchars($dep['nombre']) ?> <span class="n"><?= $r['items'] ?></span>
+                </a>
+                <?php endforeach; ?>
+                <?php if (!empty($resumen_dep['sin']['items'])): ?>
+                <a class="chip chip-2 <?= $f_dep === 'sin' ? 'on' : '' ?>" href="<?= htmlspecialchars(urlFiltro(['deposito_id' => 'sin'])) ?>"
+                   <?= $f_dep === 'sin' ? 'aria-current="true"' : '' ?>>
+                    Sin depósito <span class="n"><?= $resumen_dep['sin']['items'] ?></span>
+                </a>
+                <?php endif; ?>
+                <button type="button" class="chip chip-mas" onclick="openDepositoModal()">
+                    <i class="fas fa-plus" aria-hidden="true"></i>Nuevo depósito
+                </button>
+            </div>
+        </div>
+
+        <?php
+        /* El detalle del depósito que se está mirando: dónde está, cuánto tiene y
+           cuánto vale. Con "Todos" muestra el total del inventario, que antes no
+           estaba en ninguna parte —había que sumar las cinco tarjetas a ojo. */
+        $dep_sel = null;
+        foreach ($depositos as $d) { if ((string)$f_dep === (string)$d['id']) { $dep_sel = $d; break; } }
+        $r_sel = $dep_sel ? ($resumen_dep[$dep_sel['id']] ?? ['items' => 0, 'valor_usd' => 0]) : null;
+        ?>
+        <div class="dep-detalle">
+            <?php if ($dep_sel): ?>
+                <span class="nom"><?= htmlspecialchars($dep_sel['nombre']) ?></span>
+                <?php if ($dep_sel['ubicacion']): ?>
+                    <span class="ubic"><i class="fas fa-location-dot" aria-hidden="true"></i> <?= htmlspecialchars($dep_sel['ubicacion']) ?></span>
+                <?php endif; ?>
+                <span class="cifra"><b><?= $r_sel['items'] ?></b> <span>ítems</span></span>
+                <span class="cifra"><b><?= ap_plata(moneda_convertir($pdo, $usuario_id, $r_sel['valor_usd'], 'USD'), 0) ?></b>
+                      <span>valor est. <?= moneda_actual() ?></span></span>
+                <span class="acciones">
+                    <button type="button" class="btn" onclick='editDeposito(<?= json_encode($dep_sel, JSON_HEX_APOS|JSON_HEX_QUOT) ?>)'>
+                        <i class="fas fa-pen"></i> Editar
+                    </button>
+                    <form method="POST" onsubmit="if(!confirm('¿Eliminar el depósito «<?= htmlspecialchars($dep_sel['nombre'], ENT_QUOTES) ?>»? Sus insumos quedan sin depósito, no se borran.')) return false; const b=this.querySelector('button[type=submit]'); if(b) b.disabled=true; return true;">
+                        <?php csrf_field(); ?>
+                        <input type="hidden" name="action" value="delete_deposito">
+                        <input type="hidden" name="dep_id" value="<?= $dep_sel['id'] ?>">
+                        <button type="submit" class="btn" style="color:var(--danger);"><i class="fas fa-trash"></i> Eliminar</button>
+                    </form>
+                </span>
+            <?php elseif ($f_dep === 'sin'): ?>
+                <span class="nom">Sin depósito asignado</span>
+                <span class="cifra"><b><?= $resumen_dep['sin']['items'] ?? 0 ?></b> <span>ítems</span></span>
+                <span class="ubic">Editá cada insumo para asignarle uno.</span>
+            <?php elseif (empty($depositos)): ?>
+                <span class="ubic">Todavía no tenés depósitos. Creá uno para saber dónde está cada insumo y cuánto hay en cada lugar.</span>
+            <?php else: ?>
+                <span class="nom">Todo el inventario</span>
+                <span class="cifra"><b><?= count($insumos_full) ?></b> <span>insumos en <?= count($depositos) ?> depósito<?= count($depositos) > 1 ? 's' : '' ?></span></span>
+                <span class="cifra"><b><?= ap_plata(moneda_convertir($pdo, $usuario_id, $valor_total_usd, 'USD'), 0) ?></b>
+                      <span>valor est. <?= moneda_actual() ?></span></span>
+            <?php endif; ?>
+        </div>
+
+        <?php /* Los avisos: una línea que además filtra. */ ?>
+        <?php if ($n_bajo || $n_vencido || $f_alerta): ?>
+        <div class="avisos">
+            <?php if ($n_bajo): ?>
+            <a class="aviso-link bajo <?= $f_alerta === 'bajo' ? 'on' : '' ?>"
+               href="<?= htmlspecialchars(urlFiltro(['alerta' => $f_alerta === 'bajo' ? null : 'bajo'])) ?>">
+                <i class="fas <?= $f_alerta === 'bajo' ? 'fa-xmark' : 'fa-arrow-down-short-wide' ?>" aria-hidden="true"></i>
+                <?= $n_bajo ?> bajo el mínimo
+            </a>
+            <?php endif; ?>
+            <?php if ($n_vencido): ?>
+            <a class="aviso-link vencido <?= $f_alerta === 'vencido' ? 'on' : '' ?>"
+               href="<?= htmlspecialchars(urlFiltro(['alerta' => $f_alerta === 'vencido' ? null : 'vencido'])) ?>">
+                <i class="fas <?= $f_alerta === 'vencido' ? 'fa-xmark' : 'fa-circle-exclamation' ?>" aria-hidden="true"></i>
+                <?= $n_vencido ?> vencido<?= $n_vencido > 1 ? 's' : '' ?>
+            </a>
+            <?php endif; ?>
+            <span style="color:var(--text-muted); font-size:0.84rem;">
+                <?= $f_alerta ? 'Mostrando sólo esos. Tocá de nuevo para ver todo.' : 'Tocá para ver sólo esos insumos.' ?>
+            </span>
         </div>
         <?php endif; ?>
     </div>
-    <?php endif; ?>
-</div>
-
-<!-- ===== TOOLBAR ===== -->
-<div class="glass-panel" style="padding: 16px 20px; margin-bottom: 8px;">
-    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
-
-        <!-- Filtro por tipo -->
-        <div class="tipo-tabs">
-            <button class="tipo-tab <?= $f_tipo === 'todos' ? 'active' : '' ?>" onclick="setFiltroTipo('todos')">🗂 Todos</button>
-            <button class="tipo-tab <?= $f_tipo === 'semilla' ? 'active' : '' ?>" onclick="setFiltroTipo('semilla')">🌱 Semillas</button>
-            <button class="tipo-tab <?= $f_tipo === 'fertilizante' ? 'active' : '' ?>" onclick="setFiltroTipo('fertilizante')">💧 Fertilizantes</button>
-            <button class="tipo-tab <?= $f_tipo === 'agroquimico' ? 'active' : '' ?>" onclick="setFiltroTipo('agroquimico')">🧪 Agroquímicos</button>
-            <button class="tipo-tab <?= $f_tipo === 'inoculante' ? 'active' : '' ?>" onclick="setFiltroTipo('inoculante')">🔬 Inoculantes</button>
-            <button class="tipo-tab <?= $f_tipo === 'otro' ? 'active' : '' ?>" onclick="setFiltroTipo('otro')">📦 Otros</button>
-        </div>
-
-        <div style="display:flex; align-items:center; gap:8px;">
-            <?php moneda_toggle(); ?>
-            <i class="fas fa-sort" style="color: var(--text-muted); font-size: 0.9rem;"></i>
-            <select class="sort-select" id="sortSelect" aria-label="Ordenar el listado" onchange="setOrden(this.value)">
-                <?php $f_order = $_GET['order'] ?? 'nombre-az'; ?>
-                <option value="nombre-az" <?= $f_order === 'nombre-az' ? 'selected' : '' ?>>Nombre A → Z</option>
-                <option value="nombre-za" <?= $f_order === 'nombre-za' ? 'selected' : '' ?>>Nombre Z → A</option>
-                <option value="precio-asc" <?= $f_order === 'precio-asc' ? 'selected' : '' ?>>Precio ↑</option>
-                <option value="precio-desc" <?= $f_order === 'precio-desc' ? 'selected' : '' ?>>Precio ↓</option>
-                <option value="stock-asc" <?= $f_order === 'stock-asc' ? 'selected' : '' ?>>Stock ↑</option>
-                <option value="stock-desc" <?= $f_order === 'stock-desc' ? 'selected' : '' ?>>Stock ↓</option>
-                <option value="vencimiento" <?= $f_order === 'vencimiento' ? 'selected' : '' ?>>Vencimiento próximo</option>
-            </select>
-        </div>
-    </div>
-
-    <!-- Filtro por depósito -->
-    <?php if (!empty($depositos)): ?>
-    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
-        <button class="dep-filter-btn <?= $f_dep === 'todos' ? 'active' : '' ?>" onclick="setDeposito('todos')">🏚 Todos los depósitos</button>
-        <?php foreach ($depositos as $dep): ?>
-        <button class="dep-filter-btn <?= (string)$f_dep === (string)$dep['id'] ? 'active' : '' ?>" onclick="setDeposito('<?= $dep['id'] ?>')">
-            <?= htmlspecialchars($dep['nombre']) ?>
-        </button>
-        <?php endforeach; ?>
-        <button class="dep-filter-btn <?= $f_dep === 'sin' ? 'active' : '' ?>" onclick="setDeposito('sin')">📦 Sin depósito</button>
-    </div>
-    <?php endif; ?>
 </div>
 
 <!-- ===== TABLA DE INSUMOS ===== -->
@@ -539,15 +709,19 @@ function tipoBadge($tipo) {
             <i class="fas fa-boxes" style="color: var(--accent); margin-right: 8px;"></i>
             Inventario de Insumos
         </h2>
-        <?php $buscador_placeholder = 'Buscar insumo, tipo, precio, depósito, vto...'; include 'includes/buscador.php'; ?>
-        <div style="display:flex; gap:8px;">
+        <?php /* flex-wrap: con cuatro botones la fila no entra en un teléfono y sin
+                 esto se desbordaba a lo ancho, con el último cortado fuera de pantalla. */ ?>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <?php
-            // Se arrastran los filtros de tipo y depósito que están activos en
-            // pantalla: se exporta lo que se está viendo, no el inventario entero.
+            // Se arrastran los filtros que están activos en pantalla: se exporta lo
+            // que se está viendo, no el inventario entero. Si se agrega un filtro
+            // nuevo acá arriba, va también en esta lista y en los dos endpoints, o
+            // el archivo que baja el productor deja de ser lo que tiene delante.
             $exp_params = http_build_query(array_filter([
                 'tipo'     => 'insumos',
                 't_insumo' => $f_tipo !== 'todos' ? $f_tipo : null,
                 'dep_id'   => $f_dep === 'sin' ? -1 : ($f_dep !== 'todos' ? (int)$f_dep : null),
+                'alerta'   => $f_alerta ?: null,
             ], fn($v) => $v !== null && $v !== ''));
             boton_exportar([
                 ['etiqueta' => 'Excel', 'href' => 'api/reporte_excel.php?' . $exp_params,
@@ -557,6 +731,15 @@ function tipoBadge($tipo) {
                  'nueva_pestana' => true],
             ]);
             ?>
+            <?php /* Convenio con Zupli, el marketplace que conecta proveedores con
+                     productores. Es un enlace a un sitio de terceros: se abre en otra
+                     pestaña para no perder los filtros ni el trabajo a medio cargar. */ ?>
+            <a href="https://zupli.com.ar/login" target="_blank" rel="noopener noreferrer"
+               class="btn btn-zupli" title="Ver productos y precios de proveedores en Zupli (se abre en otra pestaña)">
+                <img src="assets/img/zupli.png" alt="" width="20" height="20">
+                Comprar en Zupli
+                <i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i>
+            </a>
             <button class="btn" onclick="impAbrir()" title="Cargar insumos desde un remito, una lista de precios o una planilla"
                     style="background:var(--n-0); border:1px solid var(--border); color:var(--text-primary); font-size:0.85rem;">
                 <i class="fas fa-file-import"></i> Importar
@@ -665,61 +848,66 @@ function tipoBadge($tipo) {
     <!-- Paginación -->
     <?php if ($total_pages > 1): ?>
     <div style="display:flex; justify-content: center; gap:10px; margin-top:20px; padding-bottom:10px;">
+        <?php /* Los links salen de urlFiltro(), que arrastra todos los filtros que
+                 estén puestos. Armados a mano se olvidaban uno cada vez que se
+                 agregaba un filtro nuevo, y pasar de página lo perdía. */ ?>
         <?php if ($page > 1): ?>
-            <a href="?page=<?= $page-1 ?>&tipo=<?= $f_tipo ?>&deposito_id=<?= $f_dep ?>&order=<?= $f_order ?>&q=<?= urlencode($q) ?>" class="btn" style="background:var(--n-100); color:var(--text-primary); padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
+            <a href="<?= htmlspecialchars(urlFiltro(['page' => $page - 1])) ?>" class="btn" style="background:var(--n-100); color:var(--text-primary); padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
         <?php endif; ?>
-        
+
         <span style="color:var(--text-muted); align-self:center; font-size:0.9rem;">Página <?= $page ?> de <?= $total_pages ?></span>
 
         <?php if ($page < $total_pages): ?>
-            <a href="?page=<?= $page+1 ?>&tipo=<?= $f_tipo ?>&deposito_id=<?= $f_dep ?>&order=<?= $f_order ?>&q=<?= urlencode($q) ?>" class="btn" style="background:var(--n-100); color:var(--text-primary); padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
+            <a href="<?= htmlspecialchars(urlFiltro(['page' => $page + 1])) ?>" class="btn" style="background:var(--n-100); color:var(--text-primary); padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
         <?php endif; ?>
     </div>
     <?php endif; ?>
 </div>
 
-<!-- ===== CALENDARIO DE VENCIMIENTOS ===== -->
+<!-- ═══ VENCIMIENTOS PRÓXIMOS ═════════════════════════════════════════════════
+     Sólo lo vencido y lo que vence dentro de 30 días. Antes listaba los insumos
+     con fecha, todos, repitiendo tipo, stock y depósito de cada uno debajo de la
+     tabla que ya los muestra. Si no hay nada urgente, no aparece.
+
+     El "en N días" de cada fila estaba invertido: la cuenta iba de la fecha de
+     vencimiento hacia hoy, así que un insumo que vence el año que viene decía
+     "Venció hace 185 días" y uno vencido el mes pasado decía "En 28 días". El
+     color estaba bien, el texto lo contradecía. Ahora ambos salen de diasHasta().
+     ══════════════════════════════════════════════════════════════════════════ -->
 <?php if (count($conVenc) > 0): ?>
 <div class="glass-panel" style="margin-bottom: 24px;">
-    <h2 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 16px;">
-        <i class="fas fa-calendar-alt" style="color: var(--warning); margin-right: 8px;"></i>
-        Calendario de Vencimientos
+    <h2 style="font-size:1.05rem; font-weight:600; margin:0 0 4px;">
+        <i class="fas fa-calendar-day" style="color:var(--se-warning); margin-right:8px;"></i>
+        Vencimientos próximos
     </h2>
-    <div style="display: flex; flex-direction: column; gap: 10px;">
+    <p style="color:var(--text-muted); font-size:0.85rem; margin:0 0 12px;">
+        Vencidos y los que vencen dentro de 30 días.
+    </p>
+    <div class="venc-lista">
         <?php foreach($conVenc as $ins):
-            $fv = $ins['fecha_vencimiento'];
-            if($fv < $hoy) $cls = 'vencido';
-            elseif($fv <= $en30d) $cls = 'proximo';
-            else $cls = 'ok';
-            $dias = (new DateTime($fv))->diff(new DateTime($hoy));
-            $diasNum = (int)$dias->format('%r%a');
+            $fv      = $ins['fecha_vencimiento'];
+            $diasNum = diasHasta($fv, $hoy);
+            $cls     = $diasNum < 0 ? 'vencido' : 'proximo';
         ?>
         <div class="venc-item">
-            <div class="venc-date <?= $cls ?>">
-                <?= date('d/m', strtotime($fv)) ?><br>
-                <span style="font-size:0.7em;opacity:0.8;"><?= date('Y', strtotime($fv)) ?></span>
-            </div>
-            <div style="flex: 1; min-width: 0;">
-                <div style="font-weight: 600; font-size: 0.95rem;"><?= htmlspecialchars($ins['nombre']) ?></div>
-                <div style="font-size: 0.8rem; color: var(--text-muted); display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:3px;">
-                    <?= tipoBadge($ins['tipo_insumo']) ?>
-                    &nbsp;Stock: <strong><?= number_format((float)($ins['stock_actual'] ?? 0), 2, ',', '.') ?> <?= htmlspecialchars($ins['unidad_stock'] ?? $ins['unidad_medida']) ?></strong>
-                    <?php if ($ins['deposito_nombre']): ?>
-                    &bull; <span style="color: var(--accent);"><i class="fas fa-warehouse" style="font-size:0.7rem;"></i> <?= htmlspecialchars($ins['deposito_nombre']) ?></span>
-                    <?php endif; ?>
-                </div>
-            </div>
-            <div style="text-align: right; font-size: 0.82rem; white-space: nowrap;">
-                <?php if($diasNum < 0): ?>
-                    <span style="color: var(--danger); font-weight: 700;">Venció hace <?= abs($diasNum) ?> días</span>
-                <?php elseif($diasNum === 0): ?>
-                    <span style="color: var(--se-warning); font-weight: 700;">⚠ Vence hoy</span>
-                <?php else: ?>
-                    <span style="color: <?= $cls === 'proximo' ? 'var(--se-warning)' : 'var(--accent)' ?>; font-weight: 600;">
-                        En <?= $diasNum ?> días
-                    </span>
+            <span class="fecha"><?= date('d/m/Y', strtotime($fv)) ?></span>
+            <span class="nom"><?= htmlspecialchars($ins['nombre']) ?></span>
+            <span class="dep">
+                <?= number_format((float)($ins['stock_actual'] ?? 0), 2, ',', '.') ?>
+                <?= htmlspecialchars($ins['unidad_stock'] ?? $ins['unidad_medida']) ?>
+                <?php if ($ins['deposito_nombre']): ?>
+                    · <?= htmlspecialchars($ins['deposito_nombre']) ?>
                 <?php endif; ?>
-            </div>
+            </span>
+            <span class="cuando <?= $cls ?>">
+                <?php if ($diasNum < 0): ?>
+                    Venció hace <?= abs($diasNum) ?> día<?= abs($diasNum) === 1 ? '' : 's' ?>
+                <?php elseif ($diasNum === 0): ?>
+                    Vence hoy
+                <?php else: ?>
+                    En <?= $diasNum ?> día<?= $diasNum === 1 ? '' : 's' ?>
+                <?php endif; ?>
+            </span>
         </div>
         <?php endforeach; ?>
     </div>
@@ -1410,7 +1598,7 @@ function tipoBadge($tipo) {
 <script>
 // ─── MODAL DEPÓSITO ─────────────────────────────────────────────────────────
 function openDepositoModal() {
-    document.getElementById('depModalTitle').innerText = '🏚 Nuevo Depósito';
+    document.getElementById('depModalTitle').innerText = 'Nuevo depósito';
     document.getElementById('depAction').value = 'add_deposito';
     document.getElementById('depId').value     = '';
     document.getElementById('depNombre').value = '';
@@ -1421,7 +1609,7 @@ function openDepositoModal() {
 }
 
 function editDeposito(dep) {
-    document.getElementById('depModalTitle').innerText = '✏️ Editar Depósito';
+    document.getElementById('depModalTitle').innerText = 'Editar depósito';
     document.getElementById('depAction').value = 'edit_deposito';
     document.getElementById('depId').value     = dep.id;
     document.getElementById('depNombre').value = dep.nombre;
@@ -1444,7 +1632,7 @@ const actionInput = document.getElementById('actionInput');
 const idInput     = document.getElementById('insumoIdInput');
 
 function openNewInsumoModal() {
-    title.innerText   = '➕ Nuevo Insumo';
+    title.innerText   = 'Nuevo insumo';
     actionInput.value = 'add';
     idInput.value     = '';
     form.reset();
@@ -1453,7 +1641,7 @@ function openNewInsumoModal() {
 }
 
 function editInsumo(ins) {
-    title.innerText   = '✏️ Editar Insumo';
+    title.innerText   = 'Editar insumo';
     actionInput.value = 'edit';
     idInput.value     = ins.id;
 
@@ -1481,20 +1669,9 @@ window.addEventListener('click', e => {
     if (e.target === document.getElementById('depositoModal')) closeDepModal();
 });
 
-// ─── FILTER + SORT POR SERVIDOR ───────────────────────────────────────────
-function setFiltroTipo(tipo) {
-    const url = new URL(window.location);
-    url.searchParams.set('tipo', tipo);
-    url.searchParams.set('page', 1);
-    window.location.href = url.href;
-}
-
-function setDeposito(dep) {
-    const url = new URL(window.location);
-    url.searchParams.set('deposito_id', dep);
-    url.searchParams.set('page', 1);
-    window.location.href = url.href;
-}
+// ─── ORDEN POR SERVIDOR ─────────────────────────────────────────────────────
+// Tipo y depósito ya no pasan por acá: son enlaces que arma urlFiltro() en PHP.
+// Un <select> no puede ser un enlace, así que el orden sí necesita este puente.
 
 function setOrden(val) {
     const url = new URL(window.location);

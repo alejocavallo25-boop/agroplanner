@@ -21,6 +21,7 @@ $lote_id  = !empty($_GET['lote_id'])  ? (int)$_GET['lote_id']   : null;
 $cultivo  = !empty($_GET['cultivo'])  ? trim($_GET['cultivo'])  : null;
 $dep_id   = !empty($_GET['dep_id'])   ? (int)$_GET['dep_id']    : null;
 $t_insumo = !empty($_GET['t_insumo']) ? trim($_GET['t_insumo']) : null;
+$alerta   = $_GET['alerta'] ?? '';   // 'bajo' o 'vencido': los avisos de la pantalla de stock
 
 // ─── Datos según tipo de reporte ─────────────────────────────────────────────
 $titulo = '';
@@ -96,8 +97,20 @@ if ($tipo === 'operaciones') {
     $params = [$usuario_id];
 
     if ($t_insumo && $t_insumo !== 'todos') { $query .= " AND i.tipo_insumo = ?"; $params[] = $t_insumo; }
-    if ($dep_id) { $query .= " AND i.deposito_id = ?"; $params[] = $dep_id; }
-    if ($dep_id === -1) { $query .= " AND i.deposito_id IS NULL"; } // Para filtrar "Sin depósito"
+    /* elseif, y no dos if sueltos: con dep_id = -1 ("Sin depósito") se cumplían los
+       dos —-1 es truthy— y el WHERE terminaba en "deposito_id = -1 AND deposito_id
+       IS NULL", que ninguna fila puede cumplir. El PDF de "Sin depósito" salía
+       siempre vacío. El Excel ya lo tenía en este orden. */
+    if ($dep_id === -1) { $query .= " AND i.deposito_id IS NULL"; }
+    elseif ($dep_id)    { $query .= " AND i.deposito_id = ?"; $params[] = $dep_id; }
+
+    // Los mismos avisos que filtran la pantalla, o el PDF deja de ser lo que se ve.
+    if ($alerta === 'bajo') {
+        $query .= " AND i.stock_minimo IS NOT NULL AND COALESCE(i.stock_actual, 0) <= i.stock_minimo";
+    } elseif ($alerta === 'vencido') {
+        $query .= " AND i.fecha_vencimiento IS NOT NULL AND i.fecha_vencimiento < ?";
+        $params[] = date('Y-m-d');
+    }
 
     $query .= " ORDER BY i.tipo_insumo, i.nombre";
     $stmt = $pdo->prepare($query);

@@ -29,6 +29,7 @@ $lote_id  = !empty($_GET['lote_id'])  ? (int)$_GET['lote_id']   : null;
 $cultivo  = !empty($_GET['cultivo'])  ? trim($_GET['cultivo'])  : null;
 $t_insumo = !empty($_GET['t_insumo']) ? trim($_GET['t_insumo']) : null;
 $dep_id   = isset($_GET['dep_id']) && $_GET['dep_id'] !== '' ? (int)$_GET['dep_id'] : null;
+$alerta   = $_GET['alerta'] ?? '';   // 'bajo' o 'vencido': los avisos de la pantalla de stock
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FORMATO
@@ -169,6 +170,13 @@ if ($tipo === 'operaciones') {
     if ($t_insumo && $t_insumo !== 'todos') { $query .= " AND i.tipo_insumo = ?"; $params[] = $t_insumo; }
     if ($dep_id === -1)   { $query .= " AND i.deposito_id IS NULL"; }
     elseif ($dep_id)      { $query .= " AND i.deposito_id = ?"; $params[] = $dep_id; }
+    // Los mismos avisos que filtran la pantalla, o la planilla deja de ser lo que se ve.
+    if ($alerta === 'bajo') {
+        $query .= " AND i.stock_minimo IS NOT NULL AND COALESCE(i.stock_actual, 0) <= i.stock_minimo";
+    } elseif ($alerta === 'vencido') {
+        $query .= " AND i.fecha_vencimiento IS NOT NULL AND i.fecha_vencimiento < ?";
+        $params[] = date('Y-m-d');
+    }
     $query .= " ORDER BY i.tipo_insumo, i.nombre";
 
     $stmt = $pdo->prepare($query);
