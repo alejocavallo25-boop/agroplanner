@@ -768,6 +768,38 @@ function motor_pide_precio_insumo(string $t): bool {
     return false;
 }
 
+/**
+ * ¿Pregunta el precio de un insumo? Y si es así, cuál de los dos:
+ *
+ *   'pagado'    lo que escribió en cada compra   "¿cuánto pagué el glifosato?"
+ *   'catalogo'  la referencia del stock          "¿precio de la urea?"
+ *
+ * La frase tiene que nombrar el insumo del catálogo, o su rubro para el precio de
+ * lista. Si no, no es de acá: "precio" a secas es la pizarra, y "¿cuánto le pagué
+ * a Ponso?" o "¿cuánto pagué en semillas?" son lo gastado. Faltaba esta puerta y
+ * las dos preguntas del principio caían en el gasto del rubro: "no hay gastos en
+ * agroquímicos en la 26/27".
+ *
+ * Con un grano en la frase gana la pizarra, salvo que nombre el rubro: "precio de
+ * la soja" es la cotización aunque el catálogo tenga una semilla llamada "Soja",
+ * y "precio de la semilla de soja" es la bolsa.
+ */
+function motor_que_precio_de_insumo(PDO $pdo, int $uid, string $t): ?string {
+    if (motor_pide_precio_insumo($t)) return 'pagado';
+
+    $pago   = preg_match('/(^|\s)(pague|pagamos|compre|compramos)(\s|$)/u', $t);
+    $precio = preg_match('/(^|\s)(precio|precios|cuesta|cuestan|sale|salen|vale|valen)(\s|$)|a (cuanto|como) esta/u', $t);
+    if (!$pago && !$precio) return null;
+
+    $unIns = motor_insumo_nombrado($pdo, $uid, $t);
+    if ($pago) return $unIns ? 'pagado' : null;
+
+    $rubro = motor_detectar_dimension($t, motor_tipos_insumo());
+    if (!$unIns && !$rubro) return null;
+    if (!$rubro && motor_cultivo_cotizable($pdo, $t) !== null) return null;
+    return 'catalogo';
+}
+
 /** ¿Pide el mejor o el peor lote? Devuelve 'mejor' | 'peor' | null. */
 function motor_pide_ranking_lotes(string $texto): ?string {
     foreach (['mejor lote','lote mas rentable','lote que mas rinde','cual lote rinde mas',
@@ -844,6 +876,27 @@ function motor_coincide(string $texto, string $frase): bool {
         if (levenshtein($ventana, $frase) <= $tolerancia) return true;
     }
     return false;
+}
+
+/**
+ * ¿La pregunta nombra esto que escribió el productor? Como palabra entera.
+ *
+ * Para nombres cargados a mano —el proveedor es texto libre—, no para el
+ * vocabulario de este archivo. motor_coincide() encuentra la frase en cualquier
+ * parte del texto, y con un nombre corto eso es una trampa: un proveedor tipeado
+ * "n" aparecía dentro de "cuánto" y de "en", así que "¿cuánto gasté en la 25/26?",
+ * "¿margen neto?" y "¿cuánto le pagué a Ponso?" contestaban lo gastado con "n".
+ *
+ * Por lo mismo, menos de tres letras no se reconoce: "a", "y", "de" o una "x"
+ * cargadas como proveedor aparecen como palabra en cualquier pregunta ("costo x
+ * ha"). La tolerancia de tipeo queda para cuando el nombre no está escrito; si
+ * está pero pegado a otra palabra, es otra palabra.
+ */
+function motor_nombra(string $texto, string $nombre): bool {
+    if (mb_strlen(str_replace(' ', '', $nombre)) < 3) return false;
+    if (preg_match('/(?<!\S)' . preg_quote($nombre, '/') . '(?!\S)/u', $texto)) return true;
+    if (strpos($texto, $nombre) !== false) return false;
+    return motor_coincide($texto, $nombre);
 }
 
 /* =====================================================================
@@ -1112,6 +1165,17 @@ function motor_detectar_metrica(string $texto): ?string {
             }
         }
     }
+
+    /* "¿Cuánto gasté en alquileres?": "cuánto gasté" es cómo se pregunta y el
+       alquiler es lo que se pregunta. Por largo ganaba "cuanto gaste", que son los
+       costos de laboreo —justo lo que NO incluye el alquiler—, y la rama del gasto
+       contestaba que "alquileres" no es una categoría. "Sin alquiler" y "laboreo"
+       sí piden el laboreo. */
+    if ($mejor === 'costos_directos'
+        && preg_match('/(^|\s)(alquiler|alquileres|arrendamiento|arriendo)(\s|$)/u', $texto)
+        && !preg_match('/(^|\s)sin (contar )?(el |los |lo de )?(alquiler|alquileres|arrendamiento|arriendo)|laboreo/u', $texto)) {
+        return 'costos_alquiler';
+    }
     return $mejor;
 }
 
@@ -1312,6 +1376,8 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
     }
 
     $metrica = motor_detectar_metrica($texto);
+    // La que nombra la frase, antes de que la memoria de la charla la complete.
+    $metricaPedida = $metrica;
 
     // La campaña por defecto es la más reciente, que es la que el productor mira.
     $campania = motor_detectar_campania($texto, $ciclos)
@@ -2084,7 +2150,12 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
     $mencionaGrano = preg_match('/precio|cotiza|vale|valen|pagan|pagando/u', $texto)
                    ? motor_cultivo_cotizable($pdo, $texto) : null;
 
-    if (motor_pide_precio($texto) || $mencionaGrano !== null) {
+    /* Pero si pregunta el precio de un insumo, no es la pizarra: "¿cuánto vale la
+       urea?" usa una frase de mercado y "precio de la semilla de soja" nombra un
+       grano. Lo atiende la rama de insumos, más abajo. */
+    $precioInsumo = motor_que_precio_de_insumo($pdo, $usuarioId, $texto);
+
+    if ((motor_pide_precio($texto) || $mencionaGrano !== null) && $precioInsumo === null) {
         $especie = $mencionaGrano ?? motor_cultivo_cotizable($pdo, $texto);
 
         /* Si no nombró el grano, se usa el de la campaña. Con más de uno se
@@ -2476,23 +2547,41 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
                  || (motor_pide_unidad($texto) && $rubroTxt !== null)
                  || ($rubroTxt !== null && motor_pide_por_hectarea($texto) && !motor_pide_plata($texto));
 
-    if ($pideCantidad || motor_pide_stock($texto) || motor_pide_precio_insumo($texto)) {
-        $rubro  = $rubroTxt;
+    if ($pideCantidad || motor_pide_stock($texto) || $precioInsumo !== null) {
         $unIns  = motor_insumo_nombrado($pdo, $usuarioId, $texto);
+        /* El insumo nombrado ya dice su rubro. Filtrar además por el rubro que
+           sugiere la palabra dejaba afuera al insumo cuando el catálogo lo tiene
+           en otro: una "Urea" cargada como "Otro" no aparecía en "precio de la urea". */
+        $rubro  = $unIns ? null : $rubroTxt;
         $unidad = fn($u) => $u ? ' ' . $u : '';
         $cant   = fn($v) => number_format((float)$v, 2, ',', '.');
 
         // ── A qué precio se compró, que no es lo mismo que cuánto se gastó ───
-        if (motor_pide_precio_insumo($texto)) {
-            $filas = motor_precio_pagado_insumo($pdo, $usuarioId, $campania,
+        if ($precioInsumo === 'pagado') {
+            $campPrecio = $campania;
+            $filas = motor_precio_pagado_insumo($pdo, $usuarioId, $campPrecio,
                                                 $rubro['clave'] ?? null, $unIns['id'] ?? null,
                                                 $loteId, $cultivo);
+            /* Sin campaña en la frase se mira la última, y recién empezada no
+               tiene compras: "¿cuánto pagué la urea?" contestaba que no había
+               precios aunque la hubiera comprado toda la campaña anterior. Se busca
+               hacia atrás la última en que se compró, y la respuesta dice cuál. */
+            $buscoOtras = !$filas && motor_detectar_campania($texto, $ciclos) === null;
+            if ($buscoOtras) {
+                foreach ($ciclos as $c) {
+                    if ($c === $campania) continue;
+                    $filas = motor_precio_pagado_insumo($pdo, $usuarioId, $c,
+                                                        $rubro['clave'] ?? null, $unIns['id'] ?? null,
+                                                        $loteId, $cultivo);
+                    if ($filas) { $campPrecio = $c; break; }
+                }
+            }
             if (!$filas) {
                 return [
                     'ok' => false, 'tipo' => 'sin_datos',
                     'respuesta' => 'No tengo precios cargados de '
                                  . ($unIns['nombre'] ?? ($rubro['etiqueta'] ?? 'insumos'))
-                                 . ' en ' . $campania . '.',
+                                 . ($buscoOtras ? ' en ninguna campaña.' : ' en ' . $campania . '.'),
                     'detalle' => 'El precio sale de lo que se escribió al registrar cada compra, '
                                . 'así que sólo lo tengo de los insumos elegidos del catálogo.',
                     'valor' => null,
@@ -2523,20 +2612,25 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
                 'respuesta' => $unaSola
                     ? 'Pagaste ' . motor_formatear($pr0, $pr0 < 10 ? 'dinero_fino' : 'dinero')
                       . ($filas[0]['unidad'] ? ' el ' . $filas[0]['unidad'] : '')
-                      . ' de ' . $filas[0]['insumo'] . ' en ' . $campania . '.'
-                    : 'Lo que pagaste por unidad en ' . $campania . ':',
+                      . ' de ' . $filas[0]['insumo'] . ' en ' . $campPrecio . '.'
+                    : 'Lo que pagaste por unidad en ' . $campPrecio . ':',
                 'detalle' => implode("\n", $lineas)
+                           . ($campPrecio !== $campania
+                               ? "\nEn " . $campania . ' todavía no hay compras de '
+                                 . ($unIns['nombre'] ?? ($rubro['etiqueta'] ?? 'insumos')) . '.'
+                               : '')
                            . "\nEs el promedio ponderado por cantidad de lo que escribiste al "
                            . 'registrar cada compra, no el precio de referencia del catálogo.',
                 'valor' => $pr0,
-                'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => null],
+                'filtros' => ['ciclo' => $campPrecio, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => null],
                 'link' => 'insumos.php',
                 'sugerencias' => ['¿Cuántos kg de semilla usé?', '¿Qué tengo en stock?', '¿En qué gasté más?'],
             ];
         }
 
         // ── Consumo: cuánto se aplicó, abierto por lote ──────────────────────
-        if ($pideCantidad) {
+        // "Precio del kg de semilla" nombra una cantidad, pero pregunta el precio.
+        if ($pideCantidad && $precioInsumo === null) {
             $filas = motor_consumo_por_lote($pdo, $usuarioId, $campania,
                                             $rubro['clave'] ?? null, $unIns['id'] ?? null,
                                             $loteId, $cultivo);
@@ -2676,10 +2770,26 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
         /* Si preguntó puntualmente por vencimientos, la respuesta arranca por
            ahí. Listarle todo el catálogo y esconder el vencido en la última
            línea es no contestar lo que preguntó. */
+        $sugStock = ['¿Cuántos kg de semilla usé en cada lote?', '¿Qué está por vencer?', '¿En qué gasté más?'];
+
         if ($porVence) {
             $encabezado = $vencidos
                 ? 'Tenés vencido: ' . implode(', ', $vencidos) . '.'
                 : 'No tenés nada vencido en el catálogo.';
+        } elseif ($precioInsumo === 'catalogo') {
+            /* Preguntó el precio: la respuesta es el precio, no cuánto hay. Y se
+               dice de dónde sale, porque el productor tiene dos precios en la cabeza
+               —el de lista y el que pagó— y éste es el de lista. */
+            $encabezado = count($items) > 1
+                ? 'Los precios de ' . ($rubro['etiqueta'] ?? 'tus insumos') . ' en el catálogo:'
+                : ($precios[0] > 0
+                    ? $items[0]['nombre'] . ' está a ' . motor_formatear($precios[0], $fmtP)
+                      . ($items[0]['unidad'] ? ' el ' . $items[0]['unidad'] : '') . ' en tu catálogo.'
+                    : 'No tenés precio cargado para ' . $items[0]['nombre'] . ' en el catálogo.');
+            $cierre[] = 'Es el precio de referencia que cargaste en Insumos, no lo que pagaste en cada compra.';
+            if (count($items) === 1) {
+                $sugStock = ['¿A qué precio compré ' . $items[0]['nombre'] . '?', '¿Qué tengo en stock?', '¿En qué gasté más?'];
+            }
         } elseif (count($items) === 1) {
             $encabezado = 'Tenés ' . $cant($items[0]['stock_actual']) . $unidad($items[0]['unidad'])
                         . ' de ' . $items[0]['nombre'] . '.';
@@ -2695,7 +2805,7 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
             'valor' => $valor,
             'filtros' => ['ciclo' => $campania, 'lote' => $loteId, 'cultivo' => $cultivo, 'metrica' => null],
             'link' => 'insumos.php',
-            'sugerencias' => ['¿Cuántos kg de semilla usé en cada lote?', '¿Qué está por vencer?', '¿En qué gasté más?'],
+            'sugerencias' => $sugStock,
         ];
     }
 
@@ -3001,18 +3111,28 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
        Se resuelve antes que la métrica genérica: cuando la pregunta nombra una
        etapa, un tipo de insumo o un proveedor, el productor quiere ESE recorte,
        no el total de laboreo. */
-    $grupo   = motor_detectar_dimension($texto, motor_grupos());
+    /* Sólo si la pregunta es de gasto, o no nombra métrica. "¿Cuánto rindió la
+       cosecha?" nombra una etapa y pide el rinde: sin esta condición contestaba lo
+       gastado en cosecha. Se mira la métrica que ESCRIBIÓ, no la heredada de la
+       charla, para que "¿y en siembra?" después del margen siga abriendo el gasto. */
+    $pideGasto = $metricaPedida === null
+              || in_array($metricaPedida, ['costos_directos', 'costo_por_ha'], true);
+
+    $grupo   = $pideGasto ? motor_detectar_dimension($texto, motor_grupos()) : null;
     /* El rubro del insumo se busca ANTES que el tipo de componente: "semillas" es
        más específico que "insumos", y quien pregunta por semillas quiere las
        semillas, no todos los insumos. */
-    $rubro   = $grupo ? null : motor_detectar_dimension($texto, motor_tipos_insumo());
-    $comp    = ($grupo || $rubro) ? null : motor_detectar_dimension($texto, motor_componentes());
+    $rubro   = ($grupo || !$pideGasto) ? null : motor_detectar_dimension($texto, motor_tipos_insumo());
+    $comp    = ($grupo || $rubro || !$pideGasto) ? null : motor_detectar_dimension($texto, motor_componentes());
 
+    /* Gana el nombre más largo, como con los insumos: con "Agro" y "Agro Norte"
+       cargados, "¿cuánto le pagué a Agro Norte?" es el segundo. */
     $prov = null;
-    if (!$grupo && !$rubro && !$comp) {
+    if ($pideGasto && !$grupo && !$rubro && !$comp) {
         foreach (motor_proveedores($pdo, $usuarioId, $campania) as $p) {
-            if ($p !== '' && motor_coincide($texto, motor_normalizar($p))) {
-                $prov = $p; break;
+            $pn = motor_normalizar($p);
+            if (motor_nombra($texto, $pn) && ($prov === null || mb_strlen($pn) > mb_strlen(motor_normalizar($prov)))) {
+                $prov = $p;
             }
         }
     }
@@ -3110,7 +3230,7 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
     /* Preguntó por una etapa que no existe ("gasté en riego"). Caer al total de
        laboreo sería contestar con seguridad algo que nadie preguntó: el productor
        se lleva $31.000 creyendo que gastó eso en riego. Mejor decir que no está. */
-    if (preg_match('/\bgast\w*\s+en\s+(?:el\s+|la\s+|los\s+|las\s+)?([a-z]{4,})/u', $texto, $m)) {
+    if ($pideGasto && preg_match('/\bgast\w*\s+en\s+(?:el\s+|la\s+|los\s+|las\s+)?([a-z]{4,})/u', $texto, $m)) {
         $palabra = $m[1];
         $neutras = ['total','general','campania','campana','lote','cultivo','todo','esta','este','mi','ese'];
         $es_entidad = ($lote && strpos(motor_normalizar($lote['nombre']), $palabra) !== false)
@@ -3320,6 +3440,13 @@ function motor_contexto(string $metrica, array $stats): string {
         return 'Sale de ' . motor_formatear($stats['ingresos'], 'dinero') . ' de ingresos menos '
              . motor_formatear($stats['costos_directos'], 'dinero') . ' de laboreo y '
              . motor_formatear($stats['costos_alquiler'], 'dinero') . ' de alquileres.';
+    }
+    /* "¿Cuánto gasté?" se contesta con el laboreo, que deja afuera el alquiler.
+       Si hubo alquiler se dice, con el total: callarlo hace pasar por todo lo
+       gastado un número al que le falta un costo. */
+    if ($metrica === 'costos_directos' && (float)$stats['costos_alquiler'] > 0) {
+        return 'No incluye ' . motor_formatear($stats['costos_alquiler'], 'dinero') . ' de alquileres: '
+             . 'con ellos son ' . motor_formatear((float)$stats['costos_directos'] + (float)$stats['costos_alquiler'], 'dinero') . '.';
     }
     $partes = [];
     if ($ha > 0) $partes[] = motor_formatear($ha, 'ha') . ' trabajadas';
