@@ -486,6 +486,38 @@ function tipoBadge($tipo) {
 .aviso-link.on { border-color: currentColor; }
 .aviso-link.on i { font-size: 0.8em; }
 
+.avisos-ayuda { color: var(--text-muted); font-size: 0.84rem; }
+
+/* ── ZUPLI ──
+   Salida a la tienda del convenio, cerrando la línea de avisos.
+
+   Va ahí y no entre los botones del inventario porque el momento de comprar no
+   es "estoy mirando el stock" sino "me falta algo": al lado del aviso de que hay
+   insumos bajo el mínimo, es el paso siguiente y no un botón más. En la barra
+   además quedaba un segundo relleno oscuro compitiendo con "Nuevo Insumo", que
+   es la acción primaria de la pantalla; acá no compite con nada.
+
+   La identidad de Zupli la carga el isotipo, no el fondo: el relleno navy lo
+   hacía pesar como acción principal. El navy vuelve en el borde al pasar por
+   encima, lo justo para que se note que lleva afuera antes de hacer clic.
+
+   Este bloque va ACÁ, arriba de los media queries, y no al final del <style>:
+   ahí abajo su min-height le ganaba por orden a la regla de los 44px táctiles
+   —misma especificidad, gana el último— y en el celular quedaba en 37px. */
+.zupli-link {
+    margin-left: auto;
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 7px 13px; min-height: 36px;
+    border-radius: 8px; border: 1px solid var(--border); background: var(--n-0);
+    color: var(--text-primary); font-size: 0.84rem; font-weight: 600;
+    text-decoration: none; white-space: nowrap;
+    transition: border-color 0.18s ease-out, background 0.18s ease-out;
+}
+.zupli-link:hover { border-color: #113250; background: var(--n-25); color: var(--text-primary); }
+.zupli-link:focus-visible { outline: 2px solid #113250; outline-offset: 2px; }
+.zupli-link img { width: 19px; height: 19px; display: block; }
+.zupli-link .fa-arrow-up-right-from-square { font-size: 0.72em; color: var(--text-muted); }
+
 /* ── STOCK DISPLAY ── */
 .stock-display { display: flex; flex-direction: column; gap: 4px; min-width: 90px; }
 .stock-val { font-weight: 700; font-size: 1rem; }
@@ -530,6 +562,8 @@ function tipoBadge($tipo) {
     .ctrl-grupo > h3 { width: auto; padding-top: 0; }
     .ctrl-fila-fin { margin-left: 0; }
     .dep-detalle .acciones { margin-left: 0; width: 100%; }
+    /* Apilado, el auto que lo manda a la derecha ya no tiene contra qué empujar. */
+    .zupli-link { margin-left: 0; }
 }
 
 /* Misma condición que usa style.css para los targets táctiles. Va acá y no allá
@@ -538,28 +572,12 @@ function tipoBadge($tipo) {
    El gap separa ícono de texto, así que inline-flex no los pega —el problema que
    avisa el comentario de style.css— porque acá no hay nodo de texto en blanco. */
 @media (pointer: coarse), (max-width: 760px) {
-    .chip, .aviso-link { min-height: 44px; }
+    .chip, .aviso-link, .zupli-link { min-height: 44px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .chip, .aviso-link { transition: none; }
+    .chip, .aviso-link, .zupli-link { transition: none; }
 }
-
-/* ── ZUPLI ──
-   Salida a la tienda del convenio. Lleva los colores de Zupli y no los del
-   sistema a propósito: es un sitio de otro, y el productor tiene que darse
-   cuenta antes de hacer clic de que se va de AgroPlanner. El navy es el mismo
-   del logo (#113250), así que el isotipo se apoya sobre el botón sin recuadro. */
-.btn-zupli {
-    background: #113250;
-    border: 1px solid #1d4a73;
-    color: #fff;
-    font-size: 0.85rem;
-    gap: 8px;
-}
-.btn-zupli:hover { background: #1a4670; border-color: #2a6296; color: #fff; }
-.btn-zupli img { width: 20px; height: 20px; display: block; }
-.btn-zupli .fa-arrow-up-right-from-square { font-size: 0.72em; opacity: 0.7; }
 </style>
 
 <!-- ═══ PANEL DE CONTROL ═══════════════════════════════════════════════════ -->
@@ -677,8 +695,8 @@ function tipoBadge($tipo) {
             <?php endif; ?>
         </div>
 
-        <?php /* Los avisos: una línea que además filtra. */ ?>
-        <?php if ($n_bajo || $n_vencido || $f_alerta): ?>
+        <?php /* Los avisos: una línea que además filtra. Va siempre, aunque no haya
+                 ninguno, porque al final de ella vive la salida a Zupli. */ ?>
         <div class="avisos">
             <?php if ($n_bajo): ?>
             <a class="aviso-link bajo <?= $f_alerta === 'bajo' ? 'on' : '' ?>"
@@ -694,11 +712,22 @@ function tipoBadge($tipo) {
                 <?= $n_vencido ?> vencido<?= $n_vencido > 1 ? 's' : '' ?>
             </a>
             <?php endif; ?>
-            <span style="color:var(--text-muted); font-size:0.84rem;">
+            <?php if ($n_bajo || $n_vencido): ?>
+            <span class="avisos-ayuda">
                 <?= $f_alerta ? 'Mostrando sólo esos. Tocá de nuevo para ver todo.' : 'Tocá para ver sólo esos insumos.' ?>
             </span>
+            <?php endif; ?>
+
+            <?php /* Convenio con Zupli, el marketplace que conecta proveedores con
+                     productores. Se abre en otra pestaña para no perder los filtros
+                     ni el trabajo a medio cargar. */ ?>
+            <a href="https://zupli.com.ar/login" target="_blank" rel="noopener noreferrer"
+               class="zupli-link" title="Ver productos y precios de proveedores en Zupli (se abre en otra pestaña)">
+                <img src="assets/img/zupli.png" alt="" width="19" height="19">
+                Comprar en Zupli
+                <i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i>
+            </a>
         </div>
-        <?php endif; ?>
     </div>
 </div>
 
@@ -731,15 +760,6 @@ function tipoBadge($tipo) {
                  'nueva_pestana' => true],
             ]);
             ?>
-            <?php /* Convenio con Zupli, el marketplace que conecta proveedores con
-                     productores. Es un enlace a un sitio de terceros: se abre en otra
-                     pestaña para no perder los filtros ni el trabajo a medio cargar. */ ?>
-            <a href="https://zupli.com.ar/login" target="_blank" rel="noopener noreferrer"
-               class="btn btn-zupli" title="Ver productos y precios de proveedores en Zupli (se abre en otra pestaña)">
-                <img src="assets/img/zupli.png" alt="" width="20" height="20">
-                Comprar en Zupli
-                <i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i>
-            </a>
             <button class="btn" onclick="impAbrir()" title="Cargar insumos desde un remito, una lista de precios o una planilla"
                     style="background:var(--n-0); border:1px solid var(--border); color:var(--text-primary); font-size:0.85rem;">
                 <i class="fas fa-file-import"></i> Importar
