@@ -497,9 +497,12 @@ function tipoBadge($tipo) {
    además quedaba un segundo relleno oscuro compitiendo con "Nuevo Insumo", que
    es la acción primaria de la pantalla; acá no compite con nada.
 
-   La identidad de Zupli la carga el isotipo, no el fondo: el relleno navy lo
-   hacía pesar como acción principal. El navy vuelve en el borde al pasar por
-   encima, lo justo para que se note que lleva afuera antes de hacer clic.
+   Va con el navy de Zupli lleno (#113250, el mismo del isotipo, que así se
+   apoya sobre el botón sin recuadro). En la barra del inventario eso no podía
+   ser: hacía dos rellenos oscuros compitiendo con "Nuevo Insumo", que es la
+   acción primaria de esa barra. Acá está en otro bloque y no compite con nada,
+   así que el color de la marca puede quedarse — y ayuda: el que lleva afuera
+   del sistema es el único elemento de la pantalla que no es verde AgroPlanner.
 
    Este bloque va ACÁ, arriba de los media queries, y no al final del <style>:
    ahí abajo su min-height le ganaba por orden a la regla de los 44px táctiles
@@ -508,15 +511,15 @@ function tipoBadge($tipo) {
     margin-left: auto;
     display: inline-flex; align-items: center; gap: 8px;
     padding: 7px 13px; min-height: 36px;
-    border-radius: 8px; border: 1px solid var(--border); background: var(--n-0);
-    color: var(--text-primary); font-size: 0.84rem; font-weight: 600;
+    border-radius: 8px; border: 1px solid #1d4a73; background: #113250;
+    color: #fff; font-size: 0.84rem; font-weight: 600;
     text-decoration: none; white-space: nowrap;
-    transition: border-color 0.18s ease-out, background 0.18s ease-out;
+    transition: background 0.18s ease-out, border-color 0.18s ease-out;
 }
-.zupli-link:hover { border-color: #113250; background: var(--n-25); color: var(--text-primary); }
+.zupli-link:hover { background: #1a4670; border-color: #2a6296; color: #fff; }
 .zupli-link:focus-visible { outline: 2px solid #113250; outline-offset: 2px; }
 .zupli-link img { width: 19px; height: 19px; display: block; }
-.zupli-link .fa-arrow-up-right-from-square { font-size: 0.72em; color: var(--text-muted); }
+.zupli-link .fa-arrow-up-right-from-square { font-size: 0.72em; opacity: 0.7; }
 
 /* ── STOCK DISPLAY ── */
 .stock-display { display: flex; flex-direction: column; gap: 4px; min-width: 90px; }
