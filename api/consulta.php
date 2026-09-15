@@ -16,6 +16,7 @@ require_once '../config/auth.php';
 require_agricultura();
 require_once '../config/database.php';
 require_once '../includes/motor.php';
+require_once '../includes/chat_ruteo.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -154,7 +155,10 @@ if (!empty($_GET['alta'])) {
 }
 
 try {
-    $r = motor_responder($pdo, $usuario_id, $pregunta, $contexto);
+    /* Si la pregunta es claramente del tambo ("¿cuántos litros saqué?") y el
+       productor lo tiene, contesta el motor del tambo. Sin tambo habilitado, o con
+       una carga a medias, contesta agricultura igual que siempre. */
+    $r = chat_responder($pdo, $usuario_id, $pregunta, $contexto, 'agricultura');
 
     /* En qué moneda quedó contestando. La frase la puede haber cambiado ("¿y en
        dólares?"), así que se lee DESPUÉS del motor y no antes. El cliente la
@@ -166,7 +170,8 @@ try {
     // Lo que no supo contestar se anota, para saber qué agregar después con
     // datos en vez de con intuición. No afecta la respuesta que ya se calculó.
     if (($r['tipo'] ?? '') === 'sin_entender' && trim($pregunta) !== '') {
-        motor_registrar_fallo($pdo, $usuario_id, $pregunta, $r['respuesta'] ?? '');
+        $prefijo = ($r['modulo'] ?? '') === 'tambo' ? '[tambo] ' : '';
+        motor_registrar_fallo($pdo, $usuario_id, $pregunta, $prefijo . ($r['respuesta'] ?? ''));
     }
 
     echo json_encode($r, JSON_UNESCAPED_UNICODE);

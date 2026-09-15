@@ -22,8 +22,10 @@ consulta filtra por `usuario_id` de la sesión.
 | `config/auth.php` | Sesión, `require_*()` por módulo y el guard de solo lectura. |
 | `config/database.php` | PDO. Fija la colación de la conexión (ver abajo). |
 | `controllers/DashboardController.php` | `getGlobalStats()`: de acá salen los números del panel, los reportes y el chat. |
-| `includes/motor.php` | El chat ("Cafrita"). Determinista, no es un LLM. |
-| `api/consulta.php` | Puerta del chat (GET, sólo lectura). |
+| `includes/motor.php` | El chat ("Cafrita") de agricultura. Determinista, no es un LLM. |
+| `includes/motor_tambo.php` | El chat del tambo. Motor aparte; reusa de `motor.php` sólo lo de lenguaje. |
+| `includes/chat_ruteo.php` | Qué motor contesta. Decide la pantalla; cambia sólo ante señales inequívocas. |
+| `api/consulta.php`, `api/consulta_tambo.php` | Puertas del chat (GET, sólo lectura). |
 | `api/registrar*.php` | Guardan lo que el chat propone cargar (POST, con CSRF). |
 | `migrations/` | Ver `migrations/LEEME.md`: sólo se corre `esquema_completo.sql`. |
 
@@ -43,8 +45,12 @@ consulta filtra por `usuario_id` de la sesión.
   `strpos` (un "Lote 1" aparece dentro de "lote 12").
 - El recorte por etapa/rubro/proveedor sólo corre si la pregunta es de gasto:
   "¿cuánto rindió la cosecha?" pide el rinde, no el gasto en cosecha.
-- Las preguntas que no entiende quedan en `motor_consultas_fallidas`: es la
-  lista de qué falta enseñarle.
+- Las preguntas que no entiende quedan en `motor_consultas_fallidas` (las del
+  tambo con `[tambo]` en el motivo): es la lista de qué falta enseñarle.
+- **Tambo**: no sumarle ramas a `motor.php` ("margen" y "cuánto gasté" existen en
+  los dos módulos). Una pantalla se suma al chat con `$chat_modulo = 'tambo';`
+  antes del require de `includes/chat_motor.php`. Las frases se buscan como
+  palabras enteras: "sa*que en* agosto" se leía como comparación.
 
 ## Stock (`insumos.php`)
 
@@ -57,6 +63,17 @@ consulta filtra por `usuario_id` de la sesión.
 - Una sola lista de depósitos: los chips son a la vez el filtro y el resumen. No
   volver a poner tarjetas aparte — eso duplicaba los mismos nombres dos veces en
   la misma pantalla.
+
+## Tambo
+
+- **Todo es mensual**: producción, egresos y carne se guardan con `fecha = YYYY-MM-01`.
+  Los litros del mes van enteros en `litros_manana` (`litros_tarde` queda en 0).
+- **La carne se guarda prorrateada**: `monto_total = monto_original / 12`, y la
+  diferencia de inventario dividida por períodos, que se guardan en
+  `cantidad_animales` (no son animales). Sumar siempre `monto_total`.
+- **Los números del mes salen de `includes/tambo_stats.php`** (panel, comparativa
+  y chat). No volver a copiar las consultas en una pantalla: antes había dos
+  copias y con un mes sin dólar cargado daban distinto.
 
 ## Trampas de la base
 

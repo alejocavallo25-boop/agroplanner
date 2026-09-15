@@ -9,72 +9,9 @@ $page_title = 'Egresos del Tambo';
 validate_csrf();
 
 // ─── Estructura jerárquica de categorías para Tambo ─────────────────────
-$ESTRUCTURA = [
-    'Alimentación' => [
-        'Concentrados' => 'items',
-        'Forrajes'     => 'items',
-        'Minerales'    => 'items',
-        'Balanceados'  => 'items',
-        'Cereal / Grano' => 'items',
-        'Otros'        => 'libre',
-    ],
-    'Veterinaria' => [
-        'Sanidad'          => 'items',
-        'Reproducción'     => 'items',
-        'Higiene'          => 'items',
-        'Rutina de ordeñe' => 'items',
-        'Otros'            => 'libre',
-    ],
-    'Sueldos' => [
-        'Ordeñe'                       => 'items',
-        'Guachera'                     => 'items',
-        'Preparto'                     => 'items',
-        'Reproducción'                 => 'items',
-        'Alimentación'                 => 'items',
-        'Mantenimiento'                => 'items',
-        'Administración'               => 'items',
-        'Retiros de director'          => 'items',
-        'Encargado'                    => 'items',
-        'Aportes, seguros y aguinaldo' => 'items',
-        'Otros'                        => 'libre',
-    ],
-    'Mantenimiento' => [
-        'Maquinaria'   => 'items',
-        'Equipamiento' => 'items',
-        'Otros'        => 'libre',
-    ],
-    'Honorarios' => [
-        'Veterinarios'        => 'items',
-        'Contables'           => 'items',
-        'Jurídicos'           => 'items',
-        'Recursos Humanos'    => 'items',
-        'Marketing'           => 'items',
-        'Seguridad e higiene' => 'items',
-        'Agrónomo'            => 'items',
-        'Asesoramiento'       => 'items',
-        'Otros'               => 'libre',
-    ],
-    'Lubricantes y combustibles' => [
-        'Lubricantes'           => 'items',
-        'Combustible agro'      => 'items',
-        'Combustible vehículos' => 'items',
-        'Otros'                 => 'libre',
-    ],
-    'Alquileres' => [
-        'Vacas'       => 'items',
-        'Campo / Lote' => 'items',
-        'Desperdicio' => 'items',
-        'Otros'       => 'libre',
-    ],
-    'Luz' => [
-        'Unidad de Explotación' => 'items',
-        'Otros' => 'libre',
-    ],
-    'Otros' => [
-        'Gastos Varios' => 'items',
-        'Otros' => 'libre',
-    ],
-];
+// Vive en includes/tambo_estructura.php: la lee también el chat.
+require_once 'includes/tambo_estructura.php';
+$ESTRUCTURA = tambo_estructura();
 
 $UNIDADES_SUGERIDAS = [
     'Alimentación'               => 'kg',
@@ -1585,5 +1522,7 @@ window.onclick = function(event) {
     if (event.target == m2) cerrarModalConcepto();
 }
 </script>
+
+<?php $chat_modulo = 'tambo'; require_once 'includes/chat_motor.php'; ?>
 
 <?php require_once 'includes/footer.php'; ?>

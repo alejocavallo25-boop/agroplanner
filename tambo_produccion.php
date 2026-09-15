@@ -1024,4 +1024,6 @@ require_once 'includes/header.php';
 
 </script>
 
+<?php $chat_modulo = 'tambo'; require_once 'includes/chat_motor.php'; ?>
+
 <?php require_once 'includes/footer.php'; ?>

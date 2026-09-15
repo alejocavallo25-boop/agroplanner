@@ -11,7 +11,18 @@
  * IMPORTANTE: tiene que quedar FUERA de #panel-contenido y #panel-filtros. Esas
  * dos regiones se reemplazan enteras al filtrar sin recargar, y la conversación
  * se perdería en cada filtro.
+ *
+ * El mismo chat sirve para los dos módulos. La pantalla dice de cuál es antes del
+ * require:
+ *
+ *     <?php $chat_modulo = 'tambo'; require_once 'includes/chat_motor.php'; ?>
+ *
+ * Sin eso es agricultura, como siempre. En el tambo cambia la puerta
+ * (api/consulta_tambo.php), los ejemplos, la memoria de la charla y el color: el
+ * acento pasa al azul del módulo, igual que en el menú.
  */
+$chat_modulo = (isset($chat_modulo) && $chat_modulo === 'tambo') ? 'tambo' : 'agricultura';
+$chat_es_tambo = $chat_modulo === 'tambo';
 ?>
 <style>
 /* =====================================================================
@@ -33,6 +44,24 @@
     transition: background 0.2s ease, transform 0.2s ease;
 }
 .mc-fab:hover { background: var(--accent-hover); transform: translateY(-2px); }
+
+/* En el tambo el chat toma el azul del módulo. Se redefine el acento sólo dentro
+   del chat, así todo lo que ya lo usa —el botón, las burbujas propias, enviar, los
+   enlaces, el chip de contexto— cambia junto. Mismo tono que --mod-tambo pero con
+   la claridad del verde de acción (0.42 y no 0.52): lleva texto blanco encima y
+   tiene que sostener el mismo contraste. */
+.mc-mod-tambo {
+    --accent:       oklch(0.420 0.100 240);
+    --accent-hover: oklch(0.340 0.090 240);
+    --accent-soft:  var(--tambo-soft);
+}
+
+/* Cuando contesta el otro módulo, la burbuja lo dice arriba. Sin esto un margen
+   de agricultura contestado desde el tambo se leería como el del tambo. */
+.mc-origen {
+    display: block; margin-bottom: 4px;
+    font-size: 0.74rem; font-weight: 600; color: var(--text-muted);
+}
 .mc-fab[aria-expanded="true"] { transform: none; }
 
 .mc-backdrop {
@@ -226,7 +255,7 @@
 }
 </style>
 
-<button type="button" class="mc-fab" id="mc-fab"
+<button type="button" class="mc-fab<?= $chat_es_tambo ? ' mc-mod-tambo' : '' ?>" id="mc-fab"
         aria-expanded="false" aria-controls="mc-panel"
         title="Preguntale a Cafrita">
     <i class="fas fa-comment-dots" aria-hidden="true"></i>
@@ -235,7 +264,7 @@
 
 <div class="mc-backdrop" id="mc-backdrop" hidden></div>
 
-<div class="mc-panel" id="mc-panel" role="dialog" aria-modal="false"
+<div class="mc-panel<?= $chat_es_tambo ? ' mc-mod-tambo' : '' ?>" id="mc-panel" role="dialog" aria-modal="false"
      aria-labelledby="mc-titulo" hidden>
     <div class="mc-cabecera">
         <?php /* Era un ícono genérico de plantita. Ahora va el isotipo de CaFra,
@@ -271,7 +300,7 @@
         <?php /* El placeholder sigue diciendo QUÉ se puede hacer y no el nombre:
                  el nombre ya está arriba, y acá lo que hace falta saber es que
                  además de preguntar se puede dictar un gasto. */ ?>
-        <input type="text" id="mc-q" placeholder="Preguntá, o dictá un gasto">
+        <input type="text" id="mc-q" placeholder="<?= $chat_es_tambo ? 'Preguntá por la leche, los costos o el margen' : 'Preguntá, o dictá un gasto' ?>">
         <?php /* Dictado: para el que está en el campo con las manos sucias. Se
                  muestra sólo si el navegador lo soporta — ver el JS de abajo. */ ?>
         <button type="button" class="mc-enviar" id="mc-voz" title="Dictar" hidden
@@ -303,7 +332,19 @@
     const ctxTxt   = document.getElementById('mc-contexto-txt');
     if (!fab || !panel) return;
 
-    const EJEMPLOS = [
+    /* De qué módulo es esta pantalla. Decide a qué puerta se pregunta y qué se
+       recuerda de la charla: en agricultura es campaña, lote y cultivo; en el tambo,
+       mes y rubro del gasto. */
+    const MODULO   = <?= json_encode($chat_modulo) ?>;
+    const ES_TAMBO = MODULO === 'tambo';
+    const PUERTA   = ES_TAMBO ? 'api/consulta_tambo.php' : 'api/consulta.php';
+    const PLACEHOLDER = input.placeholder;
+
+    const EJEMPLOS = ES_TAMBO ? [
+        '¿Cómo vengo?',
+        '¿Cuánto me cuesta el litro?',
+        '¿En qué gasté más?',
+    ] : [
         '¿Cuál es mi margen neto?',
         '¿Cuánto fue el costo por hectárea?',
         '¿Qué es el rinde de indiferencia?',
@@ -311,17 +352,22 @@
 
     /* La memoria de la charla. Se guarda en sessionStorage para que sobreviva a
        recargas y a moverse entre pantallas, pero no más allá de la sesión: son
-       los números de tu campo y no tienen por qué quedar en el navegador. */
+       los números de tu campo y no tienen por qué quedar en el navegador.
+       Una por módulo: el mes del tambo no tiene nada que hacer en agricultura. La
+       de agricultura conserva el nombre de siempre. */
+    const CLAVE_CONTEXTO = ES_TAMBO ? 'mcContextoTambo' : 'mcContexto';
     let contexto = {};
-    try { contexto = JSON.parse(sessionStorage.getItem('mcContexto') || '{}'); } catch (e) { contexto = {}; }
+    try { contexto = JSON.parse(sessionStorage.getItem(CLAVE_CONTEXTO) || '{}'); } catch (e) { contexto = {}; }
 
     function guardarContexto() {
-        try { sessionStorage.setItem('mcContexto', JSON.stringify(contexto)); } catch (e) {}
+        try { sessionStorage.setItem(CLAVE_CONTEXTO, JSON.stringify(contexto)); } catch (e) {}
         pintarContexto();
     }
 
     function pintarContexto() {
         const partes = [];
+        if (contexto.mesNombre)     partes.push(contexto.mesNombre.charAt(0).toUpperCase() + contexto.mesNombre.slice(1));
+        if (contexto.rubroNombre)   partes.push(contexto.rubroNombre);
         if (contexto.cicloNombre)   partes.push('Campaña ' + contexto.cicloNombre);
         if (contexto.loteNombre)    partes.push(contexto.loteNombre);
         if (contexto.cultivoNombre) partes.push(contexto.cultivoNombre);
@@ -377,7 +423,11 @@
     function agregarMotor(r) {
         const d = document.createElement('div');
         d.className = 'mc-msg mc-msg-motor' + (r.ok ? '' : ' mc-msg-aviso');
-        let html = '<div>' + esc(r.respuesta) + '</div>';
+        let html = '';
+        if (r.modulo && r.modulo !== MODULO) {
+            html += '<span class="mc-origen">' + (r.modulo === 'tambo' ? 'Del tambo' : 'De Agricultura') + '</span>';
+        }
+        html += '<div>' + esc(r.respuesta) + '</div>';
         if (r.detalle) html += '<div class="mc-detalle">' + esc(r.detalle) + '</div>';
         if (r.link) {
             /* El texto y el ícono vienen del motor cuando el link no lleva al
@@ -557,14 +607,14 @@
     async function preguntarSilencioso(texto) {
         const pensando = agregarPensando();
         try {
-            const res = await fetch('api/consulta.php?q=' + encodeURIComponent(texto), { credentials: 'same-origin' });
+            const res = await fetch(PUERTA + '?q=' + encodeURIComponent(texto), { credentials: 'same-origin' });
             const r = await res.json();
             pensando.remove();
             agregarMotor(r);
             pintarSugeridas(r.sugerencias);
         } catch (e) {
             pensando.remove();
-            agregarMotor({ ok: true, respuesta: 'Preguntame por los números de tu campaña.' });
+            agregarMotor({ ok: true, respuesta: ES_TAMBO ? 'Preguntame por los números del tambo.' : 'Preguntame por los números de tu campaña.' });
             pintarSugeridas(EJEMPLOS);
         }
     }
@@ -580,6 +630,8 @@
         const pensando = agregarPensando();
 
         const p = new URLSearchParams({ q: q });
+        if (contexto.mes)     p.set('mes', contexto.mes);
+        if (contexto.rubro)   p.set('rubro', contexto.rubro);
         if (contexto.ciclo)   p.set('ciclo', contexto.ciclo);
         if (contexto.lote)    p.set('lote', contexto.lote);
         if (contexto.cultivo) p.set('cultivo', contexto.cultivo);
@@ -599,7 +651,7 @@
 
         let r;
         try {
-            const res = await fetch('api/consulta.php?' + p.toString(), { credentials: 'same-origin' });
+            const res = await fetch(PUERTA + '?' + p.toString(), { credentials: 'same-origin' });
             r = await res.json();
         } catch (e) {
             r = {
@@ -624,8 +676,19 @@
            rehacer. */
         contexto.previa = r.previa || q;
 
-        // La respuesta define el contexto de la próxima pregunta.
-        if (r.filtros) {
+        /* La respuesta define el contexto de la próxima pregunta. Salvo que haya
+           contestado el otro módulo: sus filtros (una campaña, un lote) no significan
+           nada acá, y pisarían el mes que se venía mirando. */
+        const delOtroModulo = r.modulo && r.modulo !== MODULO;
+        if (r.filtros && ES_TAMBO && !delOtroModulo) {
+            contexto.mes         = r.filtros.mes || null;
+            contexto.mesNombre   = r.filtros.mes_nombre || null;
+            contexto.metrica     = r.filtros.metrica || null;
+            contexto.rubro       = r.filtros.rubro || null;
+            contexto.rubroNombre = r.filtros.rubro_nombre || null;
+            contexto.moneda      = r.filtros.moneda || null;
+            guardarContexto();
+        } else if (r.filtros && !ES_TAMBO && !delOtroModulo) {
             contexto.ciclo   = r.filtros.ciclo   || null;
             contexto.lote    = r.filtros.lote    || null;
             contexto.cultivo = r.filtros.cultivo || null;
@@ -726,7 +789,7 @@
             btnVoz.style.background = 'var(--n-0)';
             btnVoz.style.color = 'var(--accent)';
             btnVoz.title = 'Dictar';
-            input.placeholder = 'Preguntá, o dictá un gasto';
+            input.placeholder = PLACEHOLDER;
         };
         rec.addEventListener('end', fin);
         rec.addEventListener('error', fin);

@@ -20,168 +20,15 @@ $stmt_cat = $pdo->prepare("SELECT DISTINCT categoria FROM tambo_egresos WHERE us
 $stmt_cat->execute([$usuario_id]);
 $categorias_db = $stmt_cat->fetchAll(PDO::FETCH_COLUMN);
 
-function get_tambo_stats($pdo, $usuario_id, $date_start, $date_end, $filtro_cat) {
-    $mes_sel = date('Y-m', strtotime($date_start));
-    
-    // Obtener dólar guardado/vivo
-    $dolar_guardado = null;
-    $stmt = $pdo->prepare("SELECT dolar_mayorista FROM tambo_dolar_mes WHERE usuario_id=? AND mes=?");
-    $stmt->execute([$usuario_id, $mes_sel]);
-    if ($row = $stmt->fetch()) {
-        $dolar_guardado = (float)$row['dolar_mayorista'];
-    }
-    
-    $dolar_cache = $dolar_guardado ?: 1000;
-    if (!$dolar_guardado && $mes_sel === date('Y-m')) {
-        $ctx = stream_context_create(['http'=>['timeout'=>2],'https'=>['timeout'=>2]]);
-        $api_resp = @json_decode(@file_get_contents('https://dolarapi.com/v1/dolares/mayorista', false, $ctx), true);
-        if ($api_resp && isset($api_resp['venta'])) $dolar_cache = (float)$api_resp['venta'];
-    }
+/* Los números de cada mes salen de la cuenta única (includes/tambo_stats.php), la
+   misma del panel y del chat. Cada mes se cierra con su propio dólar; si no tiene
+   uno cargado, con el último del productor. Antes acá caía en 1000 o salía a
+   buscar la API en medio de la carga, y el mismo mes daba distinto que en el panel.
+   La categoría recorta sólo los egresos, como antes. */
+require_once 'includes/tambo_stats.php';
 
-    // Producción Leche
-    $stmt = $pdo->prepare("
-        SELECT 
-            SUM(CASE WHEN destino != 'otra' THEN litros_total ELSE 0 END) as litros, 
-            SUM(CASE WHEN destino = 'otra' THEN litros_total ELSE 0 END) as litros_otra,
-            SUM(CASE WHEN destino != 'otra' THEN litros_total * precio_litro ELSE 0 END) as ingreso_ars, 
-            SUM(CASE WHEN destino = 'otra' THEN litros_total * precio_litro ELSE 0 END) as ingreso_otra_leche_ars,
-            MAX(precio_litro) as ultimo_precio
-        FROM tambo_produccion 
-        WHERE usuario_id = ? AND fecha >= ? AND fecha <= ?
-    ");
-    $stmt->execute([$usuario_id, $date_start, $date_end]);
-    $prod = $stmt->fetch();
-    
-    $litros = (float)$prod['litros'];
-    $ingreso_leche_ars = (float)$prod['ingreso_ars'];
-    $ingreso_otra_ars = (float)$prod['ingreso_otra_leche_ars'];
-    $precio_leche_ars = (float)$prod['ultimo_precio'];
-
-    // Producción Carne
-    $stmt = $pdo->prepare("
-        SELECT tipo, SUM(monto_total) as total
-        FROM tambo_ventas_carne
-        WHERE usuario_id = ? AND fecha >= ? AND fecha <= ?
-        GROUP BY tipo
-    ");
-    $stmt->execute([$usuario_id, $date_start, $date_end]);
-    $carne = $stmt->fetchAll();
-    
-    $ingreso_carne_real_ars = 0;
-    $ingreso_dif_inv_ars = 0;
-
-    foreach ($carne as $row) {
-        if ($row['tipo'] === 'diferencia_inventario') {
-            $ingreso_dif_inv_ars += (float)$row['total'];
-        } else {
-            $ingreso_carne_real_ars += (float)$row['total'];
-        }
-    }
-    $ingreso_carne_ars = $ingreso_carne_real_ars + $ingreso_dif_inv_ars;
-
-    // Egresos (Costos)
-    $sql_egresos = "
-        SELECT categoria, subcategoria, moneda, SUM(monto) as total
-        FROM tambo_egresos
-        WHERE usuario_id = ? AND fecha >= ? AND fecha <= ?
-    ";
-    $params_egresos = [$usuario_id, $date_start, $date_end];
-
-    if (!empty($filtro_cat)) {
-        $sql_egresos .= " AND categoria = ?";
-        $params_egresos[] = $filtro_cat;
-    }
-
-    $sql_egresos .= " GROUP BY categoria, subcategoria, moneda";
-
-    $stmt = $pdo->prepare($sql_egresos);
-    $stmt->execute($params_egresos);
-    $egresos = $stmt->fetchAll();
-    
-    $costos_usd = 0;
-    $costos_ars_total = 0;
-    
-    $costos_cat_ars = [];
-    $costos_cat_usd = [];
-    $costos_subcat_ars = [];
-    $costos_subcat_usd = [];
-
-    foreach ($egresos as $egr) {
-        $cat = trim($egr['categoria']) ?: 'Otros';
-        $sub = trim($egr['subcategoria']) ?: 'General';
-        
-        $monto_usd = $egr['moneda'] === 'USD' ? (float)$egr['total'] : ($dolar_cache > 0 ? (float)$egr['total'] / $dolar_cache : 0);
-        $costos_usd += $monto_usd;
-        
-        $monto_ars = $egr['moneda'] === 'ARS' ? (float)$egr['total'] : (float)$egr['total'] * $dolar_cache;
-        $costos_ars_total += $monto_ars;
-        
-        if (!isset($costos_cat_ars[$cat])) $costos_cat_ars[$cat] = 0;
-        if (!isset($costos_cat_usd[$cat])) $costos_cat_usd[$cat] = 0;
-        $costos_cat_ars[$cat] += $monto_ars;
-        $costos_cat_usd[$cat] += $monto_usd;
-
-        if (!isset($costos_subcat_ars[$cat])) {
-            $costos_subcat_ars[$cat] = [];
-            $costos_subcat_usd[$cat] = [];
-        }
-        if (!isset($costos_subcat_ars[$cat][$sub])) {
-            $costos_subcat_ars[$cat][$sub] = 0;
-            $costos_subcat_usd[$cat][$sub] = 0;
-        }
-        $costos_subcat_ars[$cat][$sub] += $monto_ars;
-        $costos_subcat_usd[$cat][$sub] += $monto_usd;
-    }
-
-    $total_ingresos_ars = $ingreso_leche_ars + $ingreso_otra_ars + $ingreso_carne_ars;
-    $total_ingresos_usd = $dolar_cache > 0 ? $total_ingresos_ars / $dolar_cache : 0;
-    
-    $margen_bruto_ars = $total_ingresos_ars - $costos_ars_total;
-    $margen_bruto_usd = $total_ingresos_usd - $costos_usd;
-    
-    $rentabilidad = $total_ingresos_ars > 0 ? ($margen_bruto_ars / $total_ingresos_ars) * 100 : 0;
-
-    $costo_bruto_ars = $litros > 0 ? $costos_ars_total / $litros : 0;
-    $recupero_carne_ars = $litros > 0 ? $ingreso_carne_ars / $litros : 0;
-    $recupero_otra_ars = $litros > 0 ? $ingreso_otra_ars / $litros : 0;
-    $costo_final_ars = $costo_bruto_ars - $recupero_carne_ars - $recupero_otra_ars;
-    
-    $costo_bruto_usd = $litros > 0 ? $costos_usd / $litros : 0;
-    $recupero_carne_usd = $litros > 0 ? ($dolar_cache > 0 ? ($ingreso_carne_ars / $dolar_cache) / $litros : 0) : 0;
-    $recupero_otra_usd = $litros > 0 ? ($dolar_cache > 0 ? ($ingreso_otra_ars / $dolar_cache) / $litros : 0) : 0;
-    $costo_final_usd = $costo_bruto_usd - $recupero_carne_usd - $recupero_otra_usd;
-    
-    $rinde_indiferencia = $precio_leche_ars > 0 ? ($costo_final_ars * $litros) / $precio_leche_ars : 0;
-
-    return [
-        'dolar' => $dolar_cache,
-        'litros' => $litros,
-        'precio_leche_ars' => $precio_leche_ars,
-        'ingreso_leche_ars' => $ingreso_leche_ars,
-        'ingreso_leche_usd' => $dolar_cache > 0 ? $ingreso_leche_ars / $dolar_cache : 0,
-        'ingreso_carne_real_ars' => $ingreso_carne_real_ars,
-        'ingreso_carne_real_usd' => $dolar_cache > 0 ? $ingreso_carne_real_ars / $dolar_cache : 0,
-        'ingreso_dif_inv_ars' => $ingreso_dif_inv_ars,
-        'ingreso_dif_inv_usd' => $dolar_cache > 0 ? $ingreso_dif_inv_ars / $dolar_cache : 0,
-        'total_ingresos_ars' => $total_ingresos_ars,
-        'total_ingresos_usd' => $total_ingresos_usd,
-        'costos_ars_total' => $costos_ars_total,
-        'costos_usd' => $costos_usd,
-        'costos_cat_ars' => $costos_cat_ars,
-        'costos_cat_usd' => $costos_cat_usd,
-        'costos_subcat_ars' => $costos_subcat_ars,
-        'costos_subcat_usd' => $costos_subcat_usd,
-        'margen_bruto_ars' => $margen_bruto_ars,
-        'margen_bruto_usd' => $margen_bruto_usd,
-        'rentabilidad' => $rentabilidad,
-        'costo_final_ars' => $costo_final_ars,
-        'costo_final_usd' => $costo_final_usd,
-        'rinde_indiferencia' => $rinde_indiferencia
-    ];
-}
-
-$m1 = get_tambo_stats($pdo, $usuario_id, $d1_start, $d1_end, $cat_sel);
-$m2 = get_tambo_stats($pdo, $usuario_id, $d2_start, $d2_end, $cat_sel);
+$m1 = tambo_stats($pdo, (int)$usuario_id, $mes1_sel, $cat_sel);
+$m2 = tambo_stats($pdo, (int)$usuario_id, $mes2_sel, $cat_sel);
 
 function format_period($start, $end, $short = false) {
     $y1 = date('Y', strtotime($start));
@@ -861,5 +708,7 @@ function toggleCurrency(mode) {
     }
 }
 </script>
+
+<?php $chat_modulo = 'tambo'; require_once 'includes/chat_motor.php'; ?>
 
 <?php require_once 'includes/footer.php'; ?>

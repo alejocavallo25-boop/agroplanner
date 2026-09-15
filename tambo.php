@@ -39,115 +39,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
 // a que alguien abriera justo esta pantalla. El productor que sólo usa
 // Agricultura nunca entra acá, y su panel calculaba el margen con un valor
 // inventado. Ahora lo carga cron/get_dolar.php para todos los usuarios.
-$dolar_sin_dato = false;
-$tc_mes         = dolar_del_mes($pdo, $usuario_id, $mes_sel);
+//
+// Los números del mes salen de la cuenta única, la misma que usan la comparativa
+// y el chat. Si el mes no tiene cotización, ahí se usa la última cargada y se
+// marca como estimada.
+require_once 'includes/tambo_stats.php';
+$tambo = tambo_stats($pdo, (int)$usuario_id, $mes_sel);
 
-if ($tc_mes) {
-    $dolar_guardado = $tc_mes['valor'];
-    $dolar_cache    = $tc_mes['valor'];
-    $dolar_fuente   = $tc_mes['fuente'];
-} else {
-    // Sin cotización propia del mes se usa la última disponible, y se avisa.
-    $ref            = dolar_referencia($pdo, $usuario_id);
-    $dolar_guardado = null;
-    $dolar_cache    = $ref['valor'];
-    $dolar_fuente   = 'estimado';
-    $dolar_sin_dato = true;
-}
+$dolar_cache    = $tambo['dolar'];
+$dolar_guardado = $tambo['dolar_guardado'];
+$dolar_fuente   = $tambo['dolar_fuente'];
+$dolar_sin_dato = $tambo['dolar_estimado'];
 
 require_once 'includes/header.php';
 
-// Producción Leche Mes
-$stmt = $pdo->prepare("
-    SELECT 
-        SUM(CASE WHEN destino != 'otra' THEN litros_total ELSE 0 END) as litros, 
-        SUM(CASE WHEN destino = 'otra' THEN litros_total ELSE 0 END) as litros_otra,
-        SUM(CASE WHEN destino != 'otra' THEN litros_total * precio_litro ELSE 0 END) as ingreso_ars, 
-        SUM(CASE WHEN destino = 'otra' THEN litros_total * precio_litro ELSE 0 END) as ingreso_otra_leche_ars,
-        MAX(precio_litro) as ultimo_precio
-    FROM tambo_produccion 
-    WHERE usuario_id = ? AND fecha >= ? AND fecha <= ?
-");
-$stmt->execute([$usuario_id, $mes_start, $mes_end]);
-$prod_mes = $stmt->fetch();
-$litros_mes = (float)$prod_mes['litros'];
-$litros_otra_leche = (float)$prod_mes['litros_otra'];
-$ingreso_leche_ars = (float)$prod_mes['ingreso_ars'];
-$ingreso_otra_leche_ars = (float)$prod_mes['ingreso_otra_leche_ars'];
-$ingreso_leche_usd = $dolar_cache > 0 ? ($ingreso_leche_ars + $ingreso_otra_leche_ars) / $dolar_cache : 0;
-$precio_leche_ars = (float)$prod_mes['ultimo_precio'];
+$litros_mes             = $tambo['litros'];
+$litros_otra_leche      = $tambo['litros_otra'];
+$ingreso_leche_ars      = $tambo['ingreso_leche_ars'];
+$ingreso_otra_leche_ars = $tambo['ingreso_otra_ars'];
+$precio_leche_ars       = $tambo['precio_leche_ars'];
+$ingreso_carne_ars      = $tambo['ingreso_carne_ars'];
+$ingreso_carne_usd      = $tambo['ingreso_carne_usd'];
+$total_ingresos_ars     = $tambo['total_ingresos_ars'];
+$total_ingresos_usd     = $tambo['total_ingresos_usd'];
+$pct_leche              = $tambo['pct_leche'];
+$pct_carne              = $tambo['pct_carne'];
+$costos_ars_total       = $tambo['costos_ars_total'];
+$costos_usd             = $tambo['costos_usd'];
+$ranking_costos         = $tambo['costos_cat_usd'];
+$margen_bruto_ars       = $tambo['margen_bruto_ars'];
+$margen_bruto_usd       = $tambo['margen_bruto_usd'];
+$ars_litro              = $tambo['margen_litro_ars'];
+$usd_litro              = $tambo['margen_litro_usd'];
+$pct_margen             = $tambo['rentabilidad'];
 
-// Producción Carne Mes
-$stmt = $pdo->prepare("
-    SELECT SUM(monto_total) as total
-    FROM tambo_ventas_carne
-    WHERE usuario_id = ? AND fecha >= ? AND fecha <= ?
-");
-$stmt->execute([$usuario_id, $mes_start, $mes_end]);
-$carne_res = $stmt->fetch();
-$ingreso_carne_ars = (float)$carne_res['total'];
-$ingreso_carne_usd = $dolar_cache > 0 ? $ingreso_carne_ars / $dolar_cache : 0; 
-
-// Ingresos Totales
-$total_ingresos_usd = $ingreso_leche_usd + $ingreso_carne_usd;
-$pct_leche = $total_ingresos_usd > 0 ? ($ingreso_leche_usd / $total_ingresos_usd) * 100 : 0;
-$pct_carne = $total_ingresos_usd > 0 ? ($ingreso_carne_usd / $total_ingresos_usd) * 100 : 0;
-
-// Costos Egresos Mes
-$stmt = $pdo->prepare("
-    SELECT categoria, moneda, SUM(monto) as total
-    FROM tambo_egresos
-    WHERE usuario_id = ? AND fecha >= ? AND fecha <= ?
-    GROUP BY categoria, moneda
-");
-$stmt->execute([$usuario_id, $mes_start, $mes_end]);
-$egresos_res = $stmt->fetchAll();
-
-$costos_usd = 0;
-$costos_ars_total = 0;
-$ranking_costos = [];
-
-foreach ($egresos_res as $egr) {
-    $monto_usd = $egr['moneda'] === 'USD' ? (float)$egr['total'] : ($dolar_cache > 0 ? (float)$egr['total'] / $dolar_cache : 0);
-    $costos_usd += $monto_usd;
-    
-    $monto_ars = $egr['moneda'] === 'ARS' ? (float)$egr['total'] : (float)$egr['total'] * $dolar_cache;
-    $costos_ars_total += $monto_ars;
-    
-    $cat = $egr['categoria'];
-    if (!isset($ranking_costos[$cat])) {
-        $ranking_costos[$cat] = 0;
-    }
-    $ranking_costos[$cat] += $monto_usd;
-}
-arsort($ranking_costos);
-
-// Rentabilidad
-$total_ingresos_ars = $ingreso_leche_ars + $ingreso_otra_leche_ars + $ingreso_carne_ars;
-$margen_bruto_usd = $total_ingresos_usd - $costos_usd;
-$margen_bruto_ars = $total_ingresos_ars - $costos_ars_total;
-$usd_litro = $litros_mes > 0 ? $margen_bruto_usd / $litros_mes : 0;
-$ars_litro = $litros_mes > 0 ? $margen_bruto_ars / $litros_mes : 0;
-$pct_margen = $total_ingresos_usd > 0 ? ($margen_bruto_usd / $total_ingresos_usd) * 100 : 0;
-
-// Rodeo Actual
-$stmt = $pdo->prepare("SELECT * FROM tambo_rodeo WHERE usuario_id = ? AND fecha <= ? ORDER BY fecha DESC LIMIT 1");
-$stmt->execute([$usuario_id, $mes_end]);
-$rodeo_db = $stmt->fetch();
 $rodeo = [
-    'vacas_ordeñe' => (int)($rodeo_db['vacas_ordene']  ?? 0),
-    'vacas_secas'  => (int)($rodeo_db['vacas_secas']   ?? 0),
-    'vaquillonas'  => (int)($rodeo_db['vaquillonas']   ?? 0),
-    'terneros'     => (int)($rodeo_db['terneros']       ?? 0),
+    'vacas_ordeñe' => $tambo['rodeo']['vacas_ordene'],
+    'vacas_secas'  => $tambo['rodeo']['vacas_secas'],
+    'vaquillonas'  => $tambo['rodeo']['vaquillonas'],
+    'terneros'     => $tambo['rodeo']['terneros'],
 ];
 $total_cabezas = array_sum($rodeo);
 
-// Calidad
-$stmt = $pdo->prepare("SELECT * FROM tambo_calidad WHERE usuario_id = ? AND fecha <= ? ORDER BY fecha DESC LIMIT 1");
-$stmt->execute([$usuario_id, $mes_end]);
-$cal_db = $stmt->fetch();
-$grasa = (float)($cal_db['tenor_graso'] ?? 0);
-$prot  = (float)($cal_db['tenor_prot']  ?? 0);
+$grasa = (float)($tambo['calidad']['tenor_graso'] ?? 0);
+$prot  = (float)($tambo['calidad']['tenor_prot']  ?? 0);
 
 // Historial de producción (Últimos 12 meses)
 $stmt = $pdo->prepare("
@@ -497,7 +432,7 @@ $data_costos = array_values($ranking_costos);
         <div style="display:flex; justify-content:space-between; align-items:center; margin-top:auto;">
             <span class="kpi-sub">Egresos registrados</span>
             <span class="kpi-badge badge-down">
-                <i class="fas fa-receipt"></i> <?= count($egresos_res) ?> ítems
+                <i class="fas fa-receipt"></i> <?= (int)$tambo['egresos_items'] ?> ítems
             </span>
         </div>
     </div>
@@ -777,5 +712,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 </script>
+
+<?php $chat_modulo = 'tambo'; require_once 'includes/chat_motor.php'; ?>
 
 <?php require_once 'includes/footer.php'; ?>
