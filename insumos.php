@@ -497,12 +497,13 @@ function tipoBadge($tipo) {
    además quedaba un segundo relleno oscuro compitiendo con "Nuevo Insumo", que
    es la acción primaria de la pantalla; acá no compite con nada.
 
-   Va con el navy de Zupli lleno (#113250, el mismo del isotipo, que así se
-   apoya sobre el botón sin recuadro). En la barra del inventario eso no podía
-   ser: hacía dos rellenos oscuros compitiendo con "Nuevo Insumo", que es la
-   acción primaria de esa barra. Acá está en otro bloque y no compite con nada,
-   así que el color de la marca puede quedarse — y ayuda: el que lleva afuera
-   del sistema es el único elemento de la pantalla que no es verde AgroPlanner.
+   Va con el navy de Zupli lleno (#113250, el mismo del isotipo): acá no compite
+   con nada, y es el único elemento de la pantalla que no es verde AgroPlanner,
+   así que marca solo que lleva afuera del sistema.
+
+   El texto sigue la pieza que armó el convenio: "Solicitá cotizaciones en",
+   el isotipo con un recuadro claro —sin él, navy sobre navy, se pierde— y
+   ZUPLI como marca, en mayúscula y más pesado que la frase.
 
    Este bloque va ACÁ, arriba de los media queries, y no al final del <style>:
    ahí abajo su min-height le ganaba por orden a la regla de los 44px táctiles
@@ -510,16 +511,21 @@ function tipoBadge($tipo) {
 .zupli-link {
     margin-left: auto;
     display: inline-flex; align-items: center; gap: 8px;
-    padding: 7px 13px; min-height: 36px;
-    border-radius: 8px; border: 1px solid #1d4a73; background: #113250;
-    color: #fff; font-size: 0.84rem; font-weight: 600;
+    padding: 6px 14px; min-height: 40px;
+    border-radius: 10px; border: 1px solid #1d4a73; background: #113250;
+    color: #fff; font-size: 0.84rem; font-weight: 400;
     text-decoration: none; white-space: nowrap;
     transition: background 0.18s ease-out, border-color 0.18s ease-out;
 }
 .zupli-link:hover { background: #1a4670; border-color: #2a6296; color: #fff; }
 .zupli-link:focus-visible { outline: 2px solid #113250; outline-offset: 2px; }
-.zupli-link img { width: 19px; height: 19px; display: block; }
-.zupli-link .fa-arrow-up-right-from-square { font-size: 0.72em; opacity: 0.7; }
+.zupli-link .zupli-txt { margin-right: 2px; }
+.zupli-link img {
+    width: 24px; height: 24px; display: block; box-sizing: content-box;
+    border: 1.5px solid rgba(255, 255, 255, 0.85); border-radius: 6px;
+}
+.zupli-link .zupli-marca { font-size: 1.12rem; font-weight: 800; letter-spacing: 0.02em; line-height: 1; }
+.zupli-link .fa-arrow-up-right-from-square { font-size: 0.78em; opacity: 0.6; margin-left: 2px; }
 
 /* ── STOCK DISPLAY ── */
 .stock-display { display: flex; flex-direction: column; gap: 4px; min-width: 90px; }
@@ -567,6 +573,20 @@ function tipoBadge($tipo) {
     .dep-detalle .acciones { margin-left: 0; width: 100%; }
     /* Apilado, el auto que lo manda a la derecha ya no tiene contra qué empujar. */
     .zupli-link { margin-left: 0; }
+}
+
+/* "Solicitá cotizaciones en ZUPLI" mide 295px y en un teléfono de 360 el panel
+   deja 271: se salía por el borde. Se achica la letra y el aire, no el texto. */
+@media (max-width: 400px) {
+    .zupli-link { gap: 6px; padding: 6px 10px; font-size: 0.76rem; }
+    .zupli-link img { width: 21px; height: 21px; }
+    .zupli-link .zupli-marca { font-size: 0.98rem; }
+}
+/* En 320 ni achicado entra (256 contra 231): la frase pasa arriba y el isotipo
+   con ZUPLI abajo, en vez de cortarse contra el borde del panel. */
+@media (max-width: 340px) {
+    .zupli-link { width: 100%; flex-wrap: wrap; justify-content: center; white-space: normal; row-gap: 4px; }
+    .zupli-link .zupli-txt { flex-basis: 100%; text-align: center; margin-right: 0; }
 }
 
 /* Misma condición que usa style.css para los targets táctiles. Va acá y no allá
@@ -726,8 +746,9 @@ function tipoBadge($tipo) {
                      ni el trabajo a medio cargar. */ ?>
             <a href="https://zupli.com.ar/login" target="_blank" rel="noopener noreferrer"
                class="zupli-link" title="Ver productos y precios de proveedores en Zupli (se abre en otra pestaña)">
-                <img src="assets/img/zupli.png" alt="" width="19" height="19">
-                Comprar en Zupli
+                <span class="zupli-txt">Solicitá cotizaciones en</span>
+                <img src="assets/img/zupli.png" alt="" width="24" height="24">
+                <span class="zupli-marca">ZUPLI</span>
                 <i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i>
             </a>
         </div>
