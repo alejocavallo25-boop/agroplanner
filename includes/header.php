@@ -37,21 +37,9 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
     <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="assets/css/style.css?v=<?= @filemtime(__DIR__ . '/../assets/css/style.css') ?: '1' ?>">
+    <?php /* Favicon, manifest e ícono de iPhone: todo en favicon.php. */ ?>
     <?php require __DIR__ . '/favicon.php'; ?>
 
-    <!-- PWA -->
-    <link rel="manifest" href="manifest.json">
-    <?php /* Pinta la barra del navegador en el teléfono: iba en el esmeralda de
-             la paleta vieja y desentonaba con la aplicación entera. */ ?>
-    <meta name="theme-color" content="#195c2e">
-    <meta name="mobile-web-app-capable" content="yes">
-
-    <!-- PWA iOS (Apple) específicas -->
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="AgroPlanner">
-    <link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png?v=6">
-    
     <script>
       /* NO SE LLAMA sw.js, Y ES A PROPÓSITO
          El servidor guarda una copia comprimida de cada archivo y, cuando el
