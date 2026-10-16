@@ -5,7 +5,9 @@
  * Lectura de comprobantes (remitos, listas de precios, plantillas) para la carga
  * asistida de insumos. Todo el parseo es determinístico y local: no sale ni un byte
  * del servidor, no hay API de por medio y no hay dependencias fuera de las
- * extensiones que ya trae PHP (zip, zlib, simplexml, mbstring).
+ * extensiones que ya trae PHP (zip, zlib, simplexml, mbstring). La única
+ * excepción es la FOTO de un remito, que se puede mandar a leer a una IA (ver
+ * imp_ia_a_texto() al final): eso vive en api/leer_remito_ia.php, no acá.
  *
  * Qué puede leer y qué no
  * ───────────────────────
@@ -1251,5 +1253,150 @@ function imp_procesar(string $tipo, string $ruta, array $inventario): array
         'aviso'      => $aviso,
         // Para poder comprobar que los renglones suman lo que dice el papel.
         'totales'    => imp_totales_documento($grid),
+    ];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LECTURA DE LA FOTO CON IA (api/leer_remito_ia.php)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// La IA no carga nada ni decide nada: TRANSCRIBE. Lo que devuelve se pasa a
+// renglones de texto, que van al mismo cuadro donde se escribiría a mano, y de
+// ahí en adelante es el camino de siempre — el mismo parser, la misma
+// verificación de la suma contra el total y la misma confirmación.
+//
+// Por eso los renglones se arman en el formato que imp_linea_a_item() ya lee
+// bien: "cantidad unidad descripción [vencimiento] precio", con los números a
+// la argentina. Así no hay un segundo intérprete que pueda pensar distinto.
+
+/** Lo que se le pide al modelo. */
+function imp_ia_instrucciones(): string
+{
+    return "Sos un lector de remitos y facturas de insumos agropecuarios de Argentina.\n"
+         . "Transcribí los renglones de mercadería de la imagen.\n\n"
+         . imp_ia_reglas_remito();
+}
+
+/**
+ * Cómo leer un remito y en qué forma devolverlo. Aparte porque lo usa también
+ * la foto del chat (includes/diagnostico_ia.php), que primero decide si lo que
+ * le mandaron es una planta o un remito: el remito se lee con las mismas
+ * reglas en los dos lados, o el chat y la pantalla de Insumos leerían distinto.
+ */
+function imp_ia_reglas_remito(): string
+{
+    return <<<TXT
+Reglas:
+- Copiá lo que está escrito. No completes, no corrijas y no inventes nada. Si un dato no se lee, poné null.
+- Los números van como números JSON, con punto decimal y sin separador de miles: en el papel "1.200,50" es 1200.5.
+- "precio_unitario" es el precio de UNA unidad. Si el renglón trae sólo el importe del renglón, poné precio_unitario null e "importe" con ese valor.
+- No son renglones: el membrete, los datos del cliente, el transporte, los subtotales, el IVA ni el total.
+- "total" es el total final del comprobante, si figura.
+- "unidad", si figura: kg, lt, un, bolsa, bidon, caja o dosis.
+- "vencimiento", si el renglón lo trae, en formato AAAA-MM-DD. "lote", si trae serie o lote.
+- Si la imagen no es un remito, una factura ni una lista de insumos, poné "es_remito": false.
+- "proveedor": quien emite el comprobante, si figura.
+
+Respondé SÓLO con este JSON, sin texto antes ni después:
+{"es_remito": true, "proveedor": "Agroinsumos SA", "moneda": "ARS", "renglones": [{"cantidad": 10, "unidad": "lt", "descripcion": "Glifosato 62%", "precio_unitario": 5.8, "importe": 58, "lote": null, "vencimiento": null}], "total": 58}
+TXT;
+}
+
+/** Número de la respuesta, o null si no es uno razonable. */
+function imp_ia_numero($v): ?float
+{
+    if (is_string($v)) $v = imp_a_numero($v);   // por si lo mandó como texto argentino
+    if (!is_int($v) && !is_float($v)) return null;
+    $v = (float)$v;
+    return (is_finite($v) && $v >= 0 && $v < 1e12) ? $v : null;
+}
+
+/** Precio a la argentina, siempre con centavos: así el parser lo reconoce como importe. */
+function imp_ia_plata(float $n): string
+{
+    return number_format($n, 2, ',', '.');
+}
+
+/**
+ * La respuesta del modelo, ya decodificada, a renglones para el importador.
+ *
+ * @return array{es_remito:bool, texto:string, renglones:int, moneda:?string}|null
+ *         null si la respuesta no tiene la forma pedida (se prueba otro proveedor).
+ */
+function imp_ia_a_texto(array $r): ?array
+{
+    if (array_key_exists('es_remito', $r) && $r['es_remito'] === false) {
+        return ['es_remito' => false, 'texto' => '', 'renglones' => 0, 'moneda' => null];
+    }
+    if (!isset($r['renglones']) || !is_array($r['renglones'])) return null;
+
+    // Las unidades, en las palabras que imp_linea_a_item() reconoce.
+    $unidades = ['kg' => 'kg', 'kilo' => 'kg', 'kilos' => 'kg', 'kgs' => 'kg',
+                 'lt' => 'lt', 'lts' => 'lt', 'litro' => 'lt', 'litros' => 'lt', 'l' => 'lt',
+                 'un' => 'un', 'u' => 'un', 'unidad' => 'un', 'unidades' => 'un',
+                 'bolsa' => 'bolsas', 'bolsas' => 'bolsas', 'bidon' => 'bidones', 'bidones' => 'bidones',
+                 'caja' => 'cajas', 'cajas' => 'cajas', 'dosis' => 'dosis'];
+
+    $lineas = [];
+    foreach (array_slice($r['renglones'], 0, IMP_MAX_FILAS) as $ren) {
+        if (!is_array($ren)) continue;
+
+        $desc = is_string($ren['descripcion'] ?? null) ? $ren['descripcion'] : '';
+        // Sin saltos ni los símbolos que el parser toma como bordes de tabla.
+        $desc = str_replace(['|', '[', ']', '—', '–', '_', '¬', "\r", "\n", "\t"], ' ', $desc);
+        $desc = trim(preg_replace('/\s+/u', ' ', $desc));
+        $desc = mb_substr($desc, 0, 150, 'UTF-8');
+        if ($desc === '') continue;
+
+        $cant = imp_ia_numero($ren['cantidad'] ?? null);
+        if ($cant === null || $cant <= 0 || $cant >= 1000000) continue;
+
+        $precio  = imp_ia_numero($ren['precio_unitario'] ?? null);
+        $importe = imp_ia_numero($ren['importe'] ?? null);
+        /* Sólo el importe del renglón: el precio unitario sale de dividirlo.
+           Es una cuenta sobre lo que dice el papel, no un dato inventado, y la
+           suma contra el total la sigue verificando el importador. */
+        if ($precio === null && $importe !== null) {
+            $precio = round($importe / $cant, 2);
+        }
+
+        $uni = mb_strtolower(trim((string)($ren['unidad'] ?? '')), 'UTF-8');
+        $uni = $unidades[$uni] ?? '';
+
+        $venc = null;
+        if (is_string($ren['vencimiento'] ?? null)) {
+            $f = imp_a_fecha($ren['vencimiento']);
+            if ($f !== null) $venc = date('d/m/Y', strtotime($f));
+        }
+
+        /* El lote va entre la descripción y el vencimiento, que es donde
+           imp_linea_a_item() lo busca. Sólo si tiene la forma que reconoce
+           (letras y números mezclados): si no, terminaría pegado al nombre. */
+        $lote = preg_replace('/[^A-Za-z0-9\-]/', '', (string)($ren['lote'] ?? ''));
+        $loteOk = $lote !== '' && strlen($lote) <= 30
+               && (preg_match('/^(?:[A-Z0-9]{2,}-){1,}[A-Z0-9]{2,}$/', $lote)
+                   || preg_match('/^[A-Za-z]{1,3}\d[A-Za-z0-9]{4,}$/', $lote));
+
+        $partes = [imp_numero_a_texto_local($cant)];
+        if ($uni !== '') $partes[] = $uni;
+        $partes[] = $desc;
+        if ($loteOk) $partes[] = $lote;
+        if ($venc !== null) $partes[] = $venc;
+        if ($precio !== null && $precio > 0) $partes[] = imp_ia_plata($precio);
+        $lineas[] = implode(' ', $partes);
+    }
+
+    $renglones = count($lineas);
+    $total = imp_ia_numero($r['total'] ?? null);
+    if ($total !== null && $total > 0 && $renglones) {
+        $lineas[] = 'TOTAL ' . imp_ia_plata($total);
+    }
+
+    $moneda = strtoupper((string)($r['moneda'] ?? ''));
+    return [
+        'es_remito' => true,
+        'texto'     => implode("\n", $lineas),
+        'renglones' => $renglones,
+        'moneda'    => in_array($moneda, ['ARS', 'USD'], true) ? $moneda : null,
     ];
 }

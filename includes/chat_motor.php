@@ -23,6 +23,12 @@
  */
 $chat_modulo = (isset($chat_modulo) && $chat_modulo === 'tambo') ? 'tambo' : 'agricultura';
 $chat_es_tambo = $chat_modulo === 'tambo';
+
+// El botón de foto (¿qué tiene esta planta?) sólo si hay IA configurada; el
+// dictado con Whisper, si está la clave de Groq.
+require_once __DIR__ . '/ia.php';
+$chat_ia     = ia_disponible(isset($env) && is_array($env) ? $env : []);
+$chat_voz_ia = ia_voz_disponible(isset($env) && is_array($env) ? $env : []);
 ?>
 <style>
 /* =====================================================================
@@ -191,6 +197,10 @@ $chat_es_tambo = $chat_modulo === 'tambo';
    apagarlo no lo vuelve ilegible. */
 .mc-msg-motor a.mc-ver-alt { margin-left: 16px; color: var(--text-muted); font-weight: 500; }
 .mc-msg-aviso { background: var(--warning-soft); border-color: oklch(0.470 0.120 70 / 0.35); }
+/* La foto que mandó el productor, en su burbuja: chica, porque lo que importa es
+   la respuesta, pero lo bastante grande para saber cuál era. */
+.mc-msg-yo img { display: block; max-width: 180px; max-height: 180px; border-radius: 8px; object-fit: cover; }
+.mc-msg-yo img + span { display: block; margin-top: 6px; }
 
 /* Los tres puntitos mientras piensa. Es lo que hace que se lea como una charla
    y no como un formulario que tarda. */
@@ -303,6 +313,18 @@ $chat_es_tambo = $chat_modulo === 'tambo';
         <input type="text" id="mc-q" placeholder="<?= $chat_es_tambo ? 'Preguntá por la leche, los costos o el margen' : 'Preguntá, o dictá un gasto' ?>">
         <?php /* Dictado: para el que está en el campo con las manos sucias. Se
                  muestra sólo si el navegador lo soporta — ver el JS de abajo. */ ?>
+        <?php if ($chat_ia): ?>
+        <?php /* Foto de una planta, un bicho o un remito: la mira una IA
+                 (api/diagnostico_ia.php), que decide qué es. Sin capture, por lo
+                 mismo que en insumos: con él el teléfono va derecho a la cámara
+                 y no deja elegir una foto ya sacada. */ ?>
+        <button type="button" class="mc-enviar" id="mc-foto" title="Mandá una foto: una planta, un bicho, un remito o una factura"
+                style="background: var(--n-0); color: var(--accent); border: 1px solid var(--border);">
+            <i class="fas fa-camera" aria-hidden="true"></i>
+            <span class="ap-solo-lectores">Mandá una foto: una planta, un bicho, un remito o una factura</span>
+        </button>
+        <input type="file" id="mc-foto-in" accept="image/*" hidden aria-hidden="true">
+        <?php endif; ?>
         <button type="button" class="mc-enviar" id="mc-voz" title="Dictar" hidden
                 style="background: var(--n-0); color: var(--accent); border: 1px solid var(--border);">
             <i class="fas fa-microphone" aria-hidden="true"></i>
@@ -708,6 +730,118 @@ $chat_es_tambo = $chat_modulo === 'tambo';
         input.focus();
     }
 
+    /* ── Foto: una planta, un bicho o un remito ─────────────────────────────
+       No pasa por el motor: no hay número que calcular, es mirar una imagen. La
+       respuesta vuelve con la misma forma que la del motor, así que se pinta con
+       agregarMotor() y se ve como cualquier otra. Lo que esté escrito en el campo
+       viaja como nota ("soja, hojas de abajo"): ayuda a la IA a no adivinar. */
+    const btnFoto = document.getElementById('mc-foto');
+    const inFoto  = document.getElementById('mc-foto-in');
+
+    /* Achicada antes de mandarla: una foto de teléfono pesa 4 o 5 MB y a 1600 px
+       se ve lo mismo una isoca. Viaja en unos cientos de KB, que en el campo
+       con una raya de señal es la diferencia entre que llegue o no. */
+    function achicarFoto(archivo) {
+        return new Promise((ok, mal) => {
+            const url = URL.createObjectURL(archivo);
+            const img = new Image();
+            img.onload = () => {
+                const escala = Math.min(1, 1600 / Math.max(img.width, img.height));
+                const c = document.createElement('canvas');
+                c.width  = Math.round(img.width * escala);
+                c.height = Math.round(img.height * escala);
+                c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+                URL.revokeObjectURL(url);
+                c.toBlob(b => b ? ok(b) : mal(new Error('sin imagen')), 'image/jpeg', 0.85);
+            };
+            img.onerror = () => { URL.revokeObjectURL(url); mal(new Error('no se pudo abrir')); };
+            img.src = url;
+        });
+    }
+
+    function agregarYoFoto(blob, nota) {
+        const d = document.createElement('div');
+        d.className = 'mc-msg mc-msg-yo';
+        const img = document.createElement('img');
+        img.alt = 'Foto enviada';
+        img.onload = alFinal;
+        img.src = URL.createObjectURL(blob);
+        d.appendChild(img);
+        if (nota) {
+            const s = document.createElement('span');
+            s.textContent = nota;
+            d.appendChild(s);
+        }
+        hilo.appendChild(d);
+        alFinal();
+    }
+
+    async function mandarFoto(archivo) {
+        if (enVuelo) return;
+        enVuelo = true;
+        enviar.disabled = true;
+        const nota = input.value.trim();
+        input.value = '';
+
+        let r;
+        try {
+            const foto = await achicarFoto(archivo);
+            agregarYoFoto(foto, nota);
+            const pensando = agregarPensando();
+            try {
+                const datos = new FormData();
+                datos.append('foto', foto, 'foto.jpg');
+                datos.append('nota', nota);
+                datos.append('csrf_token', document.getElementById('mc-csrf').value);
+                datos.append('ajax', 'diagnostico_ia');
+                // Una factura de gasto se ofrece cargar sólo desde el chat de agricultura.
+                datos.append('modulo', MODULO);
+                const res = await fetch('api/diagnostico_ia.php', {
+                    method: 'POST', body: datos, credentials: 'same-origin',
+                });
+                r = await res.json();
+                /* La cuenta demo corta todo POST en config/auth.php y contesta
+                   con `msg`, no con `respuesta`. No se la suma a la lista blanca:
+                   esa lista mira sólo el campo `ajax`, y cualquier POST con ese
+                   valor pasaría el bloqueo en cualquier pantalla. */
+                if (!r.respuesta && r.msg) r = { ok: false, respuesta: r.msg };
+            } catch (e) {
+                r = { ok: false, respuesta: 'No pude mandar la foto.', detalle: 'Revisá la conexión y probá de nuevo.' };
+            }
+            pensando.remove();
+        } catch (e) {
+            r = { ok: false, respuesta: 'No pude abrir esa imagen.', detalle: 'Probá con otra foto.' };
+        }
+
+        /* Un remito: los renglones quedan guardados para que Insumos los abra
+           al tocar "Revisar y cargar" (insumos.php?importar=ia). Se guardan
+           ANTES de pintar el enlace, así no hay forma de tocarlo sin ellos. */
+        if (r.remito) {
+            try {
+                sessionStorage.setItem('impRemitoIA', JSON.stringify(
+                    { texto: r.remito.texto, moneda: r.remito.moneda, cuando: Date.now() }));
+            } catch (e) {
+                delete r.link;   // sin dónde guardarlo, el enlace llevaría a una pantalla vacía
+            }
+        }
+
+        agregarMotor(r);
+        /* Una factura de gasto trae la frase de carga como sugerencia: tocarla
+           es mandarla, y de ahí sigue la carga de siempre del motor. */
+        pintarSugeridas(r.sugerencias || []);
+        enVuelo = false;
+        enviar.disabled = false;
+    }
+
+    if (btnFoto && inFoto) {
+        btnFoto.addEventListener('click', () => { if (!enVuelo) inFoto.click(); });
+        inFoto.addEventListener('change', () => {
+            const archivo = inFoto.files && inFoto.files[0];
+            inFoto.value = '';           // que se pueda volver a elegir la misma
+            if (archivo) mandarFoto(archivo);
+        });
+    }
+
     function abrir() {
         panel.hidden = false; backdrop.hidden = false;
         panel.classList.add('abierto');
@@ -759,11 +893,146 @@ $chat_es_tambo = $chat_modulo === 'tambo';
        El botón sólo aparece si el navegador lo soporta: mostrarlo y que no ande
        es peor que no ofrecerlo. No se envía solo — el texto queda en el campo
        para poder corregirlo, porque el reconocimiento se equivoca con los
-       nombres de lote y sería el peor lugar para no revisar. */
+       nombres de lote y sería el peor lugar para no revisar.
+
+       Dos formas, en orden:
+         1. Grabar y mandar a Whisper (api/transcribir_ia.php). Anda en el
+            iPhone y en Firefox, donde el dictado del navegador no, y conoce
+            los lotes e insumos del productor, así que los escribe bien.
+         2. El dictado del navegador, el de siempre: si no hay clave de Groq o
+            si el navegador no graba. Si Whisper falla en un dictado puntual, se
+            avisa en el campo y se puede volver a tocar el micrófono. */
     const Reconocimiento = window.SpeechRecognition || window.webkitSpeechRecognition;
     const btnVoz = document.getElementById('mc-voz');
+    const VOZ_IA = <?= $chat_voz_ia ? 'true' : 'false' ?>
+                   && !!(window.MediaRecorder && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
 
-    if (Reconocimiento && btnVoz) {
+    function pintarBotonVoz(activo, titulo) {
+        btnVoz.style.background = activo ? 'var(--accent)' : 'var(--n-0)';
+        btnVoz.style.color      = activo ? 'var(--on-accent)' : 'var(--accent)';
+        btnVoz.title = titulo;
+    }
+
+    /* Un aviso corto en el lugar donde se escribe, que es donde está mirando.
+       Una burbuja en la charla por un dictado que no salió sería ruido. */
+    function avisoEnCampo(texto) {
+        input.placeholder = texto;
+        setTimeout(() => { if (input.placeholder === texto) input.placeholder = PLACEHOLDER; }, 3500);
+    }
+
+    if (VOZ_IA && btnVoz) {
+        btnVoz.hidden = false;
+        const MAX_SEGUNDOS = 30;   // un dictado es una frase; más es que quedó grabando solo
+        let grabador = null, partes = [], corte = null, transcribiendo = false;
+
+        /* Si se escuchó algo. Un audio callado no se manda: Whisper, ante el
+           silencio, devuelve frases que nadie dijo (medido: repetía la lista de
+           lotes que se le pasa de pista). Y de paso no gasta cupo. */
+        let picoVolumen = 0, medidor = null;
+        function medirVolumen(flujo) {
+            picoVolumen = 0;
+            try {
+                const Ctx = window.AudioContext || window.webkitAudioContext;
+                const ctx = new Ctx();
+                const analizador = ctx.createAnalyser();
+                analizador.fftSize = 512;
+                ctx.createMediaStreamSource(flujo).connect(analizador);
+                const datos = new Uint8Array(analizador.fftSize);
+                medidor = { ctx: ctx, intervalo: setInterval(() => {
+                    analizador.getByteTimeDomainData(datos);
+                    for (let i = 0; i < datos.length; i++) {
+                        picoVolumen = Math.max(picoVolumen, Math.abs(datos[i] - 128));
+                    }
+                }, 100) };
+            } catch (e) {
+                picoVolumen = 255;   // sin forma de medir: se manda igual
+            }
+        }
+        function dejarDeMedir() {
+            if (!medidor) return;
+            clearInterval(medidor.intervalo);
+            medidor.ctx.close().catch(() => {});
+            medidor = null;
+        }
+
+        // El formato que este navegador sabe grabar. Chrome: webm; Safari: mp4.
+        const formato = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg']
+            .find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
+
+        async function empezar() {
+            let flujo;
+            try {
+                flujo = await navigator.mediaDevices.getUserMedia({ audio: true });
+            } catch (e) {
+                avisoEnCampo('Sin permiso para el micrófono');
+                return;
+            }
+            partes = [];
+            grabador = new MediaRecorder(flujo, formato ? { mimeType: formato } : undefined);
+            grabador.addEventListener('dataavailable', ev => { if (ev.data && ev.data.size) partes.push(ev.data); });
+            grabador.addEventListener('stop', () => {
+                flujo.getTracks().forEach(t => t.stop());   // apaga el micrófono (y el puntito rojo)
+                clearTimeout(corte);
+                dejarDeMedir();
+                /* 8 sobre 128 es ruido de fondo de un micrófono de teléfono;
+                   la voz, aun bajita, pasa holgado. */
+                if (picoVolumen < 8) {
+                    pintarBotonVoz(false, 'Dictar');
+                    input.placeholder = PLACEHOLDER;
+                    avisoEnCampo('No escuché nada. Probá de nuevo.');
+                    return;
+                }
+                transcribir(new Blob(partes, { type: grabador.mimeType || formato || 'audio/webm' }));
+            });
+            medirVolumen(flujo);
+            grabador.start();
+            corte = setTimeout(() => { if (grabador && grabador.state === 'recording') grabador.stop(); }, MAX_SEGUNDOS * 1000);
+            pintarBotonVoz(true, 'Grabando… tocá para terminar');
+            input.placeholder = 'Grabando… tocá el micrófono para terminar';
+        }
+
+        async function transcribir(audio) {
+            transcribiendo = true;
+            pintarBotonVoz(false, 'Dictar');
+            input.placeholder = 'Escribiendo lo que dijiste…';
+            btnVoz.disabled = true;
+
+            const ext = /mp4/.test(audio.type) ? 'mp4' : /ogg/.test(audio.type) ? 'ogg' : 'webm';
+            const datos = new FormData();
+            datos.append('audio', audio, 'dictado.' + ext);
+            datos.append('csrf_token', document.getElementById('mc-csrf').value);
+            datos.append('ajax', 'transcribir_ia');
+
+            let r = null;
+            try {
+                const res = await fetch('api/transcribir_ia.php', { method: 'POST', body: datos, credentials: 'same-origin' });
+                r = await res.json();
+            } catch (e) { r = null; }
+
+            transcribiendo = false;
+            btnVoz.disabled = false;
+            input.placeholder = PLACEHOLDER;
+
+            if (r && r.ok) {
+                input.value = r.texto;
+                input.focus();
+            } else if (r && r.motivo === 'vacio') {
+                avisoEnCampo('No escuché nada. Probá de nuevo.');
+            } else if (r && r.motivo === 'tope') {
+                avisoEnCampo('Llegaste al tope de dictados de hoy.');
+            } else if (r && r.solo_lectura) {
+                avisoEnCampo('La cuenta demo no puede dictar.');
+            } else {
+                avisoEnCampo('No pude pasarlo a texto. Probá de nuevo.');
+            }
+        }
+
+        btnVoz.addEventListener('click', () => {
+            if (transcribiendo) return;
+            if (grabador && grabador.state === 'recording') { grabador.stop(); return; }
+            empezar();
+        });
+    } else if (Reconocimiento && btnVoz) {
         btnVoz.hidden = false;
         const rec = new Reconocimiento();
         rec.lang = 'es-AR';

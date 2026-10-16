@@ -28,6 +28,7 @@ consulta filtra por `usuario_id` de la sesión.
 | `api/consulta.php`, `api/consulta_tambo.php` | Puertas del chat (GET, sólo lectura). |
 | `api/registrar*.php` | Guardan lo que el chat propone cargar (POST, con CSRF). |
 | `migrations/` | Ver `migrations/LEEME.md`: sólo se corre `esquema_completo.sql`. |
+| `includes/ia.php` | Cadena de IA gratis (Gemini → Groq → OpenRouter). Ver "IA" abajo. |
 
 ## El chat (`includes/motor.php`)
 
@@ -43,6 +44,10 @@ consulta filtra por `usuario_id` de la sesión.
   `strpos`/`motor_coincide()`: un proveedor tipeado "n" aparecía dentro de
   "cuánto" y se quedaba con cualquier pregunta. Lotes y cultivos todavía usan
   `strpos` (un "Lote 1" aparece dentro de "lote 12").
+- **La moneda de un gasto cargado es la que DICE la frase** ("gasté 850
+  dólares", `motor_moneda_dicha()`), no la que el chat está mirando. Antes se
+  ignoraba y se guardaba $850 pesos. Durante la carga, `api/consulta.php` no
+  devuelve esa moneda como moneda de lectura del chat.
 - El recorte por etapa/rubro/proveedor sólo corre si la pregunta es de gasto:
   "¿cuánto rindió la cosecha?" pide el rinde, no el gasto en cosecha.
 - Las preguntas que no entiende quedan en `motor_consultas_fallidas` (las del
@@ -74,6 +79,23 @@ consulta filtra por `usuario_id` de la sesión.
 - **Los números del mes salen de `includes/tambo_stats.php`** (panel, comparativa
   y chat). No volver a copiar las consultas en una pantalla: antes había dos
   copias y con un mes sin dólar cargado daban distinto.
+
+## IA (`includes/ia.php`)
+
+- **Complemento, nunca camino único**, y **la IA sólo transcribe**: lo leído
+  entra por una puerta que ya existía (cuadro de texto del importador, carga de
+  gastos del motor) y se confirma ahí. Sin claves en el `.env`, todo como antes.
+- Claves del dueño en el `.env`, **entre comillas** (sin ellas un caracter raro
+  rompe `parse_ini_file` y se pierde todo el `.env`, base incluida). Cupo de
+  toda la app: topes por usuario y registro en `ia_uso`.
+- Foto del chat (`includes/diagnostico_ia.php`): planta, remito o factura.
+  Diagnóstico sin marcas ni dosis — se filtran en el servidor y el aviso del
+  agrónomo lo pone el servidor; no aflojar eso. Los formatos IA→parser tienen
+  pruebas de ida y vuelta (`tests/test_*_ia.php`): correrlas si se tocan.
+- Gratis = frágil: los modelos cambian sin aviso (se pisan con `IA_*_MODELO`),
+  Gemini da 503 por rachas largas (503/429/timeout ponen en pausa), Groq limita
+  la respuesta por minuto (`max_tokens`), y el respaldo no puede ser de Google.
+- Dictado: Whisper ante el silencio repite la pista (`ia_voz_es_alucinacion()`).
 
 ## Trampas de la base
 

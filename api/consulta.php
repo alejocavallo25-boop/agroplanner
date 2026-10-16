@@ -165,7 +165,12 @@ try {
        guarda y la vuelve a mandar: si no, la siguiente pregunta volvería a pesos
        sola y el productor vería dos monedas seguidas sin haber tocado nada. */
     $r['filtros'] = is_array($r['filtros'] ?? null) ? $r['filtros'] : [];
-    $r['filtros']['moneda'] = motor_moneda();
+    /* Durante la carga de un gasto, la moneda del motor es la del gasto ("gasté
+       850 dólares"), no cómo quiere leer los totales: no se le devuelve al chat
+       como su moneda de lectura, o cargar un gasto en dólares dejaría todas las
+       respuestas siguientes en dólares sin que nadie lo pidiera. */
+    $esCarga = !empty($r['alta']) || !empty($r['alta_pendiente']);
+    $r['filtros']['moneda'] = $esCarga ? $moneda : motor_moneda();
 
     // Lo que no supo contestar se anota, para saber qué agregar después con
     // datos en vez de con intuición. No afecta la respuesta que ya se calculó.

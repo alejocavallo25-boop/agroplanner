@@ -1471,6 +1471,16 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
            de insumo no dice por sí solo qué formulario se está llenando. */
         $slots['que'] = $slots['que'] ?? ($arranca ?? 'gasto');
 
+        /* La moneda en que se pagó el gasto, si la dijo (ver motor_moneda_dicha).
+           Se aplica en cada vuelta porque el estado vuelve del cliente: así la
+           pregunta del paso, la confirmación y lo que se guarda hablan todos de
+           la misma moneda. Sólo en el gasto: la venta y el alquiler la tienen
+           como casillero propio, y el catálogo de insumos es siempre en dólares. */
+        if ($slots['que'] === 'gasto') {
+            if ($dicha = motor_moneda_dicha($texto, $pregunta)) $slots['moneda'] = $dicha;
+            if (isset($slots['moneda'])) motor_moneda($slots['moneda'] === 'USD' ? 'USD' : 'ARS');
+        }
+
         /* Corregir un casillero. Va antes del reparto por tipo de alta para que
            valga en los cuatro formularios: se vacía el casillero y el paso a
            paso lo vuelve a preguntar solo, sin tocar el resto de lo cargado. */
@@ -1726,6 +1736,8 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
            stock y le saque el precio. */
         $catalogo = motor_insumos_catalogo($pdo, $usuarioId);
         $slots = motor_interpretar_alta($texto, $pregunta, $lotes, $lote, $pdo, $usuarioId, $catalogo);
+        // "gasté 850 dólares": se guarda en dólares aunque el chat esté mirando pesos.
+        if (isset($slots['moneda'])) motor_moneda($slots['moneda']);
 
         /* Lo que la frase no traiga lo pregunta el paso a paso desde donde quedó,
            en vez de un cartel sin salida. El lote nunca se da por supuesto aunque
@@ -3716,7 +3728,28 @@ function motor_interpretar_alta(string $texto, string $original, array $lotes, ?
     if ($f !== null)                       $slots['fecha'] = $f;
     elseif (!motor_intento_de_fecha($texto)) $slots['fecha'] = date('Y-m-d');
 
+    if ($m = motor_moneda_dicha($texto, $original)) $slots['moneda'] = $m;
+
     return $slots;
+}
+
+/**
+ * La moneda en que dice que pagó, o null si no la dijo.
+ *
+ * Hasta acá el gasto se guardaba en la moneda que el chat estaba MIRANDO, y la
+ * frase se ignoraba: "gasté 850 dólares en gasoil" mirando en pesos quedaba
+ * como $850. Un error de mil veces, callado, y en el lugar donde más se dice la
+ * moneda: el dictado y las facturas leídas de una foto.
+ *
+ * Mira el texto normalizado para las palabras y el original para los signos,
+ * que la normalización borra ("U$S 850").
+ */
+function motor_moneda_dicha(string $texto, string $original): ?string {
+    $usd = preg_match('/(^|\s)(dolares|dolar|usd|verdes)(\s|$)/u', $texto)
+        || preg_match('/u\$s|us\$|u\$d/iu', $original);
+    $ars = (bool)preg_match('/(^|\s)pesos(\s|$)/u', $texto);
+    if ($usd && $ars) return null;   // dijo las dos: que se vea en la confirmación y lo corrija
+    return $usd ? 'USD' : ($ars ? 'ARS' : null);
 }
 
 /* =====================================================================

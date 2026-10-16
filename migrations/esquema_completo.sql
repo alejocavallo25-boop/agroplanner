@@ -337,6 +337,22 @@ CREATE TABLE IF NOT EXISTS `lote_historial_campanas` (
   CONSTRAINT `lote_historial_campanas_ibfk_1` FOREIGN KEY (`lote_id`) REFERENCES `lotes` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Registro de la IA (includes/ia.php). También la crea ia_asegurar_tabla().
+CREATE TABLE IF NOT EXISTS `ia_uso` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `usuario_id` int(11) NOT NULL,
+  `pedido` char(16) NOT NULL,
+  `uso` varchar(20) NOT NULL,
+  `proveedor` varchar(20) NOT NULL,
+  `resultado` varchar(12) NOT NULL,
+  `ms` int(11) NOT NULL DEFAULT 0,
+  `detalle` varchar(255) DEFAULT NULL,
+  `creado_en` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_usuario_fecha` (`usuario_id`,`creado_en`),
+  KEY `idx_proveedor` (`proveedor`,`resultado`,`creado_en`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `motor_consultas_fallidas` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `usuario_id` int(11) NOT NULL,

@@ -5,7 +5,9 @@ require_once 'config/database.php';
 require_once 'includes/exportar.php';
 // Muestra los importes en pesos o en dólares; no cambia nada de lo guardado.
 require_once 'includes/moneda.php';
+require_once 'includes/ia.php';
 $usuario_id = $_SESSION['usuario_id'];
+$ia_fotos   = ia_disponible($env);   // ¿la foto del remito se puede mandar a leer a una IA?
 $page_title = 'Gestión de Insumos (Stock)';
 
 validate_csrf();
@@ -1461,7 +1463,11 @@ function tipoBadge($tipo) {
         <div id="impPasoOrigen">
             <h2 style="margin-bottom:6px;">📥 Importar insumos</h2>
             <p class="imp-sub">
+                <?php if ($ia_fotos): ?>
+                Los archivos se leen en el servidor; las fotos de remitos, con una IA externa.
+                <?php else: ?>
                 Se lee el archivo en el servidor, sin mandarlo a ningún servicio externo.
+                <?php endif; ?>
                 Después revisás la lista y nada se guarda hasta que lo confirmes.
             </p>
 
@@ -1515,7 +1521,9 @@ function tipoBadge($tipo) {
                         <button type="button" class="btn btn-primary" id="impLeerBtn" onclick="impLeerFoto()">
                             <i class="fas fa-eye"></i> Intentar leerla
                         </button>
-                        <span class="imp-leer-nota">Se lee acá, en tu teléfono.</span>
+                        <span class="imp-leer-nota"><?= $ia_fotos
+                            ? 'La lee una IA externa. Si no está disponible, se lee acá, en tu teléfono.'
+                            : 'Se lee acá, en tu teléfono.' ?></span>
                     </div>
                     <div id="impLeerEstado" class="imp-leer-estado" hidden></div>
                     <div id="impDudas" class="imp-dudas" hidden></div>
@@ -1733,6 +1741,7 @@ function setOrden(val) {
 
 const IMP = {
     csrf: <?= json_encode(get_csrf_token()) ?>,
+    ia: <?= $ia_fotos ? 'true' : 'false' ?>,
     inventario: <?= json_encode(array_map(fn($i) => ['id' => (int)$i['id'], 'nombre' => $i['nombre']], $insumos_full), JSON_UNESCAPED_UNICODE) ?>,
     datos: null,
     items: [],
@@ -2216,13 +2225,21 @@ async function impLeerFoto() {
     document.getElementById('impDudas').hidden = true;
 
     try {
+        // Primero la IA, si está configurada. Si contesta, no hace falta el lector.
+        let aviso = '';
+        if (IMP.ia) {
+            const ia = await impLeerConIA();
+            if (ia.listo) return;
+            aviso = ia.aviso;
+        }
+
         impLeerEstado('trabajando', 'Preparando el lector…',
-                      'La primera vez baja unos megas; después queda guardado.', 0);
+                      aviso + 'La primera vez baja unos megas; después queda guardado.', 0);
 
         const worker = await impCargarLector(m => {
             if (m.progress !== undefined && m.status !== 'recognizing text') {
                 impLeerEstado('trabajando', 'Preparando el lector…',
-                              'La primera vez baja unos megas; después queda guardado.', m.progress);
+                              aviso + 'La primera vez baja unos megas; después queda guardado.', m.progress);
             }
         });
 
@@ -2276,6 +2293,73 @@ async function impLeerFoto() {
     } finally {
         IMP_OCR.corriendo = false;
         boton.disabled = false;
+    }
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════
+   LEER LA FOTO CON IA
+
+   Antes que el lector del teléfono, si el servidor tiene una IA configurada
+   (includes/ia.php). Lee mucho mejor una foto torcida o con la letra chica,
+   porque entiende que es un remito y qué columna es cada cosa.
+
+   No cambia nada de lo de abajo: devuelve renglones de texto que caen en el
+   mismo cuadro, y de ahí sigue el camino de siempre — se revisan, se analizan
+   y la suma se verifica contra el total. La IA también se equivoca, y con la
+   misma cara de seguridad, así que la revisión no se saltea.
+
+   Si no contesta (sin cupo, sin red, la cuenta demo), devuelve listo:false y
+   lee el teléfono, como antes.
+   ═════════════════════════════════════════════════════════════════════════════ */
+
+const IMP_IA_LADO = 2000;   // de sobra para leer, y la foto viaja en unos cientos de KB
+
+async function impLeerConIA() {
+    impLeerEstado('trabajando', 'Leyendo la foto con IA…', 'Tarda unos segundos.');
+    const aviso = {
+        tope:     'Ya usaste las lecturas con IA de hoy, así que la leo acá. ',
+        fallaron: 'La IA no está disponible ahora, así que la leo acá. ',
+    };
+
+    try {
+        const foto = await new Promise(ok =>
+            impEscalar(IMP.fotoImg, IMP_IA_LADO, false).toBlob(ok, 'image/jpeg', 0.85));
+        if (!foto) return { listo: false, aviso: '' };
+
+        const datos = new FormData();
+        datos.append('foto', foto, 'remito.jpg');
+        datos.append('csrf_token', IMP.csrf);
+        datos.append('ajax', 'leer_remito_ia');   // la cuenta demo recibe JSON y no HTML
+
+        const r = await fetch('api/leer_remito_ia.php', {
+            method: 'POST', body: datos, credentials: 'same-origin',
+        });
+        const resp = await r.json();
+        if (!resp.ok) return { listo: false, aviso: aviso[resp.motivo] || '' };
+
+        if (!resp.es_remito) {
+            impLeerEstado('dudoso', 'Esto no parece un remito.',
+                'Probá con otra foto, o escribí los renglones a mano mirándola.');
+            return { listo: true };
+        }
+
+        const caja = document.getElementById('impTextoFoto');
+        caja.value = resp.texto;
+        impAjustarAlto(caja);
+        impGuardarCrudo('');
+        document.getElementById('impDudas').hidden = true;
+
+        const cuantos = resp.renglones + (resp.renglones === 1 ? ' renglón' : ' renglones');
+        // La moneda es donde un error sale mil veces más caro: se avisa ya.
+        const moneda = resp.moneda === 'USD' ? ' Parece estar en dólares.'
+                     : resp.moneda === 'ARS' ? ' Parece estar en pesos.' : '';
+        impLeerEstado('bien', 'Saqué ' + cuantos + '.',
+            'Revisá los números contra la foto antes de analizar.' + moneda);
+        return { listo: true };
+
+    } catch (e) {
+        // Respuesta que no es JSON, red caída: no es motivo para no leer.
+        return { listo: false, aviso: aviso.fallaron };
     }
 }
 
@@ -3315,6 +3399,49 @@ function impConfirmar() {
     document.getElementById('impMonedaJson').value = IMP.moneda;
     document.getElementById('impForm').submit();
 }
+
+/* ── Un remito que llega desde el chat ───────────────────────────────────────
+   Se le mandó una foto a Cafrita, era un remito, y se tocó "Revisar y cargar"
+   (insumos.php?importar=ia). Los renglones vienen en sessionStorage —ver
+   mandarFoto() en includes/chat_motor.php— y entran por el camino de siempre:
+   el cuadro de pegar texto, el mismo análisis y la misma revisión. Si se vuelve
+   atrás desde la revisión, el texto está en ese cuadro para corregirlo. */
+(function () {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('importar') !== 'ia') return;
+
+    // Que recargar la página no lo vuelva a abrir.
+    url.searchParams.delete('importar');
+    history.replaceState(null, '', url.toString());
+
+    let remito = null;
+    try {
+        remito = JSON.parse(sessionStorage.getItem('impRemitoIA') || 'null');
+        sessionStorage.removeItem('impRemitoIA');
+    } catch (e) { remito = null; }
+    // Una hora de margen: más viejo es de otra charla y no se sabe de qué remito.
+    if (!remito || !remito.texto || Date.now() - (remito.cuando || 0) > 3600 * 1000) return;
+
+    impAbrir();
+    const caja = document.getElementById('impTexto');
+    caja.value = remito.texto;
+    document.querySelector('.imp-pegar').open = true;
+    impAjustarAlto(caja);
+
+    const datos = new FormData();
+    datos.append('origen', 'texto');
+    datos.append('texto', remito.texto);
+    impEnviar(datos, resp => {
+        impMostrarResultado(resp);
+        /* La moneda la propone la IA si la vio en el papel, pero sólo se cambia
+           a dólares: pesos ya es lo que arranca puesto, y el selector queda a la
+           vista para corregirlo — es el dato que evita un error de mil veces. */
+        if (remito.moneda === 'USD' && IMP.datos === resp) {
+            document.getElementById('impMoneda').value = 'USD';
+            impCambiarMoneda('USD');
+        }
+    });
+})();
 </script>
 
 <?php require_once 'includes/chat_motor.php'; ?>

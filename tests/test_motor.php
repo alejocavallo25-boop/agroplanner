@@ -9,6 +9,18 @@
 
 require_once __DIR__ . '/../includes/motor.php';
 
+grupo('Motor — la moneda en que se pagó un gasto');
+
+// El bug: "gasté 850 dólares" mirando en pesos se guardaba como $850.
+$m = fn(string $frase) => (string)motor_moneda_dicha(motor_normalizar($frase), $frase);
+es('dólares con tilde',         'USD', $m('Gasté 850,00 dólares en gasoil'));
+es('dólar en singular',         'USD', $m('pagué 1 dólar'));
+es('U$S escrito con signo',     'USD', $m('Gasté U$S 850 en flete'));
+es('pesos',                     'ARS', $m('Gasté 450.000 pesos en flete'));
+es('sin moneda: la del chat',   '',    $m('Gasté 30.000 en semilla'));
+es('las dos: no se adivina',    '',    $m('gasté 100 dólares y 5000 pesos'));
+es('"peso" solo no es moneda (peso seco)', '', $m('fertilicé con 120 kg de peso'));
+
 grupo('Motor — nombres cargados por el productor');
 
 // El caso real: el proveedor "n" aparecía dentro de "cuánto" y de "en".

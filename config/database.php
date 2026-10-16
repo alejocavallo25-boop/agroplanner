@@ -13,7 +13,8 @@ date_default_timezone_set('America/Argentina/Cordoba');
 $envPath = __DIR__ . '/../.env';
 $env = [];
 if (file_exists($envPath)) {
-    $env = parse_ini_file($envPath);
+    // Si el .env tiene un error de sintaxis devuelve false: que siga siendo un array.
+    $env = parse_ini_file($envPath) ?: [];
 }
 
 $host = $env['DB_HOST'] ?? '127.0.0.1';
