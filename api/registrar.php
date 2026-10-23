@@ -115,16 +115,23 @@ if (!empty($_POST['insumos'])) {
     $lista = is_array($_POST['insumos'])
         ? $_POST['insumos']
         : json_decode((string)$_POST['insumos'], true);
-    if (is_array($lista)) {
-        foreach (array_slice($lista, 0, 20) as $i) {
-            if (!is_array($i)) continue;
-            $insumos_in[] = [
-                'id'       => (int)($i['id'] ?? 0),
-                'nombre'   => mb_substr(trim((string)($i['nombre'] ?? '')), 0, 150),
-                'cantidad' => (float)($i['cantidad'] ?? 0),
-                'precio'   => (float)($i['precio'] ?? 0),
-            ];
-        }
+    /* Llegó una lista que no se puede leer: se corta. Seguir con los campos sueltos
+       guardaba sólo el primer insumo con el monto de todos, sin que nada avisara
+       (así llegaba "[object Object],[object Object]" desde el chat). */
+    if (!is_array($lista)) {
+        http_response_code(422);
+        echo json_encode(['ok' => false, 'msg' => 'No pude leer la lista de insumos. Recargá la página y probá de nuevo.'],
+                         JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    foreach (array_slice($lista, 0, 20) as $i) {
+        if (!is_array($i)) continue;
+        $insumos_in[] = [
+            'id'       => (int)($i['id'] ?? 0),
+            'nombre'   => mb_substr(trim((string)($i['nombre'] ?? '')), 0, 150),
+            'cantidad' => (float)($i['cantidad'] ?? 0),
+            'precio'   => (float)($i['precio'] ?? 0),
+        ];
     }
 }
 // La labor de una receta, POR HECTÁREA: es como la guarda y la muestra el formulario.

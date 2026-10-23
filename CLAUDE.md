@@ -50,6 +50,9 @@ consulta filtra por `usuario_id` de la sesión.
   devuelve esa moneda como moneda de lectura del chat.
 - El recorte por etapa/rubro/proveedor sólo corre si la pregunta es de gasto:
   "¿cuánto rindió la cosecha?" pide el rinde, no el gasto en cosecha.
+- El chat manda las cargas con `URLSearchParams`: una lista de objetos (los
+  `insumos` de una pulverización) tiene que ir con `JSON.stringify`, o llega
+  como `[object Object]` y se guardaba un solo insumo.
 - Las preguntas que no entiende quedan en `motor_consultas_fallidas` (las del
   tambo con `[tambo]` en el motivo): es la lista de qué falta enseñarle.
 - **Tambo**: no sumarle ramas a `motor.php` ("margen" y "cuánto gasté" existen en

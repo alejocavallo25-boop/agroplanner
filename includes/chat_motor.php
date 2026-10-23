@@ -533,6 +533,11 @@ $chat_voz_ia = ia_voz_disponible(isset($env) && is_array($env) ? $env : []);
            implícito es frágil: el servidor espera exactamente esa forma, así que
            se escribe. Un mismo gasto puede ir a varios lotes de una sola carga. */
         const body = new URLSearchParams({ ...datos, lotes: (datos.lotes || []).join(',') });
+        /* Los insumos de una aplicación son una lista de objetos, y URLSearchParams
+           los convierte en "[object Object],[object Object]": el servidor no los
+           podía leer y guardaba sólo el primero (el de los campos sueltos). Van en
+           JSON, que es la forma que espera api/registrar.php. */
+        if (Array.isArray(datos.insumos)) body.set('insumos', JSON.stringify(datos.insumos));
         body.set('csrf_token', document.getElementById('mc-csrf').value);
 
         /* Cuatro altas, cuatro puertas. El motor dice cuál en 'que': un gasto, un

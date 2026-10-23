@@ -32,4 +32,4 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="AgroPlanner">
-<link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png?v=6">
+<link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png?v=7">
