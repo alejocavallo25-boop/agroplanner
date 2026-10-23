@@ -1476,17 +1476,82 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
            pregunta del paso, la confirmación y lo que se guarda hablan todos de
            la misma moneda. Sólo en el gasto: la venta y el alquiler la tienen
            como casillero propio, y el catálogo de insumos es siempre en dólares. */
+        /* Si esta vuelta contestó la pregunta de la moneda. Se lee acá abajo con
+           motor_moneda_dicha, y entonces la frase ya no es respuesta de ningún otro
+           paso: sin esto, "Dólares" se anotaba como el nombre del insumo siguiente. */
+        $contestoMoneda = false;
         if ($slots['que'] === 'gasto') {
+            $esperabaMoneda = is_array($enCurso) && motor_alta_paso_pendiente($slots) === 'moneda';
             if ($dicha = motor_moneda_dicha($texto, $pregunta)) $slots['moneda'] = $dicha;
+            elseif ($esperabaMoneda && preg_match('/(^|\s)(peso|ars|argentinos)(\s|$)/u', $texto)) $slots['moneda'] = 'ARS';
+            $contestoMoneda = $esperabaMoneda && isset($slots['moneda']);
             if (isset($slots['moneda'])) motor_moneda($slots['moneda'] === 'USD' ? 'USD' : 'ARS');
+
+            /* Los precios que trajo el catálogo están en dólares y se convirtieron a
+               la moneda de ese momento. Si la moneda cambió después (se corrigió),
+               se vuelven a convertir desde el dólar original: si no, un precio de
+               $7.000 pasaba a leerse como US$7.000. */
+            $reconvertir = function (array $i, string $pre) use ($pdo, $usuarioId): array {
+                if (($i[$pre . 'precio_de'] ?? '') !== 'catalogo' || (float)($i[$pre . 'precio_usd'] ?? 0) <= 0) return $i;
+                $p = motor_precio_catalogo($pdo, $usuarioId, ['precio_usd' => (float)$i[$pre . 'precio_usd']]);
+                if ($p !== null) $i[$pre . 'precio'] = round($p, 2);
+                return $i;
+            };
+            $slots = $reconvertir($slots, 'insumo_');
+            foreach ($slots['insumos_lista'] ?? [] as $k => $i) $slots['insumos_lista'][$k] = $reconvertir($i, '');
         }
 
         /* Corregir un casillero. Va antes del reparto por tipo de alta para que
            valga en los cuatro formularios: se vacía el casillero y el paso a
            paso lo vuelve a preguntar solo, sin tocar el resto de lo cargado. */
         $corregir = motor_alta_pide_correccion($texto, $slots['que'], $slots);
+        /* Lo que se le antepone a la próxima pregunta cuando esta vuelta no fue una
+           respuesta sino una charla sobre la carga ("era un dato anterior"). */
+        $avisoPaso = '';
+        // Si lo que escribió es la respuesta al paso en curso (casi siempre lo es).
+        $interpretar = is_array($enCurso);
+        $previo = motor_alta_dato_previo($slots);
+
+        /* "Era un dato anterior": no se toca nada, se sigue desde donde estaba y se
+           le dice dónde lo va a poder arreglar. No se interpreta la frase como
+           respuesta del paso: en "¿qué insumo fue?" se anotaría como un insumo. */
+        if (is_array($enCurso) && ($corregir === null || $corregir === '') && $previo['pendiente']
+            && motor_alta_dato_anterior($texto)) {
+            $avisoPaso = 'Dale, sigamos. Al final, antes de guardar, te muestro todo junto '
+                       . 'y con "Corregir" cambiás ese dato.';
+            $corregir = null;
+            $interpretar = false;
+        }
+
         if ($corregir !== null) {
             $campos = motor_alta_campos($slots['que']);
+            /* "Me equivoqué" a mitad de la carga, sin decir qué. Casi siempre es lo
+               último que contestó, así que se ofrece eso directo; si era algo de
+               antes, se sigue y se corrige en el resumen final, donde está todo a
+               la vista. Ofrecer la lista entera acá obligaba a releer cada dato para
+               encontrar el que acababa de tipear. */
+            if ($corregir === '' && $previo['pendiente']) {
+                if ($previo['previo'] === null) {
+                    $avisoPaso = 'Todavía no cargaste ningún dato, así que no hay nada para corregir.';
+                    $corregir = null;
+                    $interpretar = false;
+                } else {
+                    $etq = motor_alta_etiqueta_campo($previo['previo'], $slots);
+                    return [
+                        'ok' => true, 'tipo' => 'alta_paso',
+                        'respuesta' => '¿Querés corregir ' . $etq . '?',
+                        'detalle' => 'Es lo último que cargaste. Si el error es de un dato anterior, '
+                                   . 'seguimos y al final, antes de guardar, lo corregís desde el resumen.',
+                        'valor' => null,
+                        'alta_pendiente' => $slots,
+                        'filtros' => [], 'link' => null,
+                        'sugerencias' => ['Corregir ' . $etq, MOTOR_DATO_ANTERIOR],
+                    ];
+                }
+            }
+        }
+
+        if ($corregir !== null) {
             if ($corregir === '') {
                 /* Dijo que algo está mal pero no dijo qué: se pregunta, con la
                    lista de lo que se puede tocar. Sólo los casilleros que ESTE
@@ -1499,6 +1564,8 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
                     if (isset($pasosC[$campo]) && !motor_alta_paso_aplica($pasosC[$campo], $slots)) continue;
                     $ofrecer[] = 'Corregir ' . $d['etiqueta'];
                 }
+                // Y cada insumo ya cargado de la aplicación, por su nombre.
+                foreach ($slots['insumos_lista'] ?? [] as $i) $ofrecer[] = 'Corregir ' . $i['nombre'];
                 return [
                     'ok' => true, 'tipo' => 'alta_paso',
                     'respuesta' => '¿Qué querés corregir?',
@@ -1510,7 +1577,31 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
                     'sugerencias' => $ofrecer,
                 ];
             }
+            /* Un insumo ya cerrado de la aplicación: se saca de la lista y se vuelve a
+               cargar entero —cuál, dosis y precio—, que es la misma charla de
+               siempre. Se reabre la lista: al terminarlo se pregunta si va otro, y
+               con "Ya está" vuelve a la confirmación con los demás intactos. */
+            if (str_starts_with($corregir, 'lista:')) {
+                $k = (int)substr($corregir, 6);
+                $nombre = (string)($slots['insumos_lista'][$k]['nombre'] ?? 'el insumo');
+                array_splice($slots['insumos_lista'], $k, 1);
+                unset($slots['insumos_cerrado']);
+                $avisoPaso = 'Volvamos a cargar ' . $nombre . ' (los demás insumos quedan como están).';
+                $interpretar = false;
+                $corregir = '_lista';
+            }
             unset($slots[$corregir]);
+            /* La frase de corregir no es la respuesta al paso que se reabre: "corregir
+               el insumo" se anotaba como un insumo llamado así, y "corregir la fecha"
+               contestaba "no entendí esa fecha". Se vuelve a preguntar limpio. */
+            $interpretar = false;
+            /* Cambiar la moneda no toca los números que tipeó: si escribió 10 pensando
+               en pesos y había marcado dólares, el error era la etiqueta. Se avisa para
+               que lo revise en el resumen. Los precios del catálogo sí se convierten. */
+            if ($corregir === 'moneda') {
+                $avisoPaso = 'Los montos que escribiste quedan con el mismo número en la moneda que elijas; '
+                           . 'los precios de tu catálogo los paso a esa moneda.';
+            }
             /* El reparto depende del monto y de cuántos lotes hay: si se corrige
                alguno de esos, el que había deja de tener sentido. */
             if (in_array($corregir, ['costo_total', 'lotes'], true)) unset($slots['reparto']);
@@ -1529,18 +1620,27 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
                 unset($slots['insumo_nombre'], $slots['insumo_id'], $slots['insumo_unidad'],
                       $slots['insumo_dosis'], $slots['insumo_precio'], $slots['insumo_cantidad'],
                       $slots['insumo_precio_de'], $slots['insumo_precio_usd'],
-                      $slots['costo_total'], $slots['reparto']);
+                      $slots['costo_total'], $slots['reparto'],
+                      // Y los insumos y la labor de una aplicación: pasar a mano de
+                      // obra con la lista puesta guardaba renglones y descontaba stock.
+                      $slots['insumos_lista'], $slots['insumos_cerrado'], $slots['labor_costo']);
             }
         }
 
+        /* Las otras tres altas: el aviso de esta vuelta, si hubo, va delante de la
+           pregunta que sigue. */
+        $conAviso = function (array $r) use ($avisoPaso): array {
+            if ($avisoPaso !== '') $r['respuesta'] = $avisoPaso . ' ' . $r['respuesta'];
+            return $r;
+        };
         if ($slots['que'] === 'insumo') {
-            return motor_alta_insumo($pdo, $usuarioId, $slots, $texto, $pregunta, is_array($enCurso));
+            return $conAviso(motor_alta_insumo($pdo, $usuarioId, $slots, $texto, $pregunta, $interpretar));
         }
         if ($slots['que'] === 'alquiler') {
-            return motor_alta_alquiler($pdo, $usuarioId, $slots, $texto, $pregunta, is_array($enCurso), $lotes, $campania);
+            return $conAviso(motor_alta_alquiler($pdo, $usuarioId, $slots, $texto, $pregunta, $interpretar, $lotes, $campania));
         }
         if ($slots['que'] === 'venta') {
-            return motor_alta_venta($pdo, $usuarioId, $slots, $texto, $pregunta, is_array($enCurso), $lotes, $campania);
+            return $conAviso(motor_alta_venta($pdo, $usuarioId, $slots, $texto, $pregunta, $interpretar, $lotes, $campania));
         }
 
         $pasos = motor_alta_pasos();
@@ -1556,7 +1656,7 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
         /* Se interpreta la respuesta SEGÚN EL CASILLERO que se preguntó. "cosecha"
            es la etapa cuando se preguntó la etapa, y no otra cosa: acotar la
            interpretación al paso es lo que hace que el paso a paso no se confunda. */
-        if (is_array($enCurso)) {
+        if ($interpretar && !$contestoMoneda) {
             foreach ($pasos as $campo => $paso) {
                 if (isset($slots[$campo])) continue;
                 if (!motor_alta_paso_aplica($paso, $slots)) continue;
@@ -1705,7 +1805,7 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
 
         /* ¿Qué falta todavía? Los dos avisos van juntos y no se pisan: son de
            casilleros distintos y pueden pasar los dos en la misma carga. */
-        $aviso = trim($avisoInsumo . ' ' . $avisoFecha);
+        $aviso = trim($avisoPaso . ' ' . $avisoInsumo . ' ' . $avisoFecha);
         $usados = motor_insumos_usados($pdo, $usuarioId, $slots['grupo_gasto'] ?? null);
         if ($falta = motor_alta_siguiente($slots, $lotes, $aviso, $catalogoAlta, $usados,
                                           motor_lotes_para_alta($pdo, $usuarioId, $lotes, $campania))) return $falta;
@@ -1718,6 +1818,10 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
             'detalle' => $prop['detalle'],
             'valor' => $prop['datos']['costo_total'],
             'alta' => $prop['datos'],
+            /* Lo que vuelve si toca "Corregir". No sirve devolver 'alta': son los
+               datos ya armados para guardar, sin la lista de insumos con sus dosis,
+               y una aplicación de tres productos volvía con uno solo. */
+            'alta_estado' => $slots,
             'alta_pendiente' => null,   // el formulario se cierra
             'filtros' => ['ciclo' => $campania, 'lote' => count($prop['datos']['lotes']) === 1 ? $prop['datos']['lotes'][0] : null,
                           'cultivo' => null, 'metrica' => null],
@@ -1755,6 +1859,7 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
             'valor' => $prop['datos']['costo_total'],
             // Lo que se guarda es ESTO, no la frase: el guardado no vuelve a interpretar.
             'alta' => $prop['datos'],
+            'alta_estado' => $slots + ['que' => 'gasto'],   // para "Corregir", ver el paso a paso
             'filtros' => ['ciclo' => $campania,
                           'lote' => count($prop['datos']['lotes']) === 1 ? $prop['datos']['lotes'][0] : null,
                           'cultivo' => $cultivo, 'metrica' => null],
@@ -3813,13 +3918,16 @@ function motor_alta_campos(string $que = 'gasto'): array {
     return [
         'grupo_gasto'      => ['etiqueta' => 'la etapa',    'sinonimos' => ['etapa','grupo','en que gaste','labor']],
         'tipo_componente'  => ['etiqueta' => 'el tipo',     'sinonimos' => ['tipo','componente']],
+        'moneda'           => ['etiqueta' => 'la moneda',   'sinonimos' => ['moneda','pesos','dolares','en dolares','en pesos']],
         'insumo_nombre'    => ['etiqueta' => 'el insumo',   'sinonimos' => ['insumo','producto']],
         'insumo_dosis'     => ['etiqueta' => 'la dosis',    'sinonimos' => ['dosis','cantidad','por hectarea','por ha','cuanto use','kilos por hectarea']],
         /* "precio" también nombra al monto de más abajo. Va primero el de la dosis
            porque en un gasto de insumo el monto ya no se pregunta: el único precio
            que se puede corregir es el de la unidad. */
         'insumo_precio'    => ['etiqueta' => 'el precio por unidad', 'sinonimos' => ['precio unitario','precio por unidad','precio por kilo','precio por litro','precio del kilo','precio del litro','a cuanto','precio del insumo']],
-        'lotes'            => ['etiqueta' => 'el lote',     'sinonimos' => ['lote','lotes','campo']],
+        // "la labor" a secas es más largo que "labor" de la etapa, y gana.
+        'labor_costo'      => ['etiqueta' => 'la labor',    'sinonimos' => ['la labor','costo de la labor','labor por hectarea','labor por ha']],
+        'lotes'          => ['etiqueta' => 'el lote',     'sinonimos' => ['lote','lotes','campo']],
         'costo_total'      => ['etiqueta' => 'el monto',    'sinonimos' => ['monto','importe','plata','costo','valor','precio']],
         'reparto'          => ['etiqueta' => 'el reparto',  'sinonimos' => ['reparto','repartir','por hectarea','por hectárea']],
         'fecha'            => $fecha,
@@ -3838,6 +3946,13 @@ function motor_alta_pide_correccion(string $t, string $que = 'gasto', array $slo
                   . 'esta mal|está mal|me equivoque|equivoque|no era|volver a)/u', $t)) {
         return null;
     }
+    /* Un insumo ya cerrado de la aplicación, nombrado por su nombre: "corregir el
+       Glifosato". Va antes que los casilleros porque es más preciso: "la dosis del
+       glifosato" habla de ESE renglón, no de la dosis del que se está cargando. */
+    foreach ($slots['insumos_lista'] ?? [] as $k => $i) {
+        if (motor_nombra($t, motor_normalizar((string)$i['nombre']))) return 'lista:' . $k;
+    }
+
     $mejor = null; $largo = 0;
     foreach (motor_alta_campos($que) as $campo => $d) {
         foreach ($d['sinonimos'] as $s) {
@@ -3860,7 +3975,74 @@ function motor_alta_pide_correccion(string $t, string $que = 'gasto', array $slo
         $mejor = 'insumo_precio';
     }
 
+    /* En una aplicación los insumos ya cerrados viven en la lista, no en los
+       casilleros sueltos: "corregir la dosis" no tiene casillero que vaciar. Con
+       un solo insumo no hay duda de cuál es; con varios se pregunta. */
+    $deInsumo = in_array($mejor, ['insumo_nombre', 'insumo_dosis', 'insumo_precio'], true);
+    if ($deInsumo && !isset($slots[$mejor]) && !empty($slots['insumos_lista'])) {
+        return count($slots['insumos_lista']) === 1 ? 'lista:0' : '';
+    }
+    // La labor sólo existe en una aplicación: en otro gasto no hay nada que vaciar.
+    if ($mejor === 'labor_costo' && !isset($slots['labor_costo'])) return '';
+
     return $mejor ?? '';   // dijo que está mal, pero no dijo qué
+}
+
+/** El chip que contesta "el error es de antes" en la pregunta de qué corregir. */
+const MOTOR_DATO_ANTERIOR = 'Era un dato anterior';
+
+/**
+ * ¿Dice que lo que está mal no es lo último sino algo de más atrás?
+ */
+function motor_alta_dato_anterior(string $t): bool {
+    return (bool)preg_match('/(dato anterior|uno anterior|otro anterior|otro dato|era otro|era otra|mas atras|de antes)/u', $t);
+}
+
+/**
+ * El último dato que contestó, si la carga todavía tiene algo por preguntar.
+ *
+ * El paso a paso no guarda el orden en que se contestó, pero no hace falta: las
+ * preguntas salen en el orden de motor_alta_pasos(), así que lo último contestado
+ * es el último casillero lleno antes del que se está preguntando.
+ *
+ * @return array ['pendiente' => bool, 'previo' => campo, 'lista:N' o null]
+ */
+function motor_alta_dato_previo(array $slots): array {
+    $que    = $slots['que'] ?? 'gasto';
+    $campos = motor_alta_campos($que);
+    $previo = null;
+    foreach (motor_alta_pasos($que) as $campo => $paso) {
+        if (!motor_alta_paso_aplica($paso, $slots)) continue;
+        if (!isset($slots[$campo])) {
+            /* Pregunta "¿qué insumo fue?" después de "sí, agrego otro": lo último
+               que cargó de verdad es el insumo anterior, que ya está en la lista. */
+            if ($campo === 'insumo_nombre' && !empty($slots['insumos_lista'])) {
+                $previo = 'lista:' . (count($slots['insumos_lista']) - 1);
+            }
+            return ['pendiente' => true, 'previo' => $previo];
+        }
+        // El precio que trajo el catálogo no lo contestó él: lo último fue la dosis.
+        if ($campo === 'insumo_precio' && ($slots['insumo_precio_de'] ?? '') === 'catalogo') continue;
+        if (isset($campos[$campo])) $previo = $campo;
+    }
+    return ['pendiente' => false, 'previo' => $previo];
+}
+
+/** El paso que se está preguntando ahora, o null si ya está todo. */
+function motor_alta_paso_pendiente(array $slots): ?string {
+    foreach (motor_alta_pasos($slots['que'] ?? 'gasto') as $campo => $paso) {
+        if (isset($slots[$campo]) || !motor_alta_paso_aplica($paso, $slots)) continue;
+        return $campo;
+    }
+    return null;
+}
+
+/** Cómo se nombra un casillero (o un insumo de la lista) en el chip de corregir. */
+function motor_alta_etiqueta_campo(string $campo, array $slots): string {
+    if (str_starts_with($campo, 'lista:')) {
+        return (string)($slots['insumos_lista'][(int)substr($campo, 6)]['nombre'] ?? 'el insumo');
+    }
+    return motor_alta_campos($slots['que'] ?? 'gasto')[$campo]['etiqueta'] ?? $campo;
 }
 
 function motor_alta_pasos(string $que = 'gasto'): array {
@@ -3898,6 +4080,18 @@ function motor_alta_pasos(string $que = 'gasto'): array {
             'pregunta' => '¿Qué fue?',
             'ayuda'    => 'Una aplicación es la labor y los insumos juntos, en una sola pasada.',
             'opciones' => ['Mano de obra', 'Insumo', 'Aplicación (labor + insumos)'],
+        ],
+        /* LA MONEDA, ANTES DEL PRIMER MONTO. Si no se preguntaba, el gasto quedaba
+           en la moneda que el chat estaba mirando —casi siempre pesos— y una
+           aplicación pagada en dólares se guardaba como pesos sin que nadie lo
+           notara. Va antes de la labor y de los insumos para que todos los montos
+           que siguen se tipeen ya en esa moneda, y para que el precio del catálogo
+           (que está en dólares) se convierta a la que corresponde.
+           Si la frase ya la dijo ("gasté 850 dólares") no se pregunta. */
+        'moneda' => [
+            'pregunta' => '¿Lo pagaste en pesos o en dólares?',
+            'ayuda'    => 'Los montos que siguen van en esa moneda, y el gasto se guarda en ella.',
+            'opciones' => ['Pesos', 'Dólares'],
         ],
         /* La parte de labor de una aplicación: lo que se le paga al que la hizo.
            Va POR HECTÁREA, y no es una elección de estilo: así la guarda y la
@@ -5795,6 +5989,11 @@ function motor_alta_siguiente(array $slots, array $lotes, string $aviso = '', ar
                            . ', no el total de la compra. Con eso saco el total.';
         }
 
+        // Los montos se piden diciendo la moneda elegida: es lo que evita tipear pesos en dólares.
+        if (isset($slots['moneda']) && in_array($campo, ['labor_costo', 'insumo_precio', 'costo_total'], true)) {
+            $paso['pregunta'] = rtrim($paso['pregunta'], '?') . ($slots['moneda'] === 'USD' ? ', en dólares?' : ', en pesos?');
+        }
+
         if ($campo === 'insumo_cantidad') {
             // Con la unidad del catálogo la pregunta es concreta: "¿cuántos kilos?"
             if ($uniPl !== '') {
@@ -5835,6 +6034,7 @@ function motor_alta_siguiente(array $slots, array $lotes, string $aviso = '', ar
         if (isset($slots['tipo_componente'])) {
             $hechos[] = ['insumo' => 'insumo', 'receta' => 'aplicación'][$slots['tipo_componente']] ?? 'mano de obra';
         }
+        if (isset($slots['moneda'])) $hechos[] = $slots['moneda'] === 'USD' ? 'en dólares' : 'en pesos';
         /* No alcanza con isset: en un gasto de mano de obra estos dos casilleros
            se llenan vacíos —nombre '' y cantidad 0— y aparecían en el resumen
            como un renglón en blanco y un "0,00" sueltos. Se nota al volver sobre

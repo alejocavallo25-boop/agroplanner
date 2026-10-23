@@ -504,7 +504,9 @@ $chat_voz_ia = ia_voz_disponible(isset($env) && is_array($env) ? $env : []);
             ok.addEventListener('click', () => { confirmacionPendiente = false; guardarAlta(r.alta, acciones); });
             editar.addEventListener('click', () => {
                 confirmacionPendiente = false;
-                altaPendiente = r.alta;
+                /* alta_estado es la carga tal cual se venía llenando (con la lista
+                   de insumos); r.alta queda para las altas que no lo mandan. */
+                altaPendiente = r.alta_estado || r.alta;
                 acciones.remove();
                 // preguntar() es la función; 'enviar' es el botón de mandar.
                 preguntar('corregir');

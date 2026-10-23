@@ -46,13 +46,17 @@ consulta filtra por `usuario_id` de la sesión.
   `strpos` (un "Lote 1" aparece dentro de "lote 12").
 - **La moneda de un gasto cargado es la que DICE la frase** ("gasté 850
   dólares", `motor_moneda_dicha()`), no la que el chat está mirando. Antes se
-  ignoraba y se guardaba $850 pesos. Durante la carga, `api/consulta.php` no
-  devuelve esa moneda como moneda de lectura del chat.
+  ignoraba y se guardaba $850 pesos. Si la frase no la dice, el paso a paso la
+  pregunta (paso `moneda`, antes del primer monto). Durante la carga,
+  `api/consulta.php` no devuelve esa moneda como moneda de lectura del chat.
 - El recorte por etapa/rubro/proveedor sólo corre si la pregunta es de gasto:
   "¿cuánto rindió la cosecha?" pide el rinde, no el gasto en cosecha.
 - El chat manda las cargas con `URLSearchParams`: una lista de objetos (los
   `insumos` de una pulverización) tiene que ir con `JSON.stringify`, o llega
   como `[object Object]` y se guardaba un solo insumo.
+- "Corregir" en la confirmación de un gasto devuelve `alta_estado` (la carga con
+  `insumos_lista`), no `alta`: esos son los datos ya armados para guardar y una
+  aplicación de varios insumos volvía con uno solo.
 - Las preguntas que no entiende quedan en `motor_consultas_fallidas` (las del
   tambo con `[tambo]` en el motivo): es la lista de qué falta enseñarle.
 - **Tambo**: no sumarle ramas a `motor.php` ("margen" y "cuánto gasté" existen en
