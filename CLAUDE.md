@@ -64,6 +64,14 @@ consulta filtra por `usuario_id` de la sesión.
   antes del require de `includes/chat_motor.php`. Las frases se buscan como
   palabras enteras: "sa*que en* agosto" se leía como comparación.
 
+## Gastos (`operaciones.php`)
+
+- **Multilote = una operación por lote**, guardadas en una sola transacción (no
+  hay tabla ni columna de "grupo"). Reparto por ha: precio/ha y dosis/ha iguales;
+  en "Cant. Total" se divide por la suma de las ha. Los campos van con el id del
+  lote como clave (`multi_ha[12]`); el servidor entra en multilote si llega
+  `multi_lote[]`. Sólo al registrar: la edición es siempre de un lote.
+
 ## Stock (`insumos.php`)
 
 - **Los filtros son enlaces, y viven en tres lugares.** `urlFiltro()` arma la URL

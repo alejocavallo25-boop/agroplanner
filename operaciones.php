@@ -16,118 +16,155 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     // ─── Shared logic: parse cultivo info (solo para add/edit) ───────────────
     $lote_id     = $_POST['lote_id'] ?? null;
     $cultivo_info = !empty($_POST['form_cultivo']) ? $_POST['form_cultivo'] : null;
-    $campania = $cultivo = null;
     $grupo      = $_POST['grupo_gasto'] ?? 'otros';
     $grupo_desc = null;
     $tipo_comp  = $_POST['tipo_componente'] ?? 'labor';
     $fecha      = $_POST['fecha'] ?? date('Y-m-d');
-    $cultivo_id = null;
-    $sup = 0;
-    $factor_division = 1;
-    $costo_total = 0;
-    $op_id = null;
     $proveedor = null;
-    $cant_ha = 0;
     $precio_u = 0;
     $cargas = null;
     $tipo_comp_db = ($tipo_comp === 'insumo') ? 'multi_insumo' : $tipo_comp;
     // La moneda en que se pagó. No se convierte al guardar: se convierte al mirar.
     $moneda = (($_POST['moneda'] ?? 'ARS') === 'USD') ? 'USD' : 'ARS';
+    $con_labor   = ($tipo_comp === 'labor' || $tipo_comp === 'receta_labor');
+    $con_insumos = ($tipo_comp === 'insumo' || $tipo_comp === 'receta_labor');
+
+    /* Un gasto puede ir a varios lotes a la vez ("multilote"). Se guarda UNA
+       operación por lote, todas en la misma transacción: así cada fila sigue
+       teniendo un solo lote_id y el panel, los reportes, el chat y la
+       rentabilidad por lote no se enteran de nada. El reparto es por hectáreas:
+       el precio/ha y la dosis/ha son los mismos en todos los lotes. */
+    $destinos  = [];  // lote_id, sup, ha, cant_ha, cultivo_info → luego campania, cultivo, cultivo_id, costo_total
+    $filas_ins = [];  // insumos ya pasados a cant/ha: real_ins_id, real_nom, c, p
 
     if ($_POST['action'] === 'add' || $_POST['action'] === 'edit') {
-        if ($cultivo_info) {
-            $partes = explode(' | ', $cultivo_info);
-            if (count($partes) === 2) { $campania = trim($partes[0]); $cultivo = trim($partes[1]); }
-            else                      { $cultivo = trim($cultivo_info); }
-        }
         $grupo_desc = ($grupo === 'otros' && !empty($_POST['grupo_descripcion'])) ? trim($_POST['grupo_descripcion']) : null;
-
-        // Cultivo canónico (find-or-create). El texto se sigue guardando como snapshot.
-        $cultivo_id = cultivo_resolve($pdo, $usuario_id, $lote_id, $cultivo, $campania);
-
-        // Superficie del lote
-        $stmtSup = $pdo->prepare("SELECT superficie FROM lotes WHERE id = ?");
-        $stmtSup->execute([$lote_id]);
-        $sup = (float)($stmtSup->fetchColumn() ?: 0);
-        if ($sup <= 0) throw new Exception("El lote no tiene superficie válida.");
-
         $modo_calculo = $_POST['modo_calculo'] ?? 'ha';
 
-        // Hectáreas declaradas en este gasto para los insumos (default = superficie del lote).
-        $hectareas = (isset($_POST['hectareas_insumo']) && $_POST['hectareas_insumo'] !== '') ? (float)$_POST['hectareas_insumo'] : $sup;
-        if ($hectareas <= 0) $hectareas = $sup;
-        $hectareas_db = ($tipo_comp === 'insumo' || $tipo_comp === 'receta_labor') ? $hectareas : null;
+        // Superficie del lote. Filtra por usuario: un lote_id ajeno da 0 y se descarta.
+        $stmtSup = $pdo->prepare("SELECT superficie FROM lotes WHERE id = ? AND usuario_id = ?");
+        $superficie = function ($id) use ($stmtSup, $usuario_id) {
+            $stmtSup->execute([(int)$id, $usuario_id]);
+            return (float)($stmtSup->fetchColumn() ?: 0);
+        };
+
+        // Los campos del multilote van con el id del lote como clave (multi_ha[12]):
+        // un checkbox sin tildar no se envía, y con índices sueltos las ha y los
+        // cultivos quedarían corridos respecto de los lotes.
+        if ($_POST['action'] === 'add' && !empty($_POST['multi_lote']) && is_array($_POST['multi_lote'])) {
+            foreach (array_keys($_POST['multi_lote']) as $mid) {
+                $mid = (int)$mid;
+                $sup = $superficie($mid);
+                if ($mid <= 0 || $sup <= 0 || isset($destinos[$mid])) continue;
+                $ha = (float)($_POST['multi_ha'][$mid] ?? 0);
+                if ($ha <= 0) $ha = $sup;
+                $destinos[$mid] = [
+                    'lote_id' => $mid, 'sup' => $sup, 'ha' => $ha,
+                    // La labor sola se cobra por las ha trabajadas; en la receta, sobre el total del lote.
+                    'cant_ha' => ($tipo_comp === 'receta_labor') ? $sup : $ha,
+                    'cultivo_info' => $_POST['multi_cultivo'][$mid] ?? '',
+                ];
+            }
+            // Las cargas son de una aplicación en un lote: repartidas no significan nada.
+            $_POST['cargas'] = '';
+        } else {
+            $sup = $superficie($lote_id);
+            if ($sup > 0) {
+                // Hectáreas declaradas en este gasto para los insumos (default = superficie del lote).
+                $ha = (isset($_POST['hectareas_insumo']) && $_POST['hectareas_insumo'] !== '') ? (float)$_POST['hectareas_insumo'] : $sup;
+                if ($ha <= 0) $ha = $sup;
+                $destinos[] = [
+                    'lote_id' => (int)$lote_id, 'sup' => $sup, 'ha' => $ha,
+                    'cant_ha' => (float)($_POST['cantidad_ha'] ?? 0),
+                    'cultivo_info' => $cultivo_info,
+                ];
+            }
+        }
+        if (!$destinos) {
+            set_flash('error', 'No se guardó nada: elegí al menos un lote con superficie cargada.');
+            header("Location: operaciones.php"); exit;
+        }
 
         // En modo "Cant. Total" la cantidad ingresada es el total del gasto (no por ha):
         // se divide por las hectáreas para pasarla a cantidad/ha, igual que el preview JS.
-        // Debe usar las MISMAS hectáreas con las que luego se multiplica, para que se cancelen.
-        $factor_division = ($modo_calculo === 'total' && $hectareas > 0) ? $hectareas : 1;
+        // Debe usar las MISMAS hectáreas con las que luego se multiplica, para que se cancelen:
+        // con varios lotes, la suma de las ha de todos.
+        $ha_total = array_sum(array_column($destinos, 'ha'));
+        $factor_division = ($modo_calculo === 'total' && $ha_total > 0) ? $ha_total : 1;
 
-        if ($tipo_comp === 'labor' || $tipo_comp === 'receta_labor') {
-            $cant_ha   = (float)($_POST['cantidad_ha'] ?? 0);
+        if ($con_labor) {
             $precio_u  = (float)($_POST['precio_unitario'] ?? 0);
             $proveedor = $_POST['proveedor_servicio'] ?? '';
-            $costo_total += $precio_u * $cant_ha;
-            
             if ($tipo_comp === 'receta_labor') {
                 $cargas = !empty($_POST['cargas']) ? (int)$_POST['cargas'] : null;
             }
         }
-        
-        if ($tipo_comp === 'insumo' || $tipo_comp === 'receta_labor') {
-            if (isset($_POST['insumo_id']) && is_array($_POST['insumo_id'])) {
-                for ($i = 0; $i < count($_POST['insumo_id']); $i++) {
-                    $ins_id = $_POST['insumo_id'][$i];
-                    $nom_lib= $_POST['nombre_libre_ins'][$i] ?? '';
-                    if (!$ins_id && trim($nom_lib) === '') continue; // Fila vacía
-                    
-                    $c = (float)$_POST['cantidad_ha_ins'][$i] / $factor_division; // modo "total" → pasa a cant/ha
-                    $p = (float)$_POST['precio_unitario_ins'][$i];
-                    $costo_total += ($c * $p * $hectareas);
-                }
+
+        if ($con_insumos && isset($_POST['insumo_id']) && is_array($_POST['insumo_id'])) {
+            for ($i = 0; $i < count($_POST['insumo_id']); $i++) {
+                $ins_id = $_POST['insumo_id'][$i];
+                $nom_lib= $_POST['nombre_libre_ins'][$i] ?? '';
+                if (!$ins_id && trim($nom_lib) === '') continue; // Fila vacía
+
+                $filas_ins[] = [
+                    'real_ins_id' => ($ins_id && $ins_id !== 'manual') ? $ins_id : null,
+                    'real_nom'    => ($ins_id === 'manual') ? trim($nom_lib) : null,
+                    'c' => (float)$_POST['cantidad_ha_ins'][$i] / $factor_division, // modo "total" → pasa a cant/ha
+                    'p' => (float)$_POST['precio_unitario_ins'][$i],
+                ];
             }
         }
+
+        foreach ($destinos as &$d) {
+            $d['campania'] = $d['cultivo'] = null;
+            if ($d['cultivo_info']) {
+                $partes = explode(' | ', $d['cultivo_info']);
+                if (count($partes) === 2) { $d['campania'] = trim($partes[0]); $d['cultivo'] = trim($partes[1]); }
+                else                      { $d['cultivo'] = trim($d['cultivo_info']); }
+            }
+            // Cultivo canónico (find-or-create). El texto se sigue guardando como snapshot.
+            $d['cultivo_id'] = cultivo_resolve($pdo, $usuario_id, $d['lote_id'], $d['cultivo'], $d['campania']);
+            if (!$con_labor) $d['cant_ha'] = 0;
+            $d['hectareas_db'] = $con_insumos ? $d['ha'] : null;
+
+            $d['costo_total'] = $con_labor ? $precio_u * $d['cant_ha'] : 0;
+            foreach ($filas_ins as $f) $d['costo_total'] += $f['c'] * $f['p'] * $d['ha'];
+        }
+        unset($d);
     }
 
     $pdo->beginTransaction();
     try {
+        $stmtInsertChild = $pdo->prepare("INSERT INTO operacion_insumos (operacion_id, insumo_id, nombre_libre, cantidad_ha, precio_unitario) VALUES (?, ?, ?, ?, ?)");
+        // Permite stock negativo: no se clampa a 0 ni se desactiva el insumo al llegar a cero.
+        $stmtUpdateStock = $pdo->prepare("UPDATE insumos SET stock_actual = stock_actual - ? WHERE id = ? AND usuario_id = ?");
+        // Insumos de una operación: cada lote descuenta del stock sus propias ha.
+        $guardar_insumos = function ($op_id, $ha) use ($filas_ins, $stmtInsertChild, $stmtUpdateStock, $usuario_id) {
+            foreach ($filas_ins as $f) {
+                $stmtInsertChild->execute([$op_id, $f['real_ins_id'], $f['real_nom'], $f['c'], $f['p']]);
+                if ($f['real_ins_id']) {
+                    $stmtUpdateStock->execute([$f['c'] * $ha, $f['real_ins_id'], $usuario_id]);
+                }
+            }
+        };
+
         if ($_POST['action'] === 'add') {
             $stmt = $pdo->prepare("INSERT INTO operaciones (usuario_id, lote_id, cultivo_id, grupo_gasto, grupo_descripcion, tipo_componente, insumo_id, proveedor_servicio, cantidad_ha, precio_unitario, costo_total, moneda, fecha, campania_operacion, cultivo_operacion, cargas, hectareas) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$usuario_id, $lote_id, $cultivo_id, $grupo, $grupo_desc, $tipo_comp_db, $proveedor, $cant_ha, $precio_u, $costo_total, $moneda, $fecha, $campania, $cultivo, $cargas, $hectareas_db]);
-            $op_id = $pdo->lastInsertId();
-
-            if (($tipo_comp === 'insumo' || $tipo_comp === 'receta_labor') && isset($_POST['insumo_id']) && is_array($_POST['insumo_id'])) {
-                $stmtInsertChild = $pdo->prepare("INSERT INTO operacion_insumos (operacion_id, insumo_id, nombre_libre, cantidad_ha, precio_unitario) VALUES (?, ?, ?, ?, ?)");
-                // Permite stock negativo: no se clampa a 0 ni se desactiva el insumo al llegar a cero.
-                $stmtUpdateStock = $pdo->prepare("UPDATE insumos SET stock_actual = stock_actual - ? WHERE id = ? AND usuario_id = ?");
-
-                for ($i = 0; $i < count($_POST['insumo_id']); $i++) {
-                    $ins_id = $_POST['insumo_id'][$i];
-                    $nom_lib= $_POST['nombre_libre_ins'][$i] ?? null;
-                    if (!$ins_id && trim($nom_lib) === '') continue;
-                    
-                    $real_ins_id = ($ins_id && $ins_id !== 'manual') ? $ins_id : null;
-                    $real_nom = ($ins_id === 'manual') ? trim($nom_lib) : null;
-                    
-                    $c = (float)$_POST['cantidad_ha_ins'][$i] / $factor_division; // modo "total" → pasa a cant/ha
-                    $p = (float)$_POST['precio_unitario_ins'][$i];
-                    
-                    $stmtInsertChild->execute([$op_id, $real_ins_id, $real_nom, $c, $p]);
-                    
-                    if ($real_ins_id) {
-                        $cant_total = $c * $hectareas;
-                        $stmtUpdateStock->execute([$cant_total, $real_ins_id, $usuario_id]);
-                    }
-                }
+            foreach ($destinos as $d) {
+                $stmt->execute([$usuario_id, $d['lote_id'], $d['cultivo_id'], $grupo, $grupo_desc, $tipo_comp_db, $proveedor, $d['cant_ha'], $precio_u, $d['costo_total'], $moneda, $fecha, $d['campania'], $d['cultivo'], $cargas, $d['hectareas_db']]);
+                if ($con_insumos) $guardar_insumos($pdo->lastInsertId(), $d['ha']);
             }
 
         } elseif ($_POST['action'] === 'edit') {
             $id = (int)$_POST['id'];
+            $d  = reset($destinos); // la edición es siempre de un solo lote
 
             // Restaurar stock viejo
             $stmtOld = $pdo->prepare("SELECT tipo_componente, insumo_id, cantidad_ha, lote_id, hectareas FROM operaciones WHERE id = ? AND usuario_id = ?");
             $stmtOld->execute([$id, $usuario_id]);
             $old = $stmtOld->fetch();
+            // Sin esto, un id ajeno borraba y reemplazaba los insumos de otra cuenta.
+            if (!$old) throw new Exception("Operación $id inexistente o de otro usuario.");
             if ($old) {
                 $stmtSupOld = $pdo->prepare("SELECT superficie FROM lotes WHERE id = ?");
                 $stmtSupOld->execute([$old['lote_id']]);
@@ -157,33 +194,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
             // Actualizar padre
             $stmt = $pdo->prepare("UPDATE operaciones SET lote_id=?, cultivo_id=?, grupo_gasto=?, grupo_descripcion=?, tipo_componente=?, insumo_id=NULL, proveedor_servicio=?, cantidad_ha=?, precio_unitario=?, costo_total=?, moneda=?, fecha=?, campania_operacion=?, cultivo_operacion=?, cargas=?, hectareas=? WHERE id=? AND usuario_id=?");
-            $stmt->execute([$lote_id, $cultivo_id, $grupo, $grupo_desc, $tipo_comp_db, $proveedor, $cant_ha, $precio_u, $costo_total, $moneda, $fecha, $campania, $cultivo, $cargas, $hectareas_db, $id, $usuario_id]);
+            $stmt->execute([$d['lote_id'], $d['cultivo_id'], $grupo, $grupo_desc, $tipo_comp_db, $proveedor, $d['cant_ha'], $precio_u, $d['costo_total'], $moneda, $fecha, $d['campania'], $d['cultivo'], $cargas, $d['hectareas_db'], $id, $usuario_id]);
 
             // Insertar hijos nuevos
-            if (($tipo_comp === 'insumo' || $tipo_comp === 'receta_labor') && isset($_POST['insumo_id']) && is_array($_POST['insumo_id'])) {
-                $stmtInsertChild = $pdo->prepare("INSERT INTO operacion_insumos (operacion_id, insumo_id, nombre_libre, cantidad_ha, precio_unitario) VALUES (?, ?, ?, ?, ?)");
-                // Permite stock negativo: no se clampa a 0 ni se desactiva el insumo al llegar a cero.
-                $stmtUpdateStock = $pdo->prepare("UPDATE insumos SET stock_actual = stock_actual - ? WHERE id = ? AND usuario_id = ?");
-
-                for ($i = 0; $i < count($_POST['insumo_id']); $i++) {
-                    $ins_id = $_POST['insumo_id'][$i];
-                    $nom_lib= $_POST['nombre_libre_ins'][$i] ?? null;
-                    if (!$ins_id && trim($nom_lib) === '') continue;
-                    
-                    $real_ins_id = ($ins_id && $ins_id !== 'manual') ? $ins_id : null;
-                    $real_nom = ($ins_id === 'manual') ? trim($nom_lib) : null;
-                    
-                    $c = (float)$_POST['cantidad_ha_ins'][$i] / $factor_division; // modo "total" → pasa a cant/ha
-                    $p = (float)$_POST['precio_unitario_ins'][$i];
-                    
-                    $stmtInsertChild->execute([$id, $real_ins_id, $real_nom, $c, $p]);
-                    
-                    if ($real_ins_id) {
-                        $cant_total = $c * $hectareas;
-                        $stmtUpdateStock->execute([$cant_total, $real_ins_id, $usuario_id]);
-                    }
-                }
-            }
+            if ($con_insumos) $guardar_insumos($id, $d['ha']);
 
         } elseif ($_POST['action'] === 'delete') {
             $id = (int)$_POST['id'];
@@ -716,7 +730,7 @@ function colorGrupo($g) {
 <div id="addOpModal" class="modal-wrapper">
     <div class="glass-panel modal-panel" style="max-width: 520px;">
         <h2 id="opModalTitle" style="margin-bottom: 20px;">Registrar Gasto / Labor</h2>
-        <form method="POST" style="display: flex; flex-direction: column; gap: 14px;">
+        <form method="POST" onsubmit="return validarMultiLote()" style="display: flex; flex-direction: column; gap: 14px;">
             <?php csrf_field(); ?>
             <input type="hidden" name="action" id="opAction" value="add">
             <input type="hidden" name="id"     id="opId"     value="">
@@ -754,7 +768,7 @@ function colorGrupo($g) {
                         <option value="receta_labor">🚜 Aplicación / Receta (Labor + Insumos)</option>
                     </select>
                 </div>
-                <div style="display: flex; flex-direction: column; gap: 5px;">
+                <div id="loteSimpleWrap" style="display: flex; flex-direction: column; gap: 5px;">
                     <label for="loteSelect">Lote Afectado</label>
                     <select name="lote_id" id="loteSelect" required onchange="updateCultivos(); prefillHectareasFromLote();"
                         style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: var(--text-primary);">
@@ -766,8 +780,27 @@ function colorGrupo($g) {
                 </div>
             </div>
 
+            <?php /* Multilote: el mismo gasto en varios lotes. Se guarda una operación
+                     por lote (ver el POST), repartida por hectáreas. Sólo al
+                     registrar: al editar, cada lote es su propia operación. */ ?>
+            <?php if (count($lotes) > 1): ?>
+            <div id="multiLoteToggleWrap" style="display:flex; flex-direction:column; gap:8px;">
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.9rem;">
+                    <input type="checkbox" id="multiLoteCheck" onchange="toggleFormMode()">
+                    Repartir en varios lotes
+                </label>
+                <div id="multiLoteContainer" style="display:none; flex-direction:column; gap:6px; background:var(--n-25); padding:10px; border-radius:8px; border:1px solid var(--border);">
+                    <small style="color:var(--text-muted);">
+                        <i class="fas fa-info-circle"></i>
+                        Se guarda un gasto por lote. El precio y la dosis por ha son los mismos en todos; cada lote paga sus hectáreas.
+                    </small>
+                    <div id="multiLoteLista" style="display:flex; flex-direction:column; gap:6px;"></div>
+                </div>
+            </div>
+            <?php endif; ?>
+
             <!-- Campaña / Cultivo -->
-            <div style="display: flex; flex-direction: column; gap: 5px;">
+            <div id="cultivoWrap" style="display: flex; flex-direction: column; gap: 5px;">
                 <label for="cultivoSelect">Campaña / Cultivo Actual</label>
                 <select name="form_cultivo" id="cultivoSelect"
                     style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: var(--text-primary);">
@@ -801,7 +834,7 @@ function colorGrupo($g) {
                 <select name="modo_calculo" id="modoCalculoSelect" onchange="toggleFormMode(); updateCostoPreview();"
                     style="padding: 10px; border-radius: 6px; border: 1px dashed var(--accent); background: rgba(96,165,250,0.05); color: var(--text-primary);">
                     <option value="ha">Por Hectárea (Cant/Ha)</option>
-                    <option value="total">Total del Lote (Se dividirá automáticamente por las hectáreas)</option>
+                    <option value="total">Total (Se dividirá automáticamente por las hectáreas)</option>
                 </select>
             </div>
 
@@ -820,7 +853,7 @@ function colorGrupo($g) {
                         <input type="number" step="1" name="cargas" id="cargasInput" placeholder="Ej: 3"
                             style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--n-0); color: var(--text-primary);">
                     </div>
-                    <div style="display: flex; flex-direction: column; gap: 5px;">
+                    <div id="divCantHaLabor" style="display: flex; flex-direction: column; gap: 5px;">
                         <label for="cantHaLabor" id="lblCantHaLabor">Cantidad de Has.</label>
                         <input type="number" step="0.1" name="cantidad_ha" id="cantHaLabor" placeholder="Ej: 120"
                             style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--n-0); color: var(--text-primary);">
@@ -839,7 +872,7 @@ function colorGrupo($g) {
             <!-- SECCIÓN INSUMO (MULTI-INSUMO) -->
             <div id="sectionInsumo" style="display: none; flex-direction: column; gap: 14px; background:var(--n-25); padding:10px; border-radius:8px; border:1px solid var(--border);">
                 <div style="font-size:0.9rem; font-weight:600; color:var(--text-muted); border-bottom:1px solid var(--border); padding-bottom:5px;">Insumos y Productos Utilizados</div>
-                <div style="display:flex; flex-direction:column; gap:5px;">
+                <div id="divHectareasInsumo" style="display:flex; flex-direction:column; gap:5px;">
                     <label for="hectareasInsumo">Hectáreas a aplicar <small style="color:var(--text-muted);">(se completa con las del lote, podés cambiarlo)</small></label>
                     <input type="number" step="0.01" name="hectareas_insumo" id="hectareasInsumo" placeholder="Ej: 50"
                         oninput="updateCostoPreview()"
@@ -1091,24 +1124,30 @@ function onInsumoChangeRow(sel, skipPriceOverride = false) {
 }
 
 /* ───── Cultivos dinámicos ───── */
+// Campañas/cultivos de un lote: primero el actual, después los del historial.
+function cultivoOpciones(loteId) {
+    let options = [];
+    const info = lotesRaw.find(l => l.id == loteId);
+    if (info && info.campania && info.cultivo_actual) {
+        options.push({ c: info.campania, cult: info.cultivo_actual });
+    }
+    cultivosRaw.forEach(c => {
+        if (c.lote_id == loteId && c.campania && c.cultivo) {
+            if (!options.some(o => o.c === c.campania && o.cult === c.cultivo)) {
+                options.push({ c: c.campania, cult: c.cultivo });
+            }
+        }
+    });
+    return options;
+}
+
 function updateCultivos(preselect) {
     const loteId = document.getElementById('loteSelect').value;
     const sel    = document.getElementById('cultivoSelect');
     sel.innerHTML = '<option value="">-- General / Sin Cultivo Específico --</option>';
     if (loteId) {
-        let options = [];
-        const info = lotesRaw.find(l => l.id == loteId);
-        if (info && info.campania && info.cultivo_actual) {
-            options.push({ c: info.campania, cult: info.cultivo_actual });
-        }
-        cultivosRaw.forEach(c => {
-            if (c.lote_id == loteId && c.campania && c.cultivo) {
-                if (!options.some(o => o.c === c.campania && o.cult === c.cultivo)) {
-                    options.push({ c: c.campania, cult: c.cultivo });
-                }
-            }
-        });
-        
+        let options = cultivoOpciones(loteId);
+
         // Si hay una preselección que no está en la lista (ej: un cultivo viejo), la agregamos
         if (preselect && !options.some(o => (o.c + ' | ' + o.cult) === preselect)) {
             const parts = preselect.split(' | ');
@@ -1126,6 +1165,91 @@ function updateCultivos(preselect) {
             sel.value = options[0].c + ' | ' + options[0].cult;
         }
     }
+}
+
+/* ───── Multilote: el mismo gasto en varios lotes ─────
+   Los campos llevan el id del lote como clave (multi_ha[12]) para que el
+   servidor no los desparee de los lotes tildados. Con el modo apagado quedan
+   todos deshabilitados: un campo deshabilitado no se envía, y el servidor
+   decide "multilote" justamente por la llegada de multi_lote[]. */
+function esMulti() {
+    const chk = document.getElementById('multiLoteCheck');
+    return !!chk && chk.checked && document.getElementById('opAction').value === 'add';
+}
+
+function escHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderMultiLotes() {
+    const cont = document.getElementById('multiLoteLista');
+    if (!cont) return;
+    const campo = 'padding:6px; border-radius:6px; border:1px solid var(--border); background:var(--n-0); color:var(--text-primary);';
+    cont.innerHTML = lotesRaw.map(l => {
+        const sup = parseFloat(l.superficie) || 0;
+        const cults = cultivoOpciones(l.id).map((o, i) => {
+            const val = o.c + ' | ' + o.cult;
+            return `<option value="${escHtml(val)}" ${i === 0 ? 'selected' : ''}>${escHtml(val)}</option>`;
+        }).join('');
+        return `
+        <div class="multi-lote-row" data-sup="${sup}" style="display:grid; grid-template-columns:1fr 100px; gap:6px; align-items:center; padding:6px; border-radius:6px; background:var(--n-0);">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.85rem;">
+                <input type="checkbox" name="multi_lote[${l.id}]" value="1" onchange="toggleFormMode()">
+                ${escHtml(l.nombre)} <small style="color:var(--text-muted);">(${sup} ha)</small>
+            </label>
+            <input type="number" step="0.01" min="0" name="multi_ha[${l.id}]" value="${sup}" title="Hectáreas de este lote" aria-label="Hectáreas de ${escHtml(l.nombre)}" oninput="updateCostoPreview()" style="${campo}">
+            <select name="multi_cultivo[${l.id}]" aria-label="Cultivo de ${escHtml(l.nombre)}" style="grid-column:1 / -1; ${campo}">
+                <option value="">-- General / Sin Cultivo Específico --</option>${cults}
+            </select>
+        </div>`;
+    }).join('');
+}
+
+// Lotes tildados con sus hectáreas (vacío o 0 = toda la superficie, igual que el servidor).
+function multiLotesElegidos() {
+    return [...document.querySelectorAll('.multi-lote-row')]
+        .filter(row => row.querySelector('input[type=checkbox]').checked)
+        .map(row => {
+            const sup = parseFloat(row.dataset.sup) || 0;
+            const ha  = parseFloat(row.querySelector('input[type=number]').value) || 0;
+            return { sup, ha: ha > 0 ? ha : sup };
+        });
+}
+
+function aplicarModoMulti() {
+    const multi = esMulti();
+    const cont  = document.getElementById('multiLoteContainer');
+    if (cont) {
+        cont.style.display = multi ? 'flex' : 'none';
+        cont.querySelectorAll('.multi-lote-row').forEach(row => {
+            const chk = row.querySelector('input[type=checkbox]');
+            chk.disabled = !multi;
+            const on = multi && chk.checked;
+            row.querySelectorAll('input[type=number], select').forEach(el => el.disabled = !on);
+            row.querySelector('input[type=number]').style.visibility = on ? '' : 'hidden';
+            row.querySelector('select').style.display = on ? '' : 'none';
+        });
+    }
+    // El lote, el cultivo y las hectáreas pasan a ser de cada fila de la lista.
+    document.getElementById('loteSelect').required = !multi;
+    document.getElementById('loteSimpleWrap').style.display     = multi ? 'none' : 'flex';
+    document.getElementById('cultivoWrap').style.display        = multi ? 'none' : 'flex';
+    document.getElementById('divHectareasInsumo').style.display = multi ? 'none' : 'flex';
+    document.getElementById('divCantHaLabor').style.display     = multi ? 'none' : 'flex';
+    if (multi) {
+        document.getElementById('cantHaLabor').required = false;
+        // Las cargas son de una aplicación en un lote: repartidas no significan nada.
+        const divCargas = document.getElementById('divCargas');
+        if (divCargas) divCargas.style.display = 'none';
+    }
+}
+
+function validarMultiLote() {
+    if (esMulti() && multiLotesElegidos().length === 0) {
+        alert('Tildá al menos un lote para repartir el gasto.');
+        return false;
+    }
+    return true;
 }
 
 /* ───── Toggle campo libre "Otros" ───── */
@@ -1207,9 +1331,11 @@ function toggleFormMode() {
     // Vista previa del Excel y ancho del modal (solo para recetas).
     const previewWrap = document.getElementById('recetaPreviewWrap');
     const modalPanel  = document.querySelector('#addOpModal .modal-panel');
-    if (previewWrap) previewWrap.style.display = (mode === 'receta_labor') ? 'flex' : 'none';
+    // Con varios lotes no hay una receta sola: cada lote baja la suya desde el listado.
+    if (previewWrap) previewWrap.style.display = (mode === 'receta_labor' && !esMulti()) ? 'flex' : 'none';
     if (modalPanel)  modalPanel.style.maxWidth = (mode === 'receta_labor') ? '760px' : '520px';
 
+    aplicarModoMulti();
     updateCostoPreview();
 }
 
@@ -1229,34 +1355,43 @@ function prefillHectareasFromLote() {
 /* ───── Preview costo calculado ───── */
 function updateCostoPreview() {
     const mode   = document.getElementById('tipoCompSelect').value;
-    const loteId = document.getElementById('loteSelect').value;
-    const lote   = lotesRaw.find(l => l.id == loteId);
-    const sup    = lote ? parseFloat(lote.superficie) : 0;
-    let costo = 0;
-    if (mode === 'labor' || mode === 'receta_labor') {
-        const cant  = parseFloat(document.getElementById('cantHaLabor').value) || 0;
-        const price = parseFloat(document.getElementById('priceHaLabor').value) || 0;
-        costo += (cant * price);
-    } 
-    if (mode === 'insumo' || mode === 'receta_labor') {
-        const modoCalculo = document.getElementById('modoCalculoSelect') ? document.getElementById('modoCalculoSelect').value : 'ha';
+    // Los lotes a los que va el gasto, con la misma cuenta que hace el servidor:
+    // ha = las de los insumos; labor = las ha trabajadas (en receta, el total del lote).
+    let destinos;
+    if (esMulti()) {
+        destinos = multiLotesElegidos().map(d => ({ ...d, labor: mode === 'receta_labor' ? d.sup : d.ha }));
+    } else {
+        const lote = lotesRaw.find(l => l.id == document.getElementById('loteSelect').value);
+        const sup  = lote ? parseFloat(lote.superficie) : 0;
         // Hectáreas declaradas en el gasto (default = superficie del lote).
         const hectField = document.getElementById('hectareasInsumo');
         const hect = (hectField && parseFloat(hectField.value) > 0) ? parseFloat(hectField.value) : sup;
-        const factor = (modoCalculo === 'total' && hect > 0) ? hect : 1;
+        destinos = [{ sup, ha: hect, labor: parseFloat(document.getElementById('cantHaLabor').value) || 0 }];
+    }
+    let costo = 0;
+    if (mode === 'labor' || mode === 'receta_labor') {
+        const price = parseFloat(document.getElementById('priceHaLabor').value) || 0;
+        destinos.forEach(d => costo += d.labor * price);
+    }
+    if (mode === 'insumo' || mode === 'receta_labor') {
+        const modoCalculo = document.getElementById('modoCalculoSelect') ? document.getElementById('modoCalculoSelect').value : 'ha';
+        // En "Cant. Total" se divide por las ha de TODOS los lotes, igual que el servidor.
+        const haTotal = destinos.reduce((s, d) => s + d.ha, 0);
+        const factor = (modoCalculo === 'total' && haTotal > 0) ? haTotal : 1;
 
         const rows = document.querySelectorAll('.insumo-row');
         rows.forEach(r => {
             const cant = (parseFloat(r.querySelector('.cant-ins-input').value) || 0) / factor;
             const price = parseFloat(r.querySelector('.price-ins-input').value) || 0;
-            costo += (cant * price * hect);
+            costo += (cant * price * haTotal);
         });
     }
     const prev = document.getElementById('costoPreview');
     const val  = document.getElementById('costoPreviewVal');
     if (costo > 0) {
         prev.style.display = 'block';
-        val.textContent    = '$' + costo.toLocaleString('es-AR', {minimumFractionDigits:2, maximumFractionDigits:2});
+        val.textContent    = '$' + costo.toLocaleString('es-AR', {minimumFractionDigits:2, maximumFractionDigits:2})
+                           + (destinos.length > 1 ? ` (${destinos.length} lotes)` : '');
     } else {
         prev.style.display = 'none';
     }
@@ -1422,6 +1557,12 @@ function openAddModal() {
     document.getElementById('priceHaLabor').value     = '';
     document.getElementById('hectareasInsumo').value  = '';
     document.getElementById('insumosContainer').innerHTML = '';
+    const multiChk = document.getElementById('multiLoteCheck');
+    if (multiChk) {
+        multiChk.checked = false;
+        document.getElementById('multiLoteToggleWrap').style.display = 'flex';
+        renderMultiLotes();
+    }
     addInsumoRow();
     updateCultivos();
     toggleGrupoDesc();
@@ -1441,6 +1582,12 @@ function editOp(op) {
     document.getElementById('tipoCompSelect').value   = (op.tipo_componente === 'multi_insumo') ? 'insumo' : op.tipo_componente;
     document.getElementById('loteSelect').value       = op.lote_id;
     document.getElementById('fechaInput').value       = op.fecha;
+    // Una operación es de un solo lote: al editar no se reparte.
+    const multiChk = document.getElementById('multiLoteCheck');
+    if (multiChk) {
+        multiChk.checked = false;
+        document.getElementById('multiLoteToggleWrap').style.display = 'none';
+    }
 
     // Cultivo
     const cultStr = [op.campania_operacion, op.cultivo_operacion].filter(Boolean).join(' | ');
