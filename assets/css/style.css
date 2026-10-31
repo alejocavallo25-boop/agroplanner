@@ -1096,6 +1096,24 @@ input[type="text"], input[type="number"], input[type="date"], input[type="email"
 input[type="password"], select, textarea {
     max-width: 100%;
 }
+
+/* Ojito para ver la contraseña (lo agrega includes/head_publico.php). En la
+   compu se veía por el de Edge, que es del navegador: Chrome y Safari del
+   celular no traen ninguno. Se apaga el de Edge para que no haya dos. */
+.clave-caja { position: relative; }
+.clave-caja > input.clave-input { padding-right: 52px; }
+.clave-ojo {
+    position: absolute; top: 50%; right: 4px; transform: translateY(-50%);
+    width: 44px; height: 44px; /* lo mínimo para acertarle con el dedo */
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: none; border-radius: 8px;
+    color: var(--text-muted); font-size: 16px; cursor: pointer;
+    -webkit-tap-highlight-color: transparent; /* el recuadro gris al tocar en el celular */
+}
+@media (hover: hover) { .clave-ojo:hover { color: var(--text-primary); } }
+.clave-ojo[aria-pressed="true"] { color: var(--text-primary); }
+.clave-ojo:focus-visible { outline: none; color: var(--text-primary); box-shadow: 0 0 0 3px var(--focus-ring); }
+input::-ms-reveal, input::-ms-clear { display: none; }
 .modal-wrapper {
     display: none;
     position: fixed;

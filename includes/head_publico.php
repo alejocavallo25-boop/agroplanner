@@ -23,3 +23,40 @@
 <?php /* El ícono también sale de un solo lado. Términos y Privacidad, además,
          no tenían ninguno y quedaban con el ícono en blanco del navegador. */ ?>
 <?php require __DIR__ . '/favicon.php'; ?>
+<?php /* Ojito para ver la contraseña, en todo campo de clave de estas pantallas
+         (login, registro, nueva clave). Va acá y no en cada formulario para que
+         un campo nuevo lo tenga solo. Al enviar vuelve a "password": si se manda
+         como texto, el gestor de contraseñas del celular no ofrece guardarla. */ ?>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('input[type="password"]').forEach(campo => {
+        const caja = document.createElement('div');
+        caja.className = 'clave-caja';
+        campo.parentNode.insertBefore(caja, campo);
+        caja.appendChild(campo);
+        campo.classList.add('clave-input');
+
+        const ojo = document.createElement('button');
+        ojo.type = 'button';
+        ojo.className = 'clave-ojo';
+        const pintar = visible => {
+            ojo.innerHTML = '<i class="fas ' + (visible ? 'fa-eye-slash' : 'fa-eye') + '" aria-hidden="true"></i>';
+            ojo.setAttribute('aria-label', visible ? 'Ocultar contraseña' : 'Mostrar contraseña');
+            ojo.setAttribute('aria-pressed', visible ? 'true' : 'false');
+        };
+        pintar(false);
+        ojo.addEventListener('click', () => {
+            const visible = campo.type === 'password';
+            campo.type = visible ? 'text' : 'password';
+            pintar(visible);
+            campo.focus();
+        });
+        caja.appendChild(ojo);
+
+        if (campo.form) campo.form.addEventListener('submit', () => {
+            campo.type = 'password';
+            pintar(false);
+        });
+    });
+});
+</script>
