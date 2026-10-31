@@ -472,6 +472,32 @@ function colorGrupo($g) {
 .gasto-kpi .gk-val   { font-size: 1.15rem; font-weight: 700; color: var(--text-primary); }
 .gasto-kpi.total-kpi { background: var(--accent-soft); border-color: var(--accent-soft); }
 .gasto-kpi.total-kpi .gk-val { color: var(--accent); }
+
+/* Multilote. El estilo general de .modal-panel pone todo input a width:100%,
+   tildes incluidos: por eso los checkbox llevan tamaño propio. */
+.ml-toggle { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--n-25); }
+.modal-panel .ml-toggle input { margin-top: 1px; }
+.ml-toggle-txt b { display: block; font-size: 0.9rem; font-weight: 600; }
+.ml-toggle-txt small { color: var(--text-muted); font-size: 0.78rem; }
+.modal-panel .ml-toggle input, .modal-panel .ml-check { width: 18px; height: 18px; padding: 0; margin: 0; flex: none; accent-color: var(--accent); cursor: pointer; }
+.ml-box { display: none; flex-direction: column; gap: 8px; }
+.ml-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--text-muted); }
+.ml-head b { color: var(--text-primary); }
+.ml-head button { background: none; border: none; color: var(--accent); font-weight: 600; font-size: 0.8rem; cursor: pointer; padding: 2px 4px; }
+.ml-lista { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; }
+.ml-fila { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--n-0); transition: border-color 0.15s, background 0.15s; }
+.ml-fila.on { border-color: var(--accent); background: var(--accent-soft); }
+.ml-linea { display: flex; align-items: center; gap: 10px; }
+.ml-nombre { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.ml-nombre-txt { min-width: 0; }
+.ml-nombre-txt b { display: block; font-size: 0.9rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ml-nombre-txt small { color: var(--text-muted); font-size: 0.75rem; }
+.ml-ha { display: flex; align-items: center; gap: 4px; flex: none; }
+.modal-panel .ml-ha input { width: 84px; padding: 6px 8px; text-align: right; }
+.ml-ha span { font-size: 0.8rem; color: var(--text-muted); }
+.modal-panel .ml-fila select { padding: 6px 8px; font-size: 0.85rem; }
+.ml-fila:not(.on) .ml-ha, .ml-fila:not(.on) select { display: none; }
+.ml-nota { color: var(--text-muted); font-size: 0.78rem; }
 </style>
 
 <div class="glass-panel" style="margin-bottom: 24px;">
@@ -785,16 +811,26 @@ function colorGrupo($g) {
                      registrar: al editar, cada lote es su propia operación. */ ?>
             <?php if (count($lotes) > 1): ?>
             <div id="multiLoteToggleWrap" style="display:flex; flex-direction:column; gap:8px;">
-                <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.9rem;">
+                <label class="ml-toggle">
                     <input type="checkbox" id="multiLoteCheck" onchange="toggleFormMode()">
-                    Repartir en varios lotes
+                    <span class="ml-toggle-txt">
+                        <b>Repartir en varios lotes</b>
+                        <small>Se guarda un gasto por lote, según sus hectáreas.</small>
+                    </span>
                 </label>
-                <div id="multiLoteContainer" style="display:none; flex-direction:column; gap:6px; background:var(--n-25); padding:10px; border-radius:8px; border:1px solid var(--border);">
-                    <small style="color:var(--text-muted);">
+                <div id="multiLoteContainer" class="ml-box">
+                    <div class="ml-head">
+                        <span id="multiLoteResumen">Ningún lote elegido</span>
+                        <span>
+                            <button type="button" onclick="marcarMultiLotes(true)">Todos</button>
+                            <button type="button" onclick="marcarMultiLotes(false)">Ninguno</button>
+                        </span>
+                    </div>
+                    <div id="multiLoteLista" class="ml-lista"></div>
+                    <small class="ml-nota">
                         <i class="fas fa-info-circle"></i>
-                        Se guarda un gasto por lote. El precio y la dosis por ha son los mismos en todos; cada lote paga sus hectáreas.
+                        El precio y la dosis por ha son los mismos en todos; cada lote paga sus hectáreas.
                     </small>
-                    <div id="multiLoteLista" style="display:flex; flex-direction:column; gap:6px;"></div>
                 </div>
             </div>
             <?php endif; ?>
@@ -1184,25 +1220,51 @@ function escHtml(s) {
 function renderMultiLotes() {
     const cont = document.getElementById('multiLoteLista');
     if (!cont) return;
-    const campo = 'padding:6px; border-radius:6px; border:1px solid var(--border); background:var(--n-0); color:var(--text-primary);';
+    const fmtHa = n => n.toLocaleString('es-AR', { maximumFractionDigits: 2 });
     cont.innerHTML = lotesRaw.map(l => {
         const sup = parseFloat(l.superficie) || 0;
-        const cults = cultivoOpciones(l.id).map((o, i) => {
+        const opciones = cultivoOpciones(l.id);
+        const cults = opciones.map((o, i) => {
             const val = o.c + ' | ' + o.cult;
             return `<option value="${escHtml(val)}" ${i === 0 ? 'selected' : ''}>${escHtml(val)}</option>`;
         }).join('');
+        const actual = opciones.length ? ` · ${escHtml(opciones[0].cult)} ${escHtml(opciones[0].c)}` : '';
         return `
-        <div class="multi-lote-row" data-sup="${sup}" style="display:grid; grid-template-columns:1fr 100px; gap:6px; align-items:center; padding:6px; border-radius:6px; background:var(--n-0);">
-            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.85rem;">
-                <input type="checkbox" name="multi_lote[${l.id}]" value="1" onchange="toggleFormMode()">
-                ${escHtml(l.nombre)} <small style="color:var(--text-muted);">(${sup} ha)</small>
-            </label>
-            <input type="number" step="0.01" min="0" name="multi_ha[${l.id}]" value="${sup}" title="Hectáreas de este lote" aria-label="Hectáreas de ${escHtml(l.nombre)}" oninput="updateCostoPreview()" style="${campo}">
-            <select name="multi_cultivo[${l.id}]" aria-label="Cultivo de ${escHtml(l.nombre)}" style="grid-column:1 / -1; ${campo}">
+        <div class="multi-lote-row ml-fila" data-sup="${sup}">
+            <div class="ml-linea">
+                <label class="ml-nombre">
+                    <input type="checkbox" class="ml-check" name="multi_lote[${l.id}]" value="1" onchange="toggleFormMode()">
+                    <span class="ml-nombre-txt">
+                        <b title="${escHtml(l.nombre)}">${escHtml(l.nombre)}</b>
+                        <small>${fmtHa(sup)} ha${actual}</small>
+                    </span>
+                </label>
+                <span class="ml-ha">
+                    <input type="number" step="0.01" min="0" name="multi_ha[${l.id}]" value="${sup}" title="Hectáreas de este lote" aria-label="Hectáreas de ${escHtml(l.nombre)}" oninput="updateCostoPreview(); resumirMultiLotes();">
+                    <span>ha</span>
+                </span>
+            </div>
+            <select name="multi_cultivo[${l.id}]" aria-label="Campaña y cultivo de ${escHtml(l.nombre)}">
                 <option value="">-- General / Sin Cultivo Específico --</option>${cults}
             </select>
         </div>`;
     }).join('');
+}
+
+function marcarMultiLotes(on) {
+    document.querySelectorAll('.multi-lote-row .ml-check').forEach(chk => chk.checked = on);
+    toggleFormMode();
+}
+
+function resumirMultiLotes() {
+    const el = document.getElementById('multiLoteResumen');
+    if (!el) return;
+    const elegidos = multiLotesElegidos();
+    const total = document.querySelectorAll('.multi-lote-row').length;
+    const ha = elegidos.reduce((s, d) => s + d.ha, 0);
+    el.innerHTML = elegidos.length
+        ? `<b>${elegidos.length} de ${total} lotes</b> · ${ha.toLocaleString('es-AR', { maximumFractionDigits: 2 })} ha`
+        : 'Ningún lote elegido';
 }
 
 // Lotes tildados con sus hectáreas (vacío o 0 = toda la superficie, igual que el servidor).
@@ -1226,9 +1288,9 @@ function aplicarModoMulti() {
             chk.disabled = !multi;
             const on = multi && chk.checked;
             row.querySelectorAll('input[type=number], select').forEach(el => el.disabled = !on);
-            row.querySelector('input[type=number]').style.visibility = on ? '' : 'hidden';
-            row.querySelector('select').style.display = on ? '' : 'none';
+            row.classList.toggle('on', on);
         });
+        resumirMultiLotes();
     }
     // El lote, el cultivo y las hectáreas pasan a ser de cada fila de la lista.
     document.getElementById('loteSelect').required = !multi;
