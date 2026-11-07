@@ -43,11 +43,11 @@
 -- que es de MariaDB: en MySQL 8 falla. Si dice MySQL, pará acá.
 SELECT VERSION() AS motor, DATABASE() AS base;
 
--- Cuántas de las 30 tablas esperadas ya existen.
-SELECT COUNT(*) AS tablas_presentes, 30 AS tablas_esperadas
+-- Cuántas de las 34 tablas esperadas ya existen.
+SELECT COUNT(*) AS tablas_presentes, 34 AS tablas_esperadas
 FROM information_schema.TABLES
 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'
-  AND TABLE_NAME IN ('users', 'cultivos', 'lotes', 'depositos', 'alquileres', 'cotizaciones_siogranos', 'feedlot_alimentos', 'feedlot_costos_fijos', 'feedlot_lotes', 'ganaderia_egresos', 'ganaderia_egresos_conceptos', 'ganaderia_inventario', 'ganaderia_movimientos', 'ganaderia_pesadas', 'ganaderia_reproductivo', 'insumos', 'lote_historial_campanas', 'motor_consultas_fallidas', 'motor_preferencias', 'operacion_insumos', 'operaciones', 'produccion_ventas', 'tambo_calidad', 'tambo_dif_inventario', 'tambo_dolar_mes', 'tambo_egresos', 'tambo_egresos_conceptos', 'tambo_produccion', 'tambo_rodeo', 'tambo_ventas_carne');
+  AND TABLE_NAME IN ('users', 'cultivos', 'lotes', 'depositos', 'alquileres', 'asesor_clientes', 'cotizaciones_siogranos', 'feedlot_alimentos', 'feedlot_costos_fijos', 'feedlot_lotes', 'ganaderia_egresos', 'ganaderia_egresos_conceptos', 'ganaderia_inventario', 'ganaderia_movimientos', 'ganaderia_pesadas', 'ganaderia_reproductivo', 'ia_uso', 'insumos', 'login_intentos', 'lote_historial_campanas', 'motor_consultas_fallidas', 'motor_preferencias', 'operacion_insumos', 'operaciones', 'plantillas_labor', 'produccion_ventas', 'tambo_calidad', 'tambo_dif_inventario', 'tambo_dolar_mes', 'tambo_egresos', 'tambo_egresos_conceptos', 'tambo_produccion', 'tambo_rodeo', 'tambo_ventas_carne');
 
 
 -- ───────────────────────────────────────────────────────────────
@@ -72,6 +72,10 @@ CREATE TABLE IF NOT EXISTS `users` (
   `reset_token` varchar(255) DEFAULT NULL,
   `reset_expires` datetime DEFAULT NULL,
   `solo_lectura` tinyint(1) NOT NULL DEFAULT 0 COMMENT 'Cuenta de demostraciÃ³n: puede ver, no puede modificar',
+  `es_asesor` tinyint(1) NOT NULL DEFAULT 0 COMMENT 'Puede entrar a las cuentas vinculadas en asesor_clientes',
+  `firma_nombre` varchar(150) DEFAULT NULL COMMENT 'Nombre que firma los informes del asesor',
+  `firma_detalle` varchar(150) DEFAULT NULL COMMENT 'Segunda línea de la firma: título, matrícula, teléfono',
+  `firma_logo` mediumtext DEFAULT NULL COMMENT 'Logo de la firma como data URI (png, jpg o webp)',
   PRIMARY KEY (`id`),
   UNIQUE KEY `username` (`username`),
   UNIQUE KEY `email` (`email`)
@@ -138,6 +142,17 @@ CREATE TABLE IF NOT EXISTS `alquileres` (
   `notas` text DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `asesor_clientes` (
+  `asesor_id` int(11) NOT NULL,
+  `cliente_id` int(11) NOT NULL,
+  `origen` enum('admin','asesor') NOT NULL DEFAULT 'admin' COMMENT 'Quién hizo el vínculo: el admin desde su panel o el asesor al crear la cuenta',
+  `creado_en` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`asesor_id`,`cliente_id`),
+  KEY `idx_cliente` (`cliente_id`),
+  CONSTRAINT `fk_asesor_clientes_asesor` FOREIGN KEY (`asesor_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_asesor_clientes_cliente` FOREIGN KEY (`cliente_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `cotizaciones_siogranos` (
@@ -301,6 +316,21 @@ CREATE TABLE IF NOT EXISTS `ganaderia_reproductivo` (
   UNIQUE KEY `uk_repro_usuario_ejercicio` (`usuario_id`,`ejercicio`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `ia_uso` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `usuario_id` int(11) NOT NULL,
+  `pedido` char(16) NOT NULL,
+  `uso` varchar(20) NOT NULL,
+  `proveedor` varchar(20) NOT NULL,
+  `resultado` varchar(12) NOT NULL,
+  `ms` int(11) NOT NULL DEFAULT 0,
+  `detalle` varchar(255) DEFAULT NULL,
+  `creado_en` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_usuario_fecha` (`usuario_id`,`creado_en`),
+  KEY `idx_proveedor` (`proveedor`,`resultado`,`creado_en`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `insumos` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `usuario_id` int(11) NOT NULL,
@@ -322,6 +352,16 @@ CREATE TABLE IF NOT EXISTS `insumos` (
   CONSTRAINT `insumos_ibfk_1` FOREIGN KEY (`usuario_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `login_intentos` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `ip` varchar(45) NOT NULL COMMENT '45 caracteres: entra una IPv6 entera',
+  `email` varchar(255) NOT NULL,
+  `cuando` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_ip_cuando` (`ip`,`cuando`),
+  KEY `idx_email_cuando` (`email`,`cuando`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `lote_historial_campanas` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `lote_id` int(11) NOT NULL,
@@ -335,22 +375,6 @@ CREATE TABLE IF NOT EXISTS `lote_historial_campanas` (
   PRIMARY KEY (`id`),
   KEY `lote_id` (`lote_id`),
   CONSTRAINT `lote_historial_campanas_ibfk_1` FOREIGN KEY (`lote_id`) REFERENCES `lotes` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Registro de la IA (includes/ia.php). También la crea ia_asegurar_tabla().
-CREATE TABLE IF NOT EXISTS `ia_uso` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `usuario_id` int(11) NOT NULL,
-  `pedido` char(16) NOT NULL,
-  `uso` varchar(20) NOT NULL,
-  `proveedor` varchar(20) NOT NULL,
-  `resultado` varchar(12) NOT NULL,
-  `ms` int(11) NOT NULL DEFAULT 0,
-  `detalle` varchar(255) DEFAULT NULL,
-  `creado_en` timestamp NOT NULL DEFAULT current_timestamp(),
-  PRIMARY KEY (`id`),
-  KEY `idx_usuario_fecha` (`usuario_id`,`creado_en`),
-  KEY `idx_proveedor` (`proveedor`,`resultado`,`creado_en`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `motor_consultas_fallidas` (
@@ -406,15 +430,28 @@ CREATE TABLE IF NOT EXISTS `operaciones` (
   `cargas` int(11) DEFAULT 1,
   `hectareas` decimal(10,2) DEFAULT NULL,
   `moneda` enum('ARS','USD') NOT NULL DEFAULT 'ARS' COMMENT 'Moneda en que se pagÃ³. La conversiÃ³n se hace al calcular.',
+  `idempotencia` char(36) DEFAULT NULL COMMENT 'Numero propio de la carga, generado en el telefono, para no duplicar al sincronizar',
+  `carga_id` char(36) DEFAULT NULL COMMENT 'Gastos cargados juntos en varios lotes: se editan y se borran juntos',
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_operaciones_idem` (`usuario_id`,`idempotencia`,`lote_id`),
   KEY `lote_id` (`lote_id`),
   KEY `cultivo_id` (`cultivo_id`),
   KEY `insumo_id` (`insumo_id`),
-  KEY `usuario_id` (`usuario_id`),
   CONSTRAINT `operaciones_ibfk_1` FOREIGN KEY (`lote_id`) REFERENCES `lotes` (`id`) ON DELETE CASCADE,
   CONSTRAINT `operaciones_ibfk_2` FOREIGN KEY (`cultivo_id`) REFERENCES `cultivos` (`id`) ON DELETE SET NULL,
   CONSTRAINT `operaciones_ibfk_3` FOREIGN KEY (`insumo_id`) REFERENCES `insumos` (`id`) ON DELETE SET NULL,
   CONSTRAINT `operaciones_ibfk_4` FOREIGN KEY (`usuario_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `plantillas_labor` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `usuario_id` int(11) NOT NULL,
+  `nombre` varchar(100) NOT NULL,
+  `datos` text NOT NULL COMMENT 'JSON: grupo, tipo, labor, precio, moneda e insumos con dosis',
+  `creado_en` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_plantilla_nombre` (`usuario_id`,`nombre`),
+  CONSTRAINT `fk_plantillas_labor_usuario` FOREIGN KEY (`usuario_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `produccion_ventas` (
@@ -580,6 +617,10 @@ ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `has_ganaderia` tinyint(1) NULL DEF
 ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `reset_token` varchar(255) NULL DEFAULT NULL AFTER `has_ganaderia`;
 ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `reset_expires` datetime NULL DEFAULT NULL AFTER `reset_token`;
 ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `solo_lectura` tinyint(1) NOT NULL DEFAULT 0 COMMENT 'Cuenta de demostraciÃ³n: puede ver, no puede modificar' AFTER `reset_expires`;
+ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `es_asesor` tinyint(1) NOT NULL DEFAULT 0 COMMENT 'Puede entrar a las cuentas vinculadas en asesor_clientes' AFTER `solo_lectura`;
+ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `firma_nombre` varchar(150) NULL DEFAULT NULL COMMENT 'Nombre que firma los informes del asesor' AFTER `es_asesor`;
+ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `firma_detalle` varchar(150) NULL DEFAULT NULL COMMENT 'Segunda línea de la firma: título, matrícula, teléfono' AFTER `firma_nombre`;
+ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `firma_logo` mediumtext NULL DEFAULT NULL COMMENT 'Logo de la firma como data URI (png, jpg o webp)' AFTER `firma_detalle`;
 
 -- cultivos
 ALTER TABLE `cultivos` ADD COLUMN IF NOT EXISTS `lote_id` int(11) NOT NULL AFTER `id`;
@@ -623,6 +664,12 @@ ALTER TABLE `alquileres` ADD COLUMN IF NOT EXISTS `monto_pagado` decimal(14,4) N
 ALTER TABLE `alquileres` ADD COLUMN IF NOT EXISTS `moneda` enum('USD','ARS') NULL DEFAULT 'USD' AFTER `monto_pagado`;
 ALTER TABLE `alquileres` ADD COLUMN IF NOT EXISTS `notas` text NULL DEFAULT NULL AFTER `moneda`;
 ALTER TABLE `alquileres` ADD COLUMN IF NOT EXISTS `created_at` timestamp NOT NULL DEFAULT current_timestamp() AFTER `notas`;
+
+-- asesor_clientes
+ALTER TABLE `asesor_clientes` ADD COLUMN IF NOT EXISTS `asesor_id` int(11) NOT NULL FIRST;
+ALTER TABLE `asesor_clientes` ADD COLUMN IF NOT EXISTS `cliente_id` int(11) NOT NULL AFTER `asesor_id`;
+ALTER TABLE `asesor_clientes` ADD COLUMN IF NOT EXISTS `origen` enum('admin','asesor') NOT NULL DEFAULT 'admin' COMMENT 'Quién hizo el vínculo: el admin desde su panel o el asesor al crear la cuenta' AFTER `cliente_id`;
+ALTER TABLE `asesor_clientes` ADD COLUMN IF NOT EXISTS `creado_en` timestamp NOT NULL DEFAULT current_timestamp() AFTER `origen`;
 
 -- cotizaciones_siogranos
 ALTER TABLE `cotizaciones_siogranos` ADD COLUMN IF NOT EXISTS `fecha` date NOT NULL COMMENT 'Fecha de la cotizaci??n' AFTER `id`;
@@ -744,6 +791,16 @@ ALTER TABLE `ganaderia_reproductivo` ADD COLUMN IF NOT EXISTS `fecha_fin_servici
 ALTER TABLE `ganaderia_reproductivo` ADD COLUMN IF NOT EXISTS `notas` text NULL DEFAULT NULL AFTER `fecha_fin_servicio`;
 ALTER TABLE `ganaderia_reproductivo` ADD COLUMN IF NOT EXISTS `created_at` timestamp NOT NULL DEFAULT current_timestamp() AFTER `notas`;
 
+-- ia_uso
+ALTER TABLE `ia_uso` ADD COLUMN IF NOT EXISTS `usuario_id` int(11) NOT NULL AFTER `id`;
+ALTER TABLE `ia_uso` ADD COLUMN IF NOT EXISTS `pedido` char(16) NOT NULL AFTER `usuario_id`;
+ALTER TABLE `ia_uso` ADD COLUMN IF NOT EXISTS `uso` varchar(20) NOT NULL AFTER `pedido`;
+ALTER TABLE `ia_uso` ADD COLUMN IF NOT EXISTS `proveedor` varchar(20) NOT NULL AFTER `uso`;
+ALTER TABLE `ia_uso` ADD COLUMN IF NOT EXISTS `resultado` varchar(12) NOT NULL AFTER `proveedor`;
+ALTER TABLE `ia_uso` ADD COLUMN IF NOT EXISTS `ms` int(11) NOT NULL DEFAULT 0 AFTER `resultado`;
+ALTER TABLE `ia_uso` ADD COLUMN IF NOT EXISTS `detalle` varchar(255) NULL DEFAULT NULL AFTER `ms`;
+ALTER TABLE `ia_uso` ADD COLUMN IF NOT EXISTS `creado_en` timestamp NOT NULL DEFAULT current_timestamp() AFTER `detalle`;
+
 -- insumos
 ALTER TABLE `insumos` ADD COLUMN IF NOT EXISTS `usuario_id` int(11) NOT NULL AFTER `id`;
 ALTER TABLE `insumos` ADD COLUMN IF NOT EXISTS `nombre` varchar(150) NOT NULL AFTER `usuario_id`;
@@ -757,6 +814,11 @@ ALTER TABLE `insumos` ADD COLUMN IF NOT EXISTS `unidad_stock` varchar(50) NULL D
 ALTER TABLE `insumos` ADD COLUMN IF NOT EXISTS `fecha_vencimiento` date NULL DEFAULT NULL AFTER `unidad_stock`;
 ALTER TABLE `insumos` ADD COLUMN IF NOT EXISTS `deposito_id` int(11) NULL DEFAULT NULL AFTER `fecha_vencimiento`;
 ALTER TABLE `insumos` ADD COLUMN IF NOT EXISTS `stock_minimo` decimal(10,2) NULL DEFAULT NULL AFTER `deposito_id`;
+
+-- login_intentos
+ALTER TABLE `login_intentos` ADD COLUMN IF NOT EXISTS `ip` varchar(45) NOT NULL COMMENT '45 caracteres: entra una IPv6 entera' AFTER `id`;
+ALTER TABLE `login_intentos` ADD COLUMN IF NOT EXISTS `email` varchar(255) NOT NULL AFTER `ip`;
+ALTER TABLE `login_intentos` ADD COLUMN IF NOT EXISTS `cuando` datetime NOT NULL AFTER `email`;
 
 -- lote_historial_campanas
 ALTER TABLE `lote_historial_campanas` ADD COLUMN IF NOT EXISTS `lote_id` int(11) NOT NULL AFTER `id`;
@@ -807,6 +869,14 @@ ALTER TABLE `operaciones` ADD COLUMN IF NOT EXISTS `grupo_descripcion` varchar(2
 ALTER TABLE `operaciones` ADD COLUMN IF NOT EXISTS `cargas` int(11) NULL DEFAULT 1 AFTER `grupo_descripcion`;
 ALTER TABLE `operaciones` ADD COLUMN IF NOT EXISTS `hectareas` decimal(10,2) NULL DEFAULT NULL AFTER `cargas`;
 ALTER TABLE `operaciones` ADD COLUMN IF NOT EXISTS `moneda` enum('ARS','USD') NOT NULL DEFAULT 'ARS' COMMENT 'Moneda en que se pagÃ³. La conversiÃ³n se hace al calcular.' AFTER `hectareas`;
+ALTER TABLE `operaciones` ADD COLUMN IF NOT EXISTS `idempotencia` char(36) NULL DEFAULT NULL COMMENT 'Numero propio de la carga, generado en el telefono, para no duplicar al sincronizar' AFTER `moneda`;
+ALTER TABLE `operaciones` ADD COLUMN IF NOT EXISTS `carga_id` char(36) NULL DEFAULT NULL COMMENT 'Gastos cargados juntos en varios lotes: se editan y se borran juntos' AFTER `idempotencia`;
+
+-- plantillas_labor
+ALTER TABLE `plantillas_labor` ADD COLUMN IF NOT EXISTS `usuario_id` int(11) NOT NULL AFTER `id`;
+ALTER TABLE `plantillas_labor` ADD COLUMN IF NOT EXISTS `nombre` varchar(100) NOT NULL AFTER `usuario_id`;
+ALTER TABLE `plantillas_labor` ADD COLUMN IF NOT EXISTS `datos` text NOT NULL COMMENT 'JSON: grupo, tipo, labor, precio, moneda e insumos con dosis' AFTER `nombre`;
+ALTER TABLE `plantillas_labor` ADD COLUMN IF NOT EXISTS `creado_en` timestamp NOT NULL DEFAULT current_timestamp() AFTER `datos`;
 
 -- produccion_ventas
 ALTER TABLE `produccion_ventas` ADD COLUMN IF NOT EXISTS `lote_id` int(11) NOT NULL AFTER `id`;
@@ -959,6 +1029,10 @@ FROM (
         UNION ALL SELECT 'users', 'reset_token', 'varchar(255)'
         UNION ALL SELECT 'users', 'reset_expires', 'datetime'
         UNION ALL SELECT 'users', 'solo_lectura', 'tinyint(1)'
+        UNION ALL SELECT 'users', 'es_asesor', 'tinyint(1)'
+        UNION ALL SELECT 'users', 'firma_nombre', 'varchar(150)'
+        UNION ALL SELECT 'users', 'firma_detalle', 'varchar(150)'
+        UNION ALL SELECT 'users', 'firma_logo', 'mediumtext'
         UNION ALL SELECT 'cultivos', 'id', 'int(11)'
         UNION ALL SELECT 'cultivos', 'lote_id', 'int(11)'
         UNION ALL SELECT 'cultivos', 'nombre', 'varchar(100)'
@@ -998,6 +1072,10 @@ FROM (
         UNION ALL SELECT 'alquileres', 'moneda', 'enum(''USD'',''ARS'')'
         UNION ALL SELECT 'alquileres', 'notas', 'text'
         UNION ALL SELECT 'alquileres', 'created_at', 'timestamp'
+        UNION ALL SELECT 'asesor_clientes', 'asesor_id', 'int(11)'
+        UNION ALL SELECT 'asesor_clientes', 'cliente_id', 'int(11)'
+        UNION ALL SELECT 'asesor_clientes', 'origen', 'enum(''admin'',''asesor'')'
+        UNION ALL SELECT 'asesor_clientes', 'creado_en', 'timestamp'
         UNION ALL SELECT 'cotizaciones_siogranos', 'id', 'int(11)'
         UNION ALL SELECT 'cotizaciones_siogranos', 'fecha', 'date'
         UNION ALL SELECT 'cotizaciones_siogranos', 'cultivo', 'varchar(50)'
@@ -1108,6 +1186,15 @@ FROM (
         UNION ALL SELECT 'ganaderia_reproductivo', 'fecha_fin_servicio', 'date'
         UNION ALL SELECT 'ganaderia_reproductivo', 'notas', 'text'
         UNION ALL SELECT 'ganaderia_reproductivo', 'created_at', 'timestamp'
+        UNION ALL SELECT 'ia_uso', 'id', 'int(11)'
+        UNION ALL SELECT 'ia_uso', 'usuario_id', 'int(11)'
+        UNION ALL SELECT 'ia_uso', 'pedido', 'char(16)'
+        UNION ALL SELECT 'ia_uso', 'uso', 'varchar(20)'
+        UNION ALL SELECT 'ia_uso', 'proveedor', 'varchar(20)'
+        UNION ALL SELECT 'ia_uso', 'resultado', 'varchar(12)'
+        UNION ALL SELECT 'ia_uso', 'ms', 'int(11)'
+        UNION ALL SELECT 'ia_uso', 'detalle', 'varchar(255)'
+        UNION ALL SELECT 'ia_uso', 'creado_en', 'timestamp'
         UNION ALL SELECT 'insumos', 'id', 'int(11)'
         UNION ALL SELECT 'insumos', 'usuario_id', 'int(11)'
         UNION ALL SELECT 'insumos', 'nombre', 'varchar(150)'
@@ -1121,6 +1208,10 @@ FROM (
         UNION ALL SELECT 'insumos', 'fecha_vencimiento', 'date'
         UNION ALL SELECT 'insumos', 'deposito_id', 'int(11)'
         UNION ALL SELECT 'insumos', 'stock_minimo', 'decimal(10,2)'
+        UNION ALL SELECT 'login_intentos', 'id', 'int(11)'
+        UNION ALL SELECT 'login_intentos', 'ip', 'varchar(45)'
+        UNION ALL SELECT 'login_intentos', 'email', 'varchar(255)'
+        UNION ALL SELECT 'login_intentos', 'cuando', 'datetime'
         UNION ALL SELECT 'lote_historial_campanas', 'id', 'int(11)'
         UNION ALL SELECT 'lote_historial_campanas', 'lote_id', 'int(11)'
         UNION ALL SELECT 'lote_historial_campanas', 'usuario_id', 'int(11)'
@@ -1165,6 +1256,13 @@ FROM (
         UNION ALL SELECT 'operaciones', 'cargas', 'int(11)'
         UNION ALL SELECT 'operaciones', 'hectareas', 'decimal(10,2)'
         UNION ALL SELECT 'operaciones', 'moneda', 'enum(''ARS'',''USD'')'
+        UNION ALL SELECT 'operaciones', 'idempotencia', 'char(36)'
+        UNION ALL SELECT 'operaciones', 'carga_id', 'char(36)'
+        UNION ALL SELECT 'plantillas_labor', 'id', 'int(11)'
+        UNION ALL SELECT 'plantillas_labor', 'usuario_id', 'int(11)'
+        UNION ALL SELECT 'plantillas_labor', 'nombre', 'varchar(100)'
+        UNION ALL SELECT 'plantillas_labor', 'datos', 'text'
+        UNION ALL SELECT 'plantillas_labor', 'creado_en', 'timestamp'
         UNION ALL SELECT 'produccion_ventas', 'id', 'int(11)'
         UNION ALL SELECT 'produccion_ventas', 'lote_id', 'int(11)'
         UNION ALL SELECT 'produccion_ventas', 'cultivo_id', 'int(11)'
@@ -1286,6 +1384,10 @@ LEFT JOIN (
         UNION ALL SELECT 'users', 'reset_token', 'varchar(255)'
         UNION ALL SELECT 'users', 'reset_expires', 'datetime'
         UNION ALL SELECT 'users', 'solo_lectura', 'tinyint(1)'
+        UNION ALL SELECT 'users', 'es_asesor', 'tinyint(1)'
+        UNION ALL SELECT 'users', 'firma_nombre', 'varchar(150)'
+        UNION ALL SELECT 'users', 'firma_detalle', 'varchar(150)'
+        UNION ALL SELECT 'users', 'firma_logo', 'mediumtext'
         UNION ALL SELECT 'cultivos', 'id', 'int(11)'
         UNION ALL SELECT 'cultivos', 'lote_id', 'int(11)'
         UNION ALL SELECT 'cultivos', 'nombre', 'varchar(100)'
@@ -1325,6 +1427,10 @@ LEFT JOIN (
         UNION ALL SELECT 'alquileres', 'moneda', 'enum(''USD'',''ARS'')'
         UNION ALL SELECT 'alquileres', 'notas', 'text'
         UNION ALL SELECT 'alquileres', 'created_at', 'timestamp'
+        UNION ALL SELECT 'asesor_clientes', 'asesor_id', 'int(11)'
+        UNION ALL SELECT 'asesor_clientes', 'cliente_id', 'int(11)'
+        UNION ALL SELECT 'asesor_clientes', 'origen', 'enum(''admin'',''asesor'')'
+        UNION ALL SELECT 'asesor_clientes', 'creado_en', 'timestamp'
         UNION ALL SELECT 'cotizaciones_siogranos', 'id', 'int(11)'
         UNION ALL SELECT 'cotizaciones_siogranos', 'fecha', 'date'
         UNION ALL SELECT 'cotizaciones_siogranos', 'cultivo', 'varchar(50)'
@@ -1435,6 +1541,15 @@ LEFT JOIN (
         UNION ALL SELECT 'ganaderia_reproductivo', 'fecha_fin_servicio', 'date'
         UNION ALL SELECT 'ganaderia_reproductivo', 'notas', 'text'
         UNION ALL SELECT 'ganaderia_reproductivo', 'created_at', 'timestamp'
+        UNION ALL SELECT 'ia_uso', 'id', 'int(11)'
+        UNION ALL SELECT 'ia_uso', 'usuario_id', 'int(11)'
+        UNION ALL SELECT 'ia_uso', 'pedido', 'char(16)'
+        UNION ALL SELECT 'ia_uso', 'uso', 'varchar(20)'
+        UNION ALL SELECT 'ia_uso', 'proveedor', 'varchar(20)'
+        UNION ALL SELECT 'ia_uso', 'resultado', 'varchar(12)'
+        UNION ALL SELECT 'ia_uso', 'ms', 'int(11)'
+        UNION ALL SELECT 'ia_uso', 'detalle', 'varchar(255)'
+        UNION ALL SELECT 'ia_uso', 'creado_en', 'timestamp'
         UNION ALL SELECT 'insumos', 'id', 'int(11)'
         UNION ALL SELECT 'insumos', 'usuario_id', 'int(11)'
         UNION ALL SELECT 'insumos', 'nombre', 'varchar(150)'
@@ -1448,6 +1563,10 @@ LEFT JOIN (
         UNION ALL SELECT 'insumos', 'fecha_vencimiento', 'date'
         UNION ALL SELECT 'insumos', 'deposito_id', 'int(11)'
         UNION ALL SELECT 'insumos', 'stock_minimo', 'decimal(10,2)'
+        UNION ALL SELECT 'login_intentos', 'id', 'int(11)'
+        UNION ALL SELECT 'login_intentos', 'ip', 'varchar(45)'
+        UNION ALL SELECT 'login_intentos', 'email', 'varchar(255)'
+        UNION ALL SELECT 'login_intentos', 'cuando', 'datetime'
         UNION ALL SELECT 'lote_historial_campanas', 'id', 'int(11)'
         UNION ALL SELECT 'lote_historial_campanas', 'lote_id', 'int(11)'
         UNION ALL SELECT 'lote_historial_campanas', 'usuario_id', 'int(11)'
@@ -1492,6 +1611,13 @@ LEFT JOIN (
         UNION ALL SELECT 'operaciones', 'cargas', 'int(11)'
         UNION ALL SELECT 'operaciones', 'hectareas', 'decimal(10,2)'
         UNION ALL SELECT 'operaciones', 'moneda', 'enum(''ARS'',''USD'')'
+        UNION ALL SELECT 'operaciones', 'idempotencia', 'char(36)'
+        UNION ALL SELECT 'operaciones', 'carga_id', 'char(36)'
+        UNION ALL SELECT 'plantillas_labor', 'id', 'int(11)'
+        UNION ALL SELECT 'plantillas_labor', 'usuario_id', 'int(11)'
+        UNION ALL SELECT 'plantillas_labor', 'nombre', 'varchar(100)'
+        UNION ALL SELECT 'plantillas_labor', 'datos', 'text'
+        UNION ALL SELECT 'plantillas_labor', 'creado_en', 'timestamp'
         UNION ALL SELECT 'produccion_ventas', 'id', 'int(11)'
         UNION ALL SELECT 'produccion_ventas', 'lote_id', 'int(11)'
         UNION ALL SELECT 'produccion_ventas', 'cultivo_id', 'int(11)'

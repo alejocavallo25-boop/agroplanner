@@ -61,6 +61,10 @@ $grand_total = $total_insumos_cost + $labor_total;
 $grand_total_ha = $total_ha > 0 ? ($grand_total / $total_ha) : 0;
 $es_sectorizada = ($ha_aplicacion < $total_ha - 0.001);
 
+// Si la saca un asesor, va con su nombre (el Excel no muestra el logo). Ver includes/asesor.php.
+require_once __DIR__ . '/../includes/asesor.php';
+$firma = firma_informe($pdo);
+
 // ─── Headers para forzar descarga Excel ─────────────────────────────────────
 $filename = "Receta_Pulverizacion_{$lote_nombre}_" . date('Ymd', strtotime($op['fecha'])) . ".xls";
 $filename = preg_replace('/[^A-Za-z0-9_\-\.]/', '_', $filename);
@@ -191,5 +195,11 @@ header("Expires: 0");
             <td class="grand-total text-center" style="width:15%;"><?= number_format($grand_total_ha, 2, ',', '.') ?></td>
         </tr>
     </table>
+    <?php if ($firma): ?>
+    <br>
+    <table>
+        <tr><td colspan="4" style="border:none; font-weight:bold;"><?= htmlspecialchars(firma_texto($firma)) ?></td></tr>
+    </table>
+    <?php endif; ?>
 </body>
 </html>

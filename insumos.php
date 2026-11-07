@@ -1792,6 +1792,7 @@ function impAbrir() {
 function impSoltarFoto() {
     IMP.fotoImg = null;
     IMP.medidas = null;
+    IMP.monedaFoto = null;   // la moneda que dice el comprobante de la foto, si la dice
     const caja = document.getElementById('impLeerEstado');
     if (caja) caja.hidden = true;
     const dudas = document.getElementById('impDudas');
@@ -1937,7 +1938,125 @@ function impAnalizarArchivo(archivo) {
     const datos = new FormData();
     datos.append('origen', 'archivo');
     datos.append('archivo', archivo);
-    impEnviar(datos, resp => impMostrarResultado(resp));
+    impEnviar(datos, resp => {
+        // PDF sin texto (escaneado, o con las letras dibujadas): se lee como foto.
+        if (resp.pdf_sin_texto) { impPdfComoFoto(archivo, resp.aviso); return; }
+        impMostrarResultado(resp);
+    });
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════
+   PDF SIN TEXTO → FOTO
+
+   Hay PDF que se ven perfectos y no tienen ni una letra adentro: los
+   escaneados, y los que se imprimieron con "Microsoft Print to PDF" desde
+   algunos sistemas de facturación, que convierten cada letra en un dibujo.
+   Verificado con una nota de pedido real: cero fuentes, 18.270 curvas. El
+   servidor no tiene qué leer (api/importar_insumos.php avisa con pdf_sin_texto).
+
+   Así que se hace lo que haría una persona: mirarlo. Cada página se pinta en
+   un lienzo con pdf.js, se le recortan los márgenes en blanco y se le pasa al
+   lector de fotos de siempre —IA si hay, si no el del teléfono—. No hay un
+   camino nuevo para los números: terminan en el mismo cuadro de texto, se
+   revisan y se analizan igual que los de una foto.
+
+   pdf.js vive en este servidor (assets/vendor/pdfjs, versión 3.11.174), como el
+   lector de fotos: no depende de ningún CDN y la política de seguridad de la
+   página ya permite su hilo de trabajo ('self').
+   ═════════════════════════════════════════════════════════════════════════════ */
+
+const IMP_PDF = {
+    base: 'assets/vendor/pdfjs/',
+    ancho: 1800,          // la letra de 9 puntos queda en unos 22 px: lo que necesita el lector
+    maxPaginas: 3,        // más largo que eso, la imagen se achica tanto que no se lee
+    cargando: null,
+};
+
+function impCargarPdfjs() {
+    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+    if (IMP_PDF.cargando) return IMP_PDF.cargando;
+    IMP_PDF.cargando = new Promise((ok, mal) => {
+        const s = document.createElement('script');
+        s.src = IMP_PDF.base + 'pdf.min.js';
+        s.onload = () => {
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = IMP_PDF.base + 'pdf.worker.min.js';
+            ok(window.pdfjsLib);
+        };
+        s.onerror = () => { IMP_PDF.cargando = null; mal(new Error('No pude cargar el lector de PDF.')); };
+        document.head.appendChild(s);
+    });
+    return IMP_PDF.cargando;
+}
+
+/** El lienzo sin los márgenes en blanco: menos imagen que mandar, letra más grande al leer. */
+function impRecortarBlanco(c) {
+    const x = c.getContext('2d');
+    const { data, width, height } = x.getImageData(0, 0, c.width, c.height);
+    let arriba = height, abajo = -1, izq = width, der = -1;
+    for (let y = 0; y < height; y++) {
+        for (let i = 0; i < width; i++) {
+            const p = (y * width + i) * 4;
+            if (data[p] < 235 || data[p + 1] < 235 || data[p + 2] < 235) {
+                if (y < arriba) arriba = y;
+                if (y > abajo) abajo = y;
+                if (i < izq) izq = i;
+                if (i > der) der = i;
+            }
+        }
+    }
+    if (abajo < 0) return c;   // página en blanco
+    const m = 24;
+    izq = Math.max(0, izq - m); arriba = Math.max(0, arriba - m);
+    der = Math.min(width - 1, der + m); abajo = Math.min(height - 1, abajo + m);
+    const r = document.createElement('canvas');
+    r.width = der - izq + 1; r.height = abajo - arriba + 1;
+    r.getContext('2d').drawImage(c, izq, arriba, r.width, r.height, 0, 0, r.width, r.height);
+    return r;
+}
+
+/** Las primeras páginas del PDF, una abajo de la otra, en un PNG. */
+async function impPdfAImagen(archivo) {
+    const lib = await impCargarPdfjs();
+    // isEvalSupported:false — la política de seguridad de la página no permite eval.
+    const doc = await lib.getDocument({ data: await archivo.arrayBuffer(), isEvalSupported: false }).promise;
+    const usadas = Math.min(doc.numPages, IMP_PDF.maxPaginas);
+    const hojas = [];
+    for (let n = 1; n <= usadas; n++) {
+        const pagina = await doc.getPage(n);
+        const base = pagina.getViewport({ scale: 1 });
+        const vista = pagina.getViewport({ scale: IMP_PDF.ancho / base.width });
+        const c = document.createElement('canvas');
+        c.width = Math.ceil(vista.width); c.height = Math.ceil(vista.height);
+        const x = c.getContext('2d');
+        x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+        await pagina.render({ canvasContext: x, viewport: vista }).promise;
+        hojas.push(impRecortarBlanco(c));
+    }
+    const separacion = 30;
+    const todo = document.createElement('canvas');
+    todo.width = Math.max(...hojas.map(h => h.width));
+    todo.height = hojas.reduce((s, h) => s + h.height, 0) + separacion * (hojas.length - 1);
+    const t = todo.getContext('2d');
+    t.fillStyle = '#fff'; t.fillRect(0, 0, todo.width, todo.height);
+    let y = 0;
+    hojas.forEach(h => { t.drawImage(h, 0, y); y += h.height + separacion; });
+    const blob = await new Promise(ok => todo.toBlob(ok, 'image/png'));
+    return { blob, paginas: doc.numPages, usadas };
+}
+
+async function impPdfComoFoto(archivo, aviso) {
+    try {
+        const r = await impPdfAImagen(archivo);
+        if (!r.blob) throw new Error('sin imagen');
+        const nombre = archivo.name.replace(/\.pdf$/i, '') + '.png';
+        let nota = 'PDF sin texto: lo paso a imagen y lo leo como una foto.';
+        if (r.paginas > r.usadas) nota += ' Tomé las primeras ' + r.usadas + ' de ' + r.paginas + ' páginas.';
+        impFoto(new File([r.blob], nombre, { type: 'image/png' }), { nota, alListo: impLeerFoto });
+    } catch (e) {
+        impPaso('origen');
+        impMostrarError((aviso || 'Este PDF no tiene texto adentro.') +
+            ' No pude pasarlo a imagen en este navegador: sacale una captura de pantalla y subila como foto.');
+    }
 }
 
 function impAnalizarTexto(cual) {
@@ -2023,7 +2142,11 @@ const IMP_FOTO_MIN = {
     altoLetra:  13,
 };
 
-function impFoto(archivo) {
+/**
+ * @param opciones.nota     una línea más debajo del nombre (ej.: que vino de un PDF)
+ * @param opciones.alListo  qué hacer cuando la foto ya está en pantalla (ej.: leerla sola)
+ */
+function impFoto(archivo, opciones = {}) {
     impMostrarError('');
     impSoltarFoto();                       // si había otra, se libera
     const url = URL.createObjectURL(archivo);
@@ -2058,7 +2181,9 @@ function impFoto(archivo) {
 
         document.getElementById('impFotoImg').src = url;
         impPintarVeredicto(m, archivo, img);
+        if (opciones.nota) document.getElementById('impFotoSub').textContent += ' · ' + opciones.nota;
         impPaso('foto');
+        if (opciones.alListo) opciones.alListo();
     };
 
     img.onerror = () => {
@@ -2347,6 +2472,7 @@ async function impLeerConIA() {
         caja.value = resp.texto;
         impAjustarAlto(caja);
         impGuardarCrudo('');
+        IMP.monedaFoto = resp.moneda || null;
         document.getElementById('impDudas').hidden = true;
 
         const cuantos = resp.renglones + (resp.renglones === 1 ? ' renglón' : ' renglones');
@@ -2415,6 +2541,8 @@ function impMostrarLectura(data) {
     caja.value = utiles.join('\n');
     impAjustarAlto(caja);          // que el cuadro quede del alto de lo leído
     impGuardarCrudo(texto);
+    // La moneda se busca en TODO lo leído: el "SON: ... DÓLARES" no es un renglón útil.
+    IMP.monedaFoto = impMonedaDeTexto(texto);
 
     /* Los tres estados, en un renglón cada uno. El aviso de revisar los números
        queda, porque es lo único que no se puede dar por sabido: el lector se
@@ -2433,6 +2561,58 @@ function impMostrarLectura(data) {
     impMostrarDudas(palabras, utiles.join('\n'));
 }
 
+/** Copia de imp_moneda_documento() del servidor, para lo que leyó el lector de fotos. */
+function impMonedaDeTexto(texto) {
+    const n = String(texto || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    if (/\bson\b[^\n]*\bdolares\b/.test(n)) return 'USD';
+    if (/\bson\b[^\n]*\bpesos\b/.test(n)) return 'ARS';
+    if (/importes? (?:expresados )?en dolares/.test(n)) return 'USD';
+    if (/u\$s|us\$|\busd\b|\bdolares\b/.test(n)) return 'USD';
+    return null;
+}
+
+/** Número escrito a la argentina ("1.813,95", "5,75") a número. */
+function impNumAr(s) {
+    s = String(s).trim();
+    if (s.includes(',')) return parseFloat(s.replace(/\./g, '').replace(',', '.'));
+    if (/^\d{1,3}(\.\d{3})+$/.test(s)) return parseFloat(s.replace(/\./g, ''));
+    return parseFloat(s);
+}
+
+/**
+ * El renglón de una factura o nota de pedido: artículo, cantidad, unidad,
+ * precio, importe y descuento. Copia de imp_linea_columnas_al_final() del
+ * servidor: si acá se aceptara un renglón que allá no, la pantalla mostraría
+ * mercadería que después desaparece al analizar.
+ */
+const IMP_NUM = '\\d{1,3}(?:\\.\\d{3})+(?:,\\d+)?|\\d+(?:[.,]\\d+)?';
+const IMP_UM  = 'kgs?|kilos?|lts?|litros?|l|un|u|unid|uds?|bolsas?|bls|bidon(?:es)?|ds|dosis|tn|tns|ton|cc|ml|grs?|m3|cajas?|bultos?';
+const IMP_RE_COLUMNAS_FINAL = new RegExp('^(.*?\\p{L}.*?)\\s+(' + IMP_NUM + ')\\s*(' + IMP_UM + ')?\\s+(' + IMP_NUM + ')\\s+(' + IMP_NUM + ')(?:\\s+-?(?:' + IMP_NUM + ')\\s*%?)?$', 'iu');
+
+/**
+ * El renglón, si es de este formato; si no, null. Puede volver CORREGIDO: el
+ * lector a veces se come la coma de los centavos ("1895" por "18,95"), y ahí la
+ * cuenta cantidad × precio da cien veces el importe. Si poniéndole la coma la
+ * cuenta cierra, se la pone, y el renglón corregido es lo que se ve en el cuadro
+ * para revisar. Mismo criterio que el servidor.
+ */
+function impRenglonColumnasAlFinal(l) {
+    const m = l.match(IMP_RE_COLUMNAS_FINAL);
+    if (!m) return null;
+    if (!/\p{L}{5,}/u.test(m[1].replace(/\s+-\s*\d{3,}\s*$/, ''))) return null;
+    const importe = impNumAr(m[5]);
+    const cierra = (c, p) => c > 0 && p > 0 && importe > 0 && importe / (c * p) >= 0.75 && importe / (c * p) <= 1.35;
+    const conComa = s => s.slice(0, -2) + ',' + s.slice(-2);
+    let cant = m[2], precio = m[4];
+    if (!cierra(impNumAr(cant), impNumAr(precio))) {
+        if (/^\d{3,}$/.test(precio) && cierra(impNumAr(cant), impNumAr(conComa(precio)))) precio = conComa(precio);
+        else if (/^\d{3,}$/.test(cant) && cierra(impNumAr(conComa(cant)), impNumAr(precio))) cant = conComa(cant);
+        else return null;
+    }
+    const resto = l.slice(m[1].length).replace(m[2], cant).replace(m[4], precio);
+    return m[1] + resto;
+}
+
 /**
  * De todo lo que leyó, los renglones que de verdad son mercadería.
  *
@@ -2442,7 +2622,7 @@ function impMostrarLectura(data) {
  */
 function impRenglonesUtiles(texto) {
     // Frases del emisor y del cliente. No aparecen nunca describiendo mercadería.
-    const RUIDO = /ing\.?\s*brutos|ingresos brutos|inicio actividades|domicilio|localidad|responsable inscripto|cuit|cuil|impreso por|firma del|retirada por|patentes|observaciones|transporte|documento n|condici[oó]n de venta/i;
+    const RUIDO = /ing\.?\s*brutos|ingresos brutos|inicio actividades|domicilio|localidad|responsable inscripto|cuit|cuil|impreso por|firma del|retirada por|patentes|observaciones|transporte|documento n|condici[oó]n de venta|condici[oó]n de pago|cliente|vendedor|nota de pedido|bonificaci[oó]n|recargo/i;
 
     // La dirección del membrete: arranca con un número y no es mercadería.
     const CALLE = /^\d{1,4} de (enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\b|\b(av|avda|avenida|calle|ruta|esquina|piso|depto)\b/i;
@@ -2454,14 +2634,26 @@ function impRenglonesUtiles(texto) {
         // formulario. El guión corto no, que va en fechas y en lotes.
         let l = cruda.replace(/[|\[\]—–_¬]/g, ' ').replace(/\s+/g, ' ').trim();
         if (l.length < 4) return;
-        if (RUIDO.test(l) || CALLE.test(l)) return;
 
         /* El total se conserva aunque no sea mercadería: es lo que después
-           permite verificar que la suma cierre. */
-        if (/^\s*(sub\s*total|total|neto)\b/i.test(l)) {
-            if (/\d/.test(l)) salida.push(l);
-            return;
-        }
+           permite verificar que la suma cierre. Se busca en cualquier parte del
+           renglón y ANTES del filtro de ruido: leyendo una factura, la columna
+           de totales sale pegada a lo que está a su izquierda —"Vendedor Sub
+           total 5.842,50", "21/09/2026 Total 7.369,88"— y el renglón entero se
+           descartaba por la palabra "Vendedor". */
+        const tot = l.match(/\b(sub\s*total|total|neto)\s*:?\s*(?:u?\$s?|us\$)?\s*(\d[\d.,]*)\s*$/i);
+        if (tot) { salida.push(tot[1] + ' ' + tot[2]); return; }
+        if (/^\s*(sub\s*total|total|neto)\b/i.test(l)) return;
+
+        if (RUIDO.test(l) || CALLE.test(l)) return;
+        // "01401 - ROSSI FRANCO": código y nombre de cliente o vendedor, no mercadería.
+        if (/^\d{3,}\s*-\s*\p{L}/u.test(l)) return;
+
+        /* Factura o nota de pedido: el artículo primero y los números al final
+           ("CLETODIM ... - 0000698 120,00 LTS 5,75 719,33 0,00"). Mismo criterio
+           que imp_linea_columnas_al_final() en el servidor, cuenta incluida. */
+        const alFinal = impRenglonColumnasAlFinal(l);
+        if (alFinal) { salida.push(alFinal); return; }
 
         /* Un código de primera columna no es la cantidad. Se reconoce por los
            ceros adelante, o por ser largo: leyendo la foto, el borde de la tabla
@@ -2959,6 +3151,19 @@ function impMostrarResultado(resp) {
     const aviso = document.getElementById('impConfAviso');
     aviso.textContent = resp.aviso || '';
     aviso.hidden = !resp.aviso;
+
+    /* La moneda que dice el comprobante ("SON: ... DÓLARES", "U$S"). Del
+       archivo o del texto la detecta el servidor; de una foto, lo que leyó el
+       lector o la IA (en el cuadro ya no queda: sólo van los renglones). Se
+       propone elegida y se avisa: es el error que sale mil veces más caro. */
+    const sugerida = resp.moneda_sugerida || (IMP.paso === 'foto' ? IMP.monedaFoto : null);
+    if (sugerida === 'USD') {
+        document.getElementById('impMoneda').value = 'USD';
+        impCambiarMoneda('USD');
+        aviso.textContent = (aviso.textContent ? aviso.textContent + ' ' : '') +
+            'El comprobante dice que está en dólares, así que elegí US$. Si no es así, cambialo arriba.';
+        aviso.hidden = false;
+    }
 
     document.getElementById('impTodos').checked = true;
     document.getElementById('impDepGlobal').value = '';

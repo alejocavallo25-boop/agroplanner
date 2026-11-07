@@ -59,6 +59,10 @@ $labor_total = $labor_precio * $total_ha;
 
 $grand_total = $total_insumos_cost + $labor_total;
 $grand_total_ha = $total_ha > 0 ? ($grand_total / $total_ha) : 0;
+
+// Si la saca un asesor, va con su firma. Ver includes/asesor.php.
+require_once __DIR__ . '/../includes/asesor.php';
+$firma = firma_informe($pdo);
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -192,6 +196,8 @@ $grand_total_ha = $total_ha > 0 ? ($grand_total / $total_ha) : 0;
                 </tr>
             </table>
         </div>
+        <?php /* Sin márgenes a los costados: el contenedor de la receta ya tiene los suyos. */ ?>
+        <?= $firma ? firma_html($firma, '36px 0 0') : '' ?>
     </div>
 </body>
 </html>

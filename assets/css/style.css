@@ -599,6 +599,34 @@ html {
     text-transform: capitalize;
 }
 
+/* Asesor: selector de cuenta debajo del nombre (ver includes/asesor.php). */
+.sidebar-cuenta { margin: 3px 0 0; }
+.sidebar-cuenta select {
+    width: 100%;
+    max-width: 170px;
+    min-height: 32px;
+    padding: 4px 6px;
+    font: inherit;
+    font-size: 0.78rem;
+    color: var(--text-primary);
+    background: var(--n-0, #fff);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+}
+/* Cliente: aviso de qué asesor tiene acceso a su cuenta. */
+.sidebar-user-asesor {
+    margin-top: 2px;
+    font-size: 0.72rem;
+    line-height: 1.3;
+    color: var(--text-muted);
+    max-width: 170px;
+}
+.nav-link-asesor { color: oklch(0.420 0.110 250); }
+.nav-link-asesor:hover,
+.nav-link-asesor.active { background: oklch(0.480 0.110 250 / 0.10); color: oklch(0.420 0.110 250); }
+.nav-link-asesor.active::before { background: oklch(0.480 0.110 250); }
+
 /* 44px reales de área táctil: antes eran 31×38. */
 .sidebar-logout {
     margin-left: auto;

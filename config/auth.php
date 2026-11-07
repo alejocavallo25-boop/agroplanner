@@ -146,4 +146,16 @@ function get_flash() {
     }
     return null;
 }
+
+// ─── Cuentas de asesor ─────────────────────────────────────────────────────
+// Sólo corre si la sesión es de un asesor, así que el resto de los usuarios no
+// paga la consulta y esto no depende de que la migración haya corrido. Mira en
+// cada pedido que el asesor siga vinculado a la cuenta en la que está parado:
+// si el admin le quitó el cliente, vuelve a su cuenta en el clic siguiente.
+// Ver includes/asesor.php.
+if (!empty($_SESSION['asesor_id'])) {
+    require_once __DIR__ . '/database.php';
+    require_once __DIR__ . '/../includes/asesor.php';
+    asesor_verificar_sesion($pdo, $base);
+}
 ?>

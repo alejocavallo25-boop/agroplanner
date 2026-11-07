@@ -3,6 +3,8 @@ require_once 'config/auth.php';
 require_agricultura();
 require_once 'config/database.php';
 require_once 'includes/cultivos.php';
+// Cómo se guarda, se edita y se borra un gasto: lo comparte con carga_lotes.php.
+require_once 'includes/carga_lotes.php';
 require_once 'includes/exportar.php';
 // Muestra los importes en pesos o en dólares; no cambia nada de lo guardado.
 require_once 'includes/moneda.php';
@@ -127,66 +129,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if (!$con_labor) $d['cant_ha'] = 0;
             $d['hectareas_db'] = $con_insumos ? $d['ha'] : null;
 
-            $d['costo_total'] = $con_labor ? $precio_u * $d['cant_ha'] : 0;
-            foreach ($filas_ins as $f) $d['costo_total'] += $f['c'] * $f['p'] * $d['ha'];
+            // La misma cuenta que usa operacion_insertar(): una sola versión (ver includes/carga_lotes.php).
+            $d['costo_total'] = operacion_costo($tipo_comp, $precio_u, $d['cant_ha'], $filas_ins, $d['ha']);
         }
         unset($d);
     }
 
+    // Insumos en el formato de includes/carga_lotes.php.
+    $insumos_op = array_map(fn($f) => ['id' => $f['real_ins_id'], 'nombre' => $f['real_nom'], 'c' => $f['c'], 'p' => $f['p']], $filas_ins);
+
     $pdo->beginTransaction();
     try {
-        $stmtInsertChild = $pdo->prepare("INSERT INTO operacion_insumos (operacion_id, insumo_id, nombre_libre, cantidad_ha, precio_unitario) VALUES (?, ?, ?, ?, ?)");
-        // Permite stock negativo: no se clampa a 0 ni se desactiva el insumo al llegar a cero.
-        $stmtUpdateStock = $pdo->prepare("UPDATE insumos SET stock_actual = stock_actual - ? WHERE id = ? AND usuario_id = ?");
-        // Insumos de una operación: cada lote descuenta del stock sus propias ha.
-        $guardar_insumos = function ($op_id, $ha) use ($filas_ins, $stmtInsertChild, $stmtUpdateStock, $usuario_id) {
-            foreach ($filas_ins as $f) {
-                $stmtInsertChild->execute([$op_id, $f['real_ins_id'], $f['real_nom'], $f['c'], $f['p']]);
-                if ($f['real_ins_id']) {
-                    $stmtUpdateStock->execute([$f['c'] * $ha, $f['real_ins_id'], $usuario_id]);
-                }
-            }
-        };
-
         if ($_POST['action'] === 'add') {
-            $stmt = $pdo->prepare("INSERT INTO operaciones (usuario_id, lote_id, cultivo_id, grupo_gasto, grupo_descripcion, tipo_componente, insumo_id, proveedor_servicio, cantidad_ha, precio_unitario, costo_total, moneda, fecha, campania_operacion, cultivo_operacion, cargas, hectareas) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $op = [
+                'grupo' => $grupo, 'grupo_desc' => $grupo_desc, 'tipo' => $tipo_comp,
+                'proveedor' => $proveedor, 'precio' => $precio_u, 'moneda' => $moneda, 'cargas' => $cargas,
+                // Repartido en varios lotes: los gastos quedan agrupados para editarlos juntos.
+                'carga_id' => count($destinos) > 1 ? carga_nuevo_id() : null,
+            ];
             foreach ($destinos as $d) {
-                $stmt->execute([$usuario_id, $d['lote_id'], $d['cultivo_id'], $grupo, $grupo_desc, $tipo_comp_db, $proveedor, $d['cant_ha'], $precio_u, $d['costo_total'], $moneda, $fecha, $d['campania'], $d['cultivo'], $cargas, $d['hectareas_db']]);
-                if ($con_insumos) $guardar_insumos($pdo->lastInsertId(), $d['ha']);
+                operacion_insertar($pdo, $usuario_id, $op, [
+                    'lote_id' => $d['lote_id'], 'cultivo_id' => $d['cultivo_id'],
+                    'campania' => $d['campania'], 'cultivo' => $d['cultivo'], 'fecha' => $fecha,
+                    'ha_labor' => $d['cant_ha'], 'ha' => $d['ha'], 'insumos' => $insumos_op,
+                ]);
             }
 
         } elseif ($_POST['action'] === 'edit') {
             $id = (int)$_POST['id'];
             $d  = reset($destinos); // la edición es siempre de un solo lote
 
-            // Restaurar stock viejo
-            $stmtOld = $pdo->prepare("SELECT tipo_componente, insumo_id, cantidad_ha, lote_id, hectareas FROM operaciones WHERE id = ? AND usuario_id = ?");
-            $stmtOld->execute([$id, $usuario_id]);
-            $old = $stmtOld->fetch();
             // Sin esto, un id ajeno borraba y reemplazaba los insumos de otra cuenta.
-            if (!$old) throw new Exception("Operación $id inexistente o de otro usuario.");
-            if ($old) {
-                $stmtSupOld = $pdo->prepare("SELECT superficie FROM lotes WHERE id = ?");
-                $stmtSupOld->execute([$old['lote_id']]);
-                $supOld = (float)($stmtSupOld->fetchColumn() ?: 0);
-                // Restaurar con las hectáreas guardadas; si la operación es vieja (NULL), usar la superficie del lote.
-                $haOld = ($old['hectareas'] !== null) ? (float)$old['hectareas'] : $supOld;
-
-                if ($old['tipo_componente'] === 'insumo' && $old['insumo_id']) {
-                    $cantOld = (float)$old['cantidad_ha'] * $haOld;
-                    $pdo->prepare("UPDATE insumos SET stock_actual = stock_actual + ?, estado = 'activo' WHERE id = ? AND usuario_id = ?")
-                        ->execute([$cantOld, $old['insumo_id'], $usuario_id]);
-                }
-
-                $stmtHijos = $pdo->prepare("SELECT insumo_id, cantidad_ha FROM operacion_insumos WHERE operacion_id = ?");
-                $stmtHijos->execute([$id]);
-                $stmtRestore = $pdo->prepare("UPDATE insumos SET stock_actual = stock_actual + ?, estado = 'activo' WHERE id = ? AND usuario_id = ?");
-                foreach ($stmtHijos->fetchAll() as $h) {
-                    if ($h['insumo_id']) {
-                        $cantRestore = (float)$h['cantidad_ha'] * $haOld;
-                        $stmtRestore->execute([$cantRestore, $h['insumo_id'], $usuario_id]);
-                    }
-                }
+            if (!operacion_devolver_stock($pdo, $usuario_id, $id)) {
+                throw new Exception("Operación $id inexistente o de otro usuario.");
             }
 
             // Borrar hijos
@@ -197,36 +172,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $stmt->execute([$d['lote_id'], $d['cultivo_id'], $grupo, $grupo_desc, $tipo_comp_db, $proveedor, $d['cant_ha'], $precio_u, $d['costo_total'], $moneda, $fecha, $d['campania'], $d['cultivo'], $cargas, $d['hectareas_db'], $id, $usuario_id]);
 
             // Insertar hijos nuevos
-            if ($con_insumos) $guardar_insumos($id, $d['ha']);
+            if ($con_insumos) operacion_guardar_insumos($pdo, $usuario_id, $id, $insumos_op, $d['ha']);
 
         } elseif ($_POST['action'] === 'delete') {
-            $id = (int)$_POST['id'];
-            $stmtDel = $pdo->prepare("SELECT tipo_componente, insumo_id, cantidad_ha, lote_id, hectareas FROM operaciones WHERE id = ? AND usuario_id = ?");
-            $stmtDel->execute([$id, $usuario_id]);
-            $del = $stmtDel->fetch();
-            if ($del) {
-                $stmtDelSup = $pdo->prepare("SELECT superficie FROM lotes WHERE id = ?");
-                $stmtDelSup->execute([$del['lote_id']]);
-                $supDel = (float)($stmtDelSup->fetchColumn() ?: 0);
-                // Restaurar con las hectáreas guardadas; si la operación es vieja (NULL), usar la superficie del lote.
-                $haDel = ($del['hectareas'] !== null) ? (float)$del['hectareas'] : $supDel;
+            operacion_borrar($pdo, $usuario_id, (int)$_POST['id']);
 
-                if ($del['tipo_componente'] === 'insumo' && $del['insumo_id']) {
-                    $cantRestore = (float)$del['cantidad_ha'] * $haDel;
-                    $pdo->prepare("UPDATE insumos SET stock_actual = stock_actual + ?, estado = 'activo' WHERE id = ? AND usuario_id = ?")
-                        ->execute([$cantRestore, $del['insumo_id'], $usuario_id]);
-                }
-                $stmtHijos = $pdo->prepare("SELECT insumo_id, cantidad_ha FROM operacion_insumos WHERE operacion_id = ?");
-                $stmtHijos->execute([$id]);
-                $stmtRestore = $pdo->prepare("UPDATE insumos SET stock_actual = stock_actual + ?, estado = 'activo' WHERE id = ? AND usuario_id = ?");
-                foreach ($stmtHijos->fetchAll() as $h) {
-                    if ($h['insumo_id']) {
-                        $cantRestore = (float)$h['cantidad_ha'] * $haDel;
-                        $stmtRestore->execute([$cantRestore, $h['insumo_id'], $usuario_id]);
-                    }
-                }
+        } elseif ($_POST['action'] === 'delete_carga') {
+            // Todos los gastos de una carga en varios lotes, devolviendo el stock de cada uno.
+            $carga = (string)($_POST['carga_id'] ?? '');
+            $ids = [];
+            if (carga_id_valido($carga) && carga_columna_existe($pdo)) {
+                $st = $pdo->prepare("SELECT id FROM operaciones WHERE usuario_id = ? AND carga_id = ?");
+                $st->execute([$usuario_id, $carga]);
+                $ids = $st->fetchAll(PDO::FETCH_COLUMN);
             }
-            $pdo->prepare("DELETE FROM operaciones WHERE id = ? AND usuario_id = ?")->execute([$id, $usuario_id]);
+            foreach ($ids as $id) operacion_borrar($pdo, $usuario_id, (int)$id);
+            set_flash('success', 'Se borró la carga: ' . count($ids) . ' gastos, con su stock devuelto.');
         }
         $pdo->commit();
         header("Location: operaciones.php"); exit;
@@ -248,7 +209,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
         $accion = $_POST['action'] ?? '';
         $que = $accion === 'delete' ? 'eliminar la operación'
-             : ($accion === 'edit' ? 'guardar los cambios' : 'registrar el gasto');
+             : ($accion === 'delete_carga' ? 'borrar la carga'
+             : ($accion === 'edit' ? 'guardar los cambios' : 'registrar el gasto'));
 
         set_flash('error', 'No se pudo ' . $que . '. No quedó nada a medias: '
                          . 'la operación se deshizo completa y el stock quedó como estaba. '
@@ -396,6 +358,16 @@ foreach ($operaciones as &$op) {
 }
 unset($op);
 
+// Cuántos lotes tiene cada carga de las que se ven, para ofrecer editarla entera.
+$lotes_por_carga = [];
+$cargas_vistas = array_values(array_unique(array_filter(array_column($operaciones, 'carga_id'))));
+if ($cargas_vistas) {
+    $in = implode(',', array_fill(0, count($cargas_vistas), '?'));
+    $st = $pdo->prepare("SELECT carga_id, COUNT(*) FROM operaciones WHERE usuario_id = ? AND carga_id IN ($in) GROUP BY carga_id");
+    $st->execute(array_merge([$usuario_id], $cargas_vistas));
+    $lotes_por_carga = $st->fetchAll(PDO::FETCH_KEY_PAIR);
+}
+
 // (Totales ya calculados vía SQL)
 require_once 'includes/header.php';
 
@@ -516,6 +488,9 @@ function colorGrupo($g) {
                  'nueva_pestana' => true],
             ]);
             ?>
+            <a href="carga_lotes.php" class="btn" style="background: var(--n-100); color: var(--text-primary); border: 1px solid var(--border);">
+                <i class="fas fa-layer-group"></i> Cargar en varios lotes
+            </a>
             <button class="btn btn-primary" onclick="openAddModal()">
                 <i class="fas fa-plus"></i> Registrar Gasto
             </button>
@@ -620,6 +595,9 @@ function colorGrupo($g) {
                         <span class="badge" style="background:<?= colorGrupo($op['grupo_gasto']) ?>;">
                             <?= labelGrupo($op) ?>
                         </span>
+                        <?php if (!empty($op['carga_id']) && ($lotes_por_carga[$op['carga_id']] ?? 0) > 1): ?>
+                            <div style="margin-top:6px;"><small style="color:var(--text-muted);"><i class="fas fa-layer-group"></i> Carga de <?= (int)$lotes_por_carga[$op['carga_id']] ?> lotes</small></div>
+                        <?php endif; ?>
                     </td>
                     <?php /* El desglose describe la factura original, así que va en
                              LA MONEDA DE ESA FILA y no en la que se está mirando: si
@@ -714,6 +692,19 @@ function colorGrupo($g) {
                             onclick='editOp(<?= json_encode($op, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>
                             <i class="fas fa-edit"></i>
                         </button>
+                        <?php /* Carga por lotes: editar la carga entera, o repetirla
+                                 (también un gasto suelto) en otros lotes u otra fecha. */
+                        $n_carga = !empty($op['carga_id']) ? (int)($lotes_por_carga[$op['carga_id']] ?? 0) : 0; ?>
+                        <?php if ($n_carga > 1): ?>
+                        <a href="carga_lotes.php?carga=<?= urlencode($op['carga_id']) ?>" class="btn" style="color: var(--accent); background: transparent; padding: 4px 8px;"
+                           title="Editar la carga entera (<?= $n_carga ?> lotes)" aria-label="Editar la carga entera (<?= $n_carga ?> lotes)">
+                            <i class="fas fa-layer-group"></i>
+                        </a>
+                        <?php endif; ?>
+                        <a href="carga_lotes.php?<?= $n_carga > 1 ? 'repetir=' . urlencode($op['carga_id']) : 'op=' . (int)$op['id'] ?>" class="btn" style="color: var(--text-muted); background: transparent; padding: 4px 8px;"
+                           title="Repetir en otros lotes u otra fecha" aria-label="Repetir en otros lotes u otra fecha">
+                            <i class="fas fa-copy"></i>
+                        </a>
                         <!-- Eliminar -->
                         <form method="POST" style="display: inline;" onsubmit="return confirm('¿Eliminar registro?');">
                             <?php csrf_field(); ?>
@@ -830,6 +821,7 @@ function colorGrupo($g) {
                     <small class="ml-nota">
                         <i class="fas fa-info-circle"></i>
                         El precio y la dosis por ha son los mismos en todos; cada lote paga sus hectáreas.
+                        ¿Dosis o fechas distintas por lote? Usá <a href="carga_lotes.php">Cargar en varios lotes</a>.
                     </small>
                 </div>
             </div>

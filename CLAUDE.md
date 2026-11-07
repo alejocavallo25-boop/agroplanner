@@ -29,6 +29,7 @@ consulta filtra por `usuario_id` de la sesión.
 | `api/registrar*.php` | Guardan lo que el chat propone cargar (POST, con CSRF). |
 | `migrations/` | Ver `migrations/LEEME.md`: sólo se corre `esquema_completo.sql`. |
 | `includes/ia.php` | Cadena de IA gratis (Gemini → Groq → OpenRouter). Ver "IA" abajo. |
+| `includes/asesor.php` | Cuentas de asesor: cambio de cuenta, vínculos y firma. Ver "Asesores". |
 
 ## El chat (`includes/motor.php`)
 
@@ -66,11 +67,22 @@ consulta filtra por `usuario_id` de la sesión.
 
 ## Gastos (`operaciones.php`)
 
-- **Multilote = una operación por lote**, guardadas en una sola transacción (no
-  hay tabla ni columna de "grupo"). Reparto por ha: precio/ha y dosis/ha iguales;
-  en "Cant. Total" se divide por la suma de las ha. Los campos van con el id del
-  lote como clave (`multi_ha[12]`); el servidor entra en multilote si llega
-  `multi_lote[]`. Sólo al registrar: la edición es siempre de un lote.
+- **Multilote = una operación por lote**, guardadas en una sola transacción, y
+  con el mismo `carga_id` (NULL = gasto suelto). Reparto por ha: precio/ha y
+  dosis/ha iguales; en "Cant. Total" se divide por la suma de las ha. Los campos
+  van con el id del lote como clave (`multi_ha[12]`); el servidor entra en
+  multilote si llega `multi_lote[]`. La edición en el modal es de un lote.
+- **Guardar, editar y borrar un gasto pasa por `includes/carga_lotes.php`**
+  (`operacion_insertar`, `operacion_costo`, `operacion_borrar`), que comparten
+  `operaciones.php` y `carga_lotes.php`. No volver a copiar la cuenta del costo
+  ni el descuento de stock en otra pantalla.
+- **Carga por lotes (`carga_lotes.php`)**: planilla con fecha, ha, cultivo y
+  dosis propias por lote, plantillas (`plantillas_labor`) y editar, repetir o
+  borrar una carga entera. Editar = borrar los gastos de la carga devolviendo
+  stock y volver a insertarlos (los ids cambian; sólo `operacion_insumos`
+  apunta a `operaciones`, en cascada). La dosis "de arriba" al releer es la de
+  la mayoría de los lotes, no la del primero. Pruebas de ida y vuelta en
+  `tests/test_carga_lotes.php`.
 
 ## Stock (`insumos.php`)
 
@@ -83,6 +95,17 @@ consulta filtra por `usuario_id` de la sesión.
 - Una sola lista de depósitos: los chips son a la vez el filtro y el resumen. No
   volver a poner tarjetas aparte — eso duplicaba los mismos nombres dos veces en
   la misma pantalla.
+- **Importador** (`includes/importador_insumos.php`): lee remitos (cantidad
+  adelante) y facturas/notas de pedido (artículo primero, números al final;
+  la cuenta cantidad × precio ≈ importe decide qué columna es cuál). El filtro
+  de renglones está **dos veces**: `imp_linea_a_item()` en PHP e
+  `impRenglonesUtiles()` en `insumos.php`, para lo que lee el lector de fotos.
+  Cambiar uno sin el otro hace que la pantalla muestre renglones que después
+  desaparecen. Pruebas: `tests/test_importador*.php`.
+- **PDF sin texto** (escaneados, o "Microsoft Print to PDF" que dibuja las
+  letras: cero fuentes): el servidor contesta `pdf_sin_texto` y el navegador
+  pasa las páginas a imagen con pdf.js (`assets/vendor/pdfjs`, 3.11.174,
+  `isEvalSupported:false` por la CSP) y las lee como una foto.
 
 ## Tambo
 
@@ -121,6 +144,22 @@ consulta filtra por `usuario_id` de la sesión.
   Una vez el login pidió una columna que no existía en producción y dio 500 a
   todos. Por eso lee `SELECT *` + `!empty($user['solo_lectura'])`.
 - El deploy no toca la base: la migración va antes que el código que la usa.
+
+## Asesores (`includes/asesor.php`)
+
+- Un asesor entra a las cuentas de sus clientes (`asesor_clientes`; las vincula
+  el admin en `admin.php` o el asesor al crear una cuenta en `asesor.php`).
+  **Al entrar, `usuario_id` pasa a ser el del cliente** y la cuenta real queda
+  en `$_SESSION['asesor_id']`: ninguna consulta sabe de asesores, y así tiene
+  que seguir. No agregar "o es cliente del asesor" a los WHERE.
+- `config/auth.php` revisa el vínculo en cada pedido (sólo si hay `asesor_id`).
+  Dentro de un cliente el rol es siempre `user`. Admins y demo no son clientes.
+- Al cambiar de cuenta se borra el `sessionStorage` (memoria del chat, remito de
+  la IA) y se rota el CSRF: si no, una carga a medio hacer o una pestaña vieja
+  guardaba en el cliente equivocado. `header.php` recarga las otras pestañas.
+- Pantallas nuevas de un módulo: sumarlas a `ASESOR_PAGINAS_MODULO`, o al
+  cambiar de cuenta se va al inicio en vez de quedarse ahí.
+- Informes nuevos: `firma_informe($pdo)` + `firma_html()` / `firma_texto()`.
 
 ## Cuenta demo — solo lectura
 

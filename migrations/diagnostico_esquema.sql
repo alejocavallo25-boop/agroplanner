@@ -24,11 +24,11 @@ SELECT VERSION() AS motor,
           'PARA: elegi tu base en el panel izquierdo y corre esto de nuevo',
           'OK, segui') AS estado;
 
--- Cuántas de las 30 tablas esperadas existen.
-SELECT COUNT(*) AS tablas_presentes, 30 AS tablas_esperadas
+-- Cuántas de las 34 tablas esperadas existen.
+SELECT COUNT(*) AS tablas_presentes, 34 AS tablas_esperadas
 FROM information_schema.TABLES
 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'
-  AND TABLE_NAME IN ('users', 'cultivos', 'lotes', 'depositos', 'alquileres', 'cotizaciones_siogranos', 'feedlot_alimentos', 'feedlot_costos_fijos', 'feedlot_lotes', 'ganaderia_egresos', 'ganaderia_egresos_conceptos', 'ganaderia_inventario', 'ganaderia_movimientos', 'ganaderia_pesadas', 'ganaderia_reproductivo', 'insumos', 'lote_historial_campanas', 'motor_consultas_fallidas', 'motor_preferencias', 'operacion_insumos', 'operaciones', 'produccion_ventas', 'tambo_calidad', 'tambo_dif_inventario', 'tambo_dolar_mes', 'tambo_egresos', 'tambo_egresos_conceptos', 'tambo_produccion', 'tambo_rodeo', 'tambo_ventas_carne');
+  AND TABLE_NAME IN ('users', 'cultivos', 'lotes', 'depositos', 'alquileres', 'asesor_clientes', 'cotizaciones_siogranos', 'feedlot_alimentos', 'feedlot_costos_fijos', 'feedlot_lotes', 'ganaderia_egresos', 'ganaderia_egresos_conceptos', 'ganaderia_inventario', 'ganaderia_movimientos', 'ganaderia_pesadas', 'ganaderia_reproductivo', 'ia_uso', 'insumos', 'login_intentos', 'lote_historial_campanas', 'motor_consultas_fallidas', 'motor_preferencias', 'operacion_insumos', 'operaciones', 'plantillas_labor', 'produccion_ventas', 'tambo_calidad', 'tambo_dif_inventario', 'tambo_dolar_mes', 'tambo_egresos', 'tambo_egresos_conceptos', 'tambo_produccion', 'tambo_rodeo', 'tambo_ventas_carne');
 
 -- Cuáles faltan, por nombre.
 SELECT t.nombre AS tabla_faltante FROM (
@@ -37,6 +37,7 @@ SELECT t.nombre AS tabla_faltante FROM (
     UNION ALL SELECT 'lotes' AS nombre
     UNION ALL SELECT 'depositos' AS nombre
     UNION ALL SELECT 'alquileres' AS nombre
+    UNION ALL SELECT 'asesor_clientes' AS nombre
     UNION ALL SELECT 'cotizaciones_siogranos' AS nombre
     UNION ALL SELECT 'feedlot_alimentos' AS nombre
     UNION ALL SELECT 'feedlot_costos_fijos' AS nombre
@@ -47,18 +48,27 @@ SELECT t.nombre AS tabla_faltante FROM (
     UNION ALL SELECT 'ganaderia_movimientos' AS nombre
     UNION ALL SELECT 'ganaderia_pesadas' AS nombre
     UNION ALL SELECT 'ganaderia_reproductivo' AS nombre
+    UNION ALL SELECT 'ia_uso' AS nombre
     UNION ALL SELECT 'insumos' AS nombre
+    UNION ALL SELECT 'login_intentos' AS nombre
     UNION ALL SELECT 'lote_historial_campanas' AS nombre
     UNION ALL SELECT 'motor_consultas_fallidas' AS nombre
     UNION ALL SELECT 'motor_preferencias' AS nombre
     UNION ALL SELECT 'operacion_insumos' AS nombre
     UNION ALL SELECT 'operaciones' AS nombre
+    UNION ALL SELECT 'plantillas_labor' AS nombre
     UNION ALL SELECT 'produccion_ventas' AS nombre
     UNION ALL SELECT 'tambo_calidad' AS nombre
     UNION ALL SELECT 'tambo_dif_inventario' AS nombre
     UNION ALL SELECT 'tambo_dolar_mes' AS nombre
     UNION ALL SELECT 'tambo_egresos' AS nombre
-    UNION ALL SELECT 'tambo_egresos_conceptos' AS nombre
+) t
+LEFT JOIN information_schema.TABLES x
+       ON x.TABLE_SCHEMA = DATABASE() AND x.TABLE_NAME = t.nombre
+WHERE x.TABLE_NAME IS NULL;
+
+SELECT t.nombre AS tabla_faltante FROM (
+    SELECT 'tambo_egresos_conceptos' AS nombre
     UNION ALL SELECT 'tambo_produccion' AS nombre
     UNION ALL SELECT 'tambo_rodeo' AS nombre
     UNION ALL SELECT 'tambo_ventas_carne' AS nombre
@@ -95,6 +105,10 @@ FROM (
         UNION ALL SELECT 'users', 'reset_token', 'varchar(255)'
         UNION ALL SELECT 'users', 'reset_expires', 'datetime'
         UNION ALL SELECT 'users', 'solo_lectura', 'tinyint(1)'
+        UNION ALL SELECT 'users', 'es_asesor', 'tinyint(1)'
+        UNION ALL SELECT 'users', 'firma_nombre', 'varchar(150)'
+        UNION ALL SELECT 'users', 'firma_detalle', 'varchar(150)'
+        UNION ALL SELECT 'users', 'firma_logo', 'mediumtext'
         UNION ALL SELECT 'cultivos', 'id', 'int(11)'
         UNION ALL SELECT 'cultivos', 'lote_id', 'int(11)'
         UNION ALL SELECT 'cultivos', 'nombre', 'varchar(100)'
@@ -134,6 +148,10 @@ FROM (
         UNION ALL SELECT 'alquileres', 'moneda', 'enum(''USD'',''ARS'')'
         UNION ALL SELECT 'alquileres', 'notas', 'text'
         UNION ALL SELECT 'alquileres', 'created_at', 'timestamp'
+        UNION ALL SELECT 'asesor_clientes', 'asesor_id', 'int(11)'
+        UNION ALL SELECT 'asesor_clientes', 'cliente_id', 'int(11)'
+        UNION ALL SELECT 'asesor_clientes', 'origen', 'enum(''admin'',''asesor'')'
+        UNION ALL SELECT 'asesor_clientes', 'creado_en', 'timestamp'
         UNION ALL SELECT 'cotizaciones_siogranos', 'id', 'int(11)'
         UNION ALL SELECT 'cotizaciones_siogranos', 'fecha', 'date'
         UNION ALL SELECT 'cotizaciones_siogranos', 'cultivo', 'varchar(50)'
@@ -244,6 +262,15 @@ FROM (
         UNION ALL SELECT 'ganaderia_reproductivo', 'fecha_fin_servicio', 'date'
         UNION ALL SELECT 'ganaderia_reproductivo', 'notas', 'text'
         UNION ALL SELECT 'ganaderia_reproductivo', 'created_at', 'timestamp'
+        UNION ALL SELECT 'ia_uso', 'id', 'int(11)'
+        UNION ALL SELECT 'ia_uso', 'usuario_id', 'int(11)'
+        UNION ALL SELECT 'ia_uso', 'pedido', 'char(16)'
+        UNION ALL SELECT 'ia_uso', 'uso', 'varchar(20)'
+        UNION ALL SELECT 'ia_uso', 'proveedor', 'varchar(20)'
+        UNION ALL SELECT 'ia_uso', 'resultado', 'varchar(12)'
+        UNION ALL SELECT 'ia_uso', 'ms', 'int(11)'
+        UNION ALL SELECT 'ia_uso', 'detalle', 'varchar(255)'
+        UNION ALL SELECT 'ia_uso', 'creado_en', 'timestamp'
         UNION ALL SELECT 'insumos', 'id', 'int(11)'
         UNION ALL SELECT 'insumos', 'usuario_id', 'int(11)'
         UNION ALL SELECT 'insumos', 'nombre', 'varchar(150)'
@@ -257,6 +284,10 @@ FROM (
         UNION ALL SELECT 'insumos', 'fecha_vencimiento', 'date'
         UNION ALL SELECT 'insumos', 'deposito_id', 'int(11)'
         UNION ALL SELECT 'insumos', 'stock_minimo', 'decimal(10,2)'
+        UNION ALL SELECT 'login_intentos', 'id', 'int(11)'
+        UNION ALL SELECT 'login_intentos', 'ip', 'varchar(45)'
+        UNION ALL SELECT 'login_intentos', 'email', 'varchar(255)'
+        UNION ALL SELECT 'login_intentos', 'cuando', 'datetime'
         UNION ALL SELECT 'lote_historial_campanas', 'id', 'int(11)'
         UNION ALL SELECT 'lote_historial_campanas', 'lote_id', 'int(11)'
         UNION ALL SELECT 'lote_historial_campanas', 'usuario_id', 'int(11)'
@@ -301,6 +332,13 @@ FROM (
         UNION ALL SELECT 'operaciones', 'cargas', 'int(11)'
         UNION ALL SELECT 'operaciones', 'hectareas', 'decimal(10,2)'
         UNION ALL SELECT 'operaciones', 'moneda', 'enum(''ARS'',''USD'')'
+        UNION ALL SELECT 'operaciones', 'idempotencia', 'char(36)'
+        UNION ALL SELECT 'operaciones', 'carga_id', 'char(36)'
+        UNION ALL SELECT 'plantillas_labor', 'id', 'int(11)'
+        UNION ALL SELECT 'plantillas_labor', 'usuario_id', 'int(11)'
+        UNION ALL SELECT 'plantillas_labor', 'nombre', 'varchar(100)'
+        UNION ALL SELECT 'plantillas_labor', 'datos', 'text'
+        UNION ALL SELECT 'plantillas_labor', 'creado_en', 'timestamp'
         UNION ALL SELECT 'produccion_ventas', 'id', 'int(11)'
         UNION ALL SELECT 'produccion_ventas', 'lote_id', 'int(11)'
         UNION ALL SELECT 'produccion_ventas', 'cultivo_id', 'int(11)'
@@ -422,6 +460,10 @@ LEFT JOIN (
         UNION ALL SELECT 'users', 'reset_token', 'varchar(255)'
         UNION ALL SELECT 'users', 'reset_expires', 'datetime'
         UNION ALL SELECT 'users', 'solo_lectura', 'tinyint(1)'
+        UNION ALL SELECT 'users', 'es_asesor', 'tinyint(1)'
+        UNION ALL SELECT 'users', 'firma_nombre', 'varchar(150)'
+        UNION ALL SELECT 'users', 'firma_detalle', 'varchar(150)'
+        UNION ALL SELECT 'users', 'firma_logo', 'mediumtext'
         UNION ALL SELECT 'cultivos', 'id', 'int(11)'
         UNION ALL SELECT 'cultivos', 'lote_id', 'int(11)'
         UNION ALL SELECT 'cultivos', 'nombre', 'varchar(100)'
@@ -461,6 +503,10 @@ LEFT JOIN (
         UNION ALL SELECT 'alquileres', 'moneda', 'enum(''USD'',''ARS'')'
         UNION ALL SELECT 'alquileres', 'notas', 'text'
         UNION ALL SELECT 'alquileres', 'created_at', 'timestamp'
+        UNION ALL SELECT 'asesor_clientes', 'asesor_id', 'int(11)'
+        UNION ALL SELECT 'asesor_clientes', 'cliente_id', 'int(11)'
+        UNION ALL SELECT 'asesor_clientes', 'origen', 'enum(''admin'',''asesor'')'
+        UNION ALL SELECT 'asesor_clientes', 'creado_en', 'timestamp'
         UNION ALL SELECT 'cotizaciones_siogranos', 'id', 'int(11)'
         UNION ALL SELECT 'cotizaciones_siogranos', 'fecha', 'date'
         UNION ALL SELECT 'cotizaciones_siogranos', 'cultivo', 'varchar(50)'
@@ -571,6 +617,15 @@ LEFT JOIN (
         UNION ALL SELECT 'ganaderia_reproductivo', 'fecha_fin_servicio', 'date'
         UNION ALL SELECT 'ganaderia_reproductivo', 'notas', 'text'
         UNION ALL SELECT 'ganaderia_reproductivo', 'created_at', 'timestamp'
+        UNION ALL SELECT 'ia_uso', 'id', 'int(11)'
+        UNION ALL SELECT 'ia_uso', 'usuario_id', 'int(11)'
+        UNION ALL SELECT 'ia_uso', 'pedido', 'char(16)'
+        UNION ALL SELECT 'ia_uso', 'uso', 'varchar(20)'
+        UNION ALL SELECT 'ia_uso', 'proveedor', 'varchar(20)'
+        UNION ALL SELECT 'ia_uso', 'resultado', 'varchar(12)'
+        UNION ALL SELECT 'ia_uso', 'ms', 'int(11)'
+        UNION ALL SELECT 'ia_uso', 'detalle', 'varchar(255)'
+        UNION ALL SELECT 'ia_uso', 'creado_en', 'timestamp'
         UNION ALL SELECT 'insumos', 'id', 'int(11)'
         UNION ALL SELECT 'insumos', 'usuario_id', 'int(11)'
         UNION ALL SELECT 'insumos', 'nombre', 'varchar(150)'
@@ -584,6 +639,10 @@ LEFT JOIN (
         UNION ALL SELECT 'insumos', 'fecha_vencimiento', 'date'
         UNION ALL SELECT 'insumos', 'deposito_id', 'int(11)'
         UNION ALL SELECT 'insumos', 'stock_minimo', 'decimal(10,2)'
+        UNION ALL SELECT 'login_intentos', 'id', 'int(11)'
+        UNION ALL SELECT 'login_intentos', 'ip', 'varchar(45)'
+        UNION ALL SELECT 'login_intentos', 'email', 'varchar(255)'
+        UNION ALL SELECT 'login_intentos', 'cuando', 'datetime'
         UNION ALL SELECT 'lote_historial_campanas', 'id', 'int(11)'
         UNION ALL SELECT 'lote_historial_campanas', 'lote_id', 'int(11)'
         UNION ALL SELECT 'lote_historial_campanas', 'usuario_id', 'int(11)'
@@ -628,6 +687,13 @@ LEFT JOIN (
         UNION ALL SELECT 'operaciones', 'cargas', 'int(11)'
         UNION ALL SELECT 'operaciones', 'hectareas', 'decimal(10,2)'
         UNION ALL SELECT 'operaciones', 'moneda', 'enum(''ARS'',''USD'')'
+        UNION ALL SELECT 'operaciones', 'idempotencia', 'char(36)'
+        UNION ALL SELECT 'operaciones', 'carga_id', 'char(36)'
+        UNION ALL SELECT 'plantillas_labor', 'id', 'int(11)'
+        UNION ALL SELECT 'plantillas_labor', 'usuario_id', 'int(11)'
+        UNION ALL SELECT 'plantillas_labor', 'nombre', 'varchar(100)'
+        UNION ALL SELECT 'plantillas_labor', 'datos', 'text'
+        UNION ALL SELECT 'plantillas_labor', 'creado_en', 'timestamp'
         UNION ALL SELECT 'produccion_ventas', 'id', 'int(11)'
         UNION ALL SELECT 'produccion_ventas', 'lote_id', 'int(11)'
         UNION ALL SELECT 'produccion_ventas', 'cultivo_id', 'int(11)'

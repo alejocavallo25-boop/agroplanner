@@ -409,6 +409,10 @@ header('Expires: 0');
 
 $alineacion = ['i' => 'left', 'c' => 'center', 'd' => 'right'];
 $anchoTabla = max(1, count($columnas));
+
+// Si lo saca un asesor, va con su nombre (el Excel no muestra el logo). Ver includes/asesor.php.
+require_once __DIR__ . '/../includes/asesor.php';
+$firma = firma_informe($pdo);
 ?>
 <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
 <head>
@@ -427,6 +431,9 @@ $anchoTabla = max(1, count($columnas));
         <tr><td colspan="<?= $anchoTabla ?>" class="title-main">AGROPLANNER</td></tr>
         <tr><td colspan="<?= $anchoTabla ?>" class="title-sub"><?= htmlspecialchars($titulo) ?></td></tr>
         <tr><td colspan="<?= $anchoTabla ?>" class="title-sub">Generado el <?= date('d/m/Y H:i') ?></td></tr>
+        <?php if ($firma): ?>
+        <tr><td colspan="<?= $anchoTabla ?>" class="title-sub"><?= htmlspecialchars(firma_texto($firma)) ?></td></tr>
+        <?php endif; ?>
         <tr><td colspan="<?= $anchoTabla ?>" style="border:none;"></td></tr>
 
         <?php foreach ($resumen as $etiqueta => $valor): ?>
@@ -456,6 +463,10 @@ $anchoTabla = max(1, count($columnas));
             <?php endforeach; ?>
         </tr>
         <?php endforeach; ?>
+        <?php if ($firma): ?>
+        <tr><td colspan="<?= $anchoTabla ?>" style="border:none;"></td></tr>
+        <tr><td colspan="<?= $anchoTabla ?>" style="border:none; font-weight:bold;"><?= htmlspecialchars(firma_texto($firma)) ?></td></tr>
+        <?php endif; ?>
     </table>
 </body>
 </html>

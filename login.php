@@ -5,6 +5,7 @@
    nacia con los valores por defecto, sin httponly. Verificado en produccion. */
 require_once 'config/database.php';
 require_once 'config/csrf.php';
+require_once 'includes/asesor.php';
 
 // Validación CSRF para el login
 validate_csrf();
@@ -129,27 +130,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     // Regenerar sesión para mitigar Session Fixation
                     session_regenerate_id(true);
-                    $_SESSION['usuario_id'] = $user['id'];
-                    $_SESSION['username'] = $user['username'];
-                    $_SESSION['role'] = $user['role'];
-                    $_SESSION['modulos'] = [
-                        'agricultura' => (bool)$user['has_agricultura'],
-                        'tambo' => (bool)$user['has_tambo'],
-                        'ganaderia' => (bool)$user['has_ganaderia'],
-                    ];
-                    // Cuenta de demostración: puede ver todo, no puede modificar nada.
-                    // Lo hace cumplir config/auth.php en cada POST.
-                    $_SESSION['solo_lectura'] = !empty($user['solo_lectura']);
-                    
-                    if ($_SESSION['modulos']['agricultura']) {
-                        header('Location: index.php');
-                    } elseif ($_SESSION['modulos']['tambo']) {
-                        header('Location: tambo.php');
-                    } elseif ($_SESSION['modulos']['ganaderia']) {
-                        header('Location: ganaderia.php');
-                    } else {
-                        header('Location: pendientes.php');
+                    // Usuario, rol, módulos y solo lectura: lo mismo que usa el cambio
+                    // de cuenta de los asesores, para que no haya dos versiones.
+                    sesion_cargar_cuenta($user);
+
+                    // Asesor: puede pasar a las cuentas de sus clientes. Con SELECT *
+                    // la columna se lee si la migración corrió y se ignora si no.
+                    if (!empty($user['es_asesor']) && puede_ser_asesor($user)) {
+                        $_SESSION['asesor_id']       = (int)$user['id'];
+                        $_SESSION['asesor_username'] = $user['username'];
                     }
+
+                    header('Location: ' . inicio_segun_modulos($_SESSION['modulos']));
                     exit;
                 } else {
                     $error = 'Tu cuenta aún no ha sido aprobada por el administrador.';

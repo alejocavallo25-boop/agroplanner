@@ -4,6 +4,20 @@ $current_page = basename($_SERVER['PHP_SELF']);
 function is_active($page, $current_page) {
     return $page === $current_page ? 'active' : '';
 }
+
+/* Asesor: la lista de clientes para el selector. Cliente: quiénes tienen acceso a
+   su cuenta, para avisarle. Ver includes/asesor.php. */
+require_once __DIR__ . '/asesor.php';
+$sb_asesor       = asesor_activo();
+$sb_clientes     = [];
+$sb_mis_asesores = [];
+if (isset($pdo) && $pdo instanceof PDO) {
+    if ($sb_asesor) {
+        $sb_clientes = asesor_clientes($pdo, (int)$_SESSION['asesor_id']);
+    } elseif (!empty($_SESSION['usuario_id'])) {
+        $sb_mis_asesores = asesores_de($pdo, (int)$_SESSION['usuario_id']);
+    }
+}
 ?>
 <!--
     Las etiquetas de texto van envueltas en <span class="nav-txt"> a propósito:
@@ -19,7 +33,7 @@ function is_active($page, $current_page) {
 
     <nav>
         <?php if (!empty($_SESSION['modulos']['agricultura'])): ?>
-        <?php $is_agri_active = (in_array($current_page, ['index.php', 'lotes.php', 'operaciones.php', 'alquileres.php', 'insumos.php', 'produccion.php'])); ?>
+        <?php $is_agri_active = (in_array($current_page, ['index.php', 'lotes.php', 'operaciones.php', 'carga_lotes.php', 'alquileres.php', 'insumos.php', 'produccion.php'])); ?>
         <div class="nav-section nav-section-agri <?= $is_agri_active ? 'active' : '' ?>">
             <div class="nav-section-header" onclick="toggleSection(this)">
                 <div class="nav-section-title"><i class="fas fa-wheat-awn"></i> <span class="nav-txt">Agricultura</span></div>
@@ -29,6 +43,7 @@ function is_active($page, $current_page) {
                 <a href="index.php"        class="nav-link <?= is_active('index.php', $current_page) ?>"><i class="fas fa-home"></i> <span class="nav-txt">Panel General</span></a>
                 <a href="lotes.php"        class="nav-link <?= is_active('lotes.php', $current_page) ?>"><i class="fas fa-map-marked-alt"></i> <span class="nav-txt">Lotes y Cultivos</span></a>
                 <a href="operaciones.php"  class="nav-link <?= is_active('operaciones.php', $current_page) ?>"><i class="fas fa-tractor"></i> <span class="nav-txt">Costos y Labores</span></a>
+                <a href="carga_lotes.php"  class="nav-link <?= is_active('carga_lotes.php', $current_page) ?>"><i class="fas fa-layer-group"></i> <span class="nav-txt">Carga por lotes</span></a>
                 <a href="alquileres.php"   class="nav-link <?= is_active('alquileres.php', $current_page) ?>"><i class="fas fa-file-contract"></i> <span class="nav-txt">Alquileres</span></a>
                 <a href="insumos.php"      class="nav-link <?= is_active('insumos.php', $current_page) ?>"><i class="fas fa-warehouse"></i> <span class="nav-txt">Insumos (Stock)</span></a>
                 <a href="produccion.php"   class="nav-link <?= is_active('produccion.php', $current_page) ?>"><i class="fas fa-seedling"></i> <span class="nav-txt">Producción y Ventas</span></a>
@@ -66,6 +81,15 @@ function is_active($page, $current_page) {
         </div>
         <?php endif; ?>
 
+        <?php if ($sb_asesor): ?>
+        <div class="nav-section">
+            <div class="nav-section-header nav-section-header-plain"><span class="nav-txt">Asesor</span></div>
+            <a href="asesor.php" class="nav-link nav-link-asesor <?= is_active('asesor.php', $current_page) ?>">
+                <i class="fas fa-user-tie"></i> <span class="nav-txt">Mis clientes</span>
+            </a>
+        </div>
+        <?php endif; ?>
+
         <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
         <div class="nav-section">
             <!-- Este encabezado no tiene icono ni despliega nada: en modo rail se
@@ -99,7 +123,36 @@ function is_active($page, $current_page) {
             $roles = ['admin' => 'Administrador', 'user' => 'Usuario'];
             $rol   = $_SESSION['role'] ?? '';
             ?>
+            <?php if ($sb_asesor && $sb_clientes): ?>
+            <?php /* Selector de cuenta: pasar de un cliente a otro en un toque. */ ?>
+            <form method="POST" action="cambiar_cuenta.php" class="sidebar-cuenta">
+                <?php csrf_field(); ?>
+                <input type="hidden" name="volver" value="<?= htmlspecialchars($current_page) ?>">
+                <select name="cuenta_id" aria-label="Cambiar de cuenta" onchange="this.form.submit()">
+                    <option value="<?= (int)$_SESSION['asesor_id'] ?>" <?= asesor_en_cliente() ? '' : 'selected' ?>>
+                        Mi cuenta
+                    </option>
+                    <optgroup label="Clientes">
+                        <?php foreach ($sb_clientes as $c): ?>
+                        <option value="<?= (int)$c['id'] ?>" <?= (int)$c['id'] === (int)$_SESSION['usuario_id'] ? 'selected' : '' ?>>
+                            <?= htmlspecialchars($c['username']) ?>
+                        </option>
+                        <?php endforeach; ?>
+                    </optgroup>
+                </select>
+            </form>
+            <?php elseif ($sb_asesor): ?>
+            <span class="sidebar-user-role">Asesor</span>
+            <?php else: ?>
             <span class="sidebar-user-role"><?= htmlspecialchars($roles[$rol] ?? 'Invitado') ?></span>
+            <?php endif; ?>
+            <?php if ($sb_mis_asesores): ?>
+            <?php /* Aviso al cliente: quién más puede entrar a su cuenta. */ ?>
+            <span class="sidebar-user-asesor" title="<?= htmlspecialchars('Con acceso a tu cuenta: ' . implode(', ', $sb_mis_asesores)) ?>">
+                <i class="fas fa-user-tie" aria-hidden="true"></i>
+                Asesor: <?= htmlspecialchars(implode(', ', $sb_mis_asesores)) ?>
+            </span>
+            <?php endif; ?>
         </div>
         <a href="logout.php" class="sidebar-logout" title="Cerrar Sesión">
             <i class="fas fa-sign-out-alt"></i>

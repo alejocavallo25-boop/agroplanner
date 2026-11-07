@@ -226,6 +226,8 @@ echo json_encode([
     'items'      => $resultado['items'],
     'aviso'      => $resultado['aviso'],
     'totales'    => $resultado['totales'],
+    'pdf_sin_texto' => $resultado['pdf_sin_texto'],
+    'moneda_sugerida' => $resultado['moneda_sugerida'],
     'cotizacion' => (float)$ref['valor'],
     'dolar_estimado' => !empty($ref['estimado']),
 ], JSON_UNESCAPED_UNICODE);

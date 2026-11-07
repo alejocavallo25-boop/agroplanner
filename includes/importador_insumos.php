@@ -223,6 +223,30 @@ function imp_totales_documento(array $grid): array
 }
 
 /**
+ * En qué moneda está el comprobante, si lo dice. null si no se sabe.
+ *
+ * Es el dato que más caro sale errar: la pantalla arranca en pesos, y un
+ * comprobante en dólares cargado como pesos queda con precios mil quinientas
+ * veces más chicos. Una nota de pedido real de agroquímicos estaba en dólares y
+ * lo decía en dos lugares —"SON: SIETE MIL ... DÓLARES" y "U$S"— pero la
+ * pantalla igual arrancaba en pesos.
+ *
+ * Lo más confiable es el importe en letras ("SON: ... DÓLARES / PESOS"). Si no
+ * está, el símbolo U$S o la sigla USD. Es una propuesta: la pantalla la muestra
+ * elegida y avisa, y el selector queda a la vista para cambiarla.
+ */
+function imp_moneda_documento(string $texto): ?string
+{
+    $n = imp_normalizar($texto);
+    if (preg_match('/\bson\b[^\n]*\bdolares\b/', $n)) return 'USD';
+    if (preg_match('/\bson\b[^\n]*\bpesos\b/', $n))   return 'ARS';
+    if (preg_match('/importes? (?:expresados )?en dolares/', $n)) return 'USD';
+    // Los símbolos se buscan en el texto original: imp_normalizar() los saca.
+    if (preg_match('/u\$s|us\$|\busd\b/i', $texto) || preg_match('/\bdolares\b/', $n)) return 'USD';
+    return null;
+}
+
+/**
  * Adivina el tipo de insumo por el nombre. Es una ayuda, no un veredicto: el
  * usuario lo corrige en un select antes de guardar.
  */
@@ -233,7 +257,16 @@ function imp_adivinar_tipo(string $nombre): string
         'inoculante'   => ['inoculante', 'rizobium', 'bradyrhizobium', 'nodulizante'],
         'semilla'      => ['semilla', 'soja', 'maiz', 'trigo', 'girasol', 'sorgo', 'cebada', 'alfalfa', 'hibrido'],
         'fertilizante' => ['fertiliz', 'urea', 'uan', 'fosfato', 'nitrogeno', 'potasio', 'azufre', 'sulfato', 'map', 'dap', 'mez fis'],
-        'agroquimico'  => ['glifosato', 'herbicida', 'insecticida', 'fungicida', 'curasemilla', 'atrazina', 'cipermetrina', 'clorpirifos', 'dicamba', 'metsulfuron', '2 4 d', 'coadyuvante'],
+        /* Los principios activos más comunes, porque el remito casi nunca dice
+           "herbicida": dice "CLETODIM FENDER 24%". Con la lista corta, cinco de
+           los siete renglones de una nota de pedido real de herbicidas salían
+           como "otro". */
+        'agroquimico'  => ['glifosato', 'herbicida', 'insecticida', 'fungicida', 'curasemilla', 'atrazina', 'cipermetrina', 'clorpirifos', 'dicamba', 'metsulfuron', '2 4 d', 'coadyuvante',
+                           'cletodim', 'imazapyr', 'imazapir', 'imazetapyr', 'imazetapir', 'paraquat', 'metolaclor', 'acetoclor', 'sulfentrazone', 'flumioxazin',
+                           'diclosulam', 'saflufenacil', 'glufosinato', 'haloxifop', 'picloram', 'fluroxipir', 'clorimuron', 'bentazon', 'fomesafen', 'diflufenican',
+                           'halauxifen', 'topramezone', 'mesotrione', 'piroxasulfone', 'lambdacialotrina', 'bifentrin', 'imidacloprid', 'tiametoxam', 'clorantraniliprole',
+                           'abamectina', 'acefato', 'azoxistrobina', 'tebuconazole', 'tebuconazol', 'epoxiconazole', 'piraclostrobin', 'carbendazim', 'ciproconazole',
+                           'mancozeb', 'aceite', 'surfactante', 'tensioactivo'],
     ];
     foreach ($reglas as $tipo => $claves) {
         foreach ($claves as $clave) {
@@ -659,6 +692,7 @@ function imp_parse_pdf(string $ruta, ?string &$aviso = null): array
     }
 
     $texto = '';
+    $curvas = 0;
     if (preg_match_all('/stream\r?\n?(.*?)endstream/s', $raw, $m)) {
         foreach ($m[1] as $s) {
             // La mayoría de los streams vienen comprimidos con FlateDecode. Se
@@ -670,6 +704,8 @@ function imp_parse_pdf(string $ruta, ?string &$aviso = null): array
             if (strpos($plano, 'Tj') !== false || strpos($plano, 'TJ') !== false) {
                 $texto .= imp_pdf_stream_a_texto($plano) . "\n";
             }
+            // Curvas de Bézier: así queda una letra convertida en dibujo.
+            $curvas += preg_match_all('/\sc\s/', $plano);
         }
     }
 
@@ -680,10 +716,24 @@ function imp_parse_pdf(string $ruta, ?string &$aviso = null): array
         if (count($lineas) >= IMP_MAX_FILAS) break;
     }
 
+    /* Sin texto, hay dos casos que se parecen y no son lo mismo.
+     *
+     * Un PDF escaneado: adentro hay una foto. Y uno con las letras DIBUJADAS:
+     * no tiene ninguna fuente, cada letra es una figura de curvas. Pasa al
+     * imprimir a PDF con "Microsoft Print to PDF" desde algunos sistemas de
+     * facturación — verificado con una nota de pedido real: cero fuentes, cero
+     * órdenes de texto y 18.270 curvas. Se ve perfecto en pantalla, pero para un
+     * programa no hay ni una letra que leer.
+     *
+     * En los dos casos la salida es la misma: la pantalla de insumos convierte
+     * las páginas en imagen y las lee como una foto (ver pdf_sin_texto en
+     * imp_procesar). Este aviso queda para cuando eso no se puede. */
     if (!$lineas) {
-        $aviso = 'Este PDF no tiene texto adentro: es una imagen escaneada o una foto guardada como PDF. '
-               . 'Para leerlo haría falta OCR, que no es parte de este importador. '
-               . 'Probá pedirle al proveedor el comprobante en Excel, CSV o PDF digital, o cargá los ítems con el botón de pegar tabla.';
+        $aviso = (strpos($raw, '/Font') === false && $curvas > 500)
+            ? 'Este PDF tiene las letras dibujadas, no escritas (pasa al imprimir con "Microsoft Print to PDF"): '
+            . 'se ve bien, pero no tiene texto que leer. Hay que leerlo como una foto.'
+            : 'Este PDF no tiene texto adentro: es una imagen escaneada o una foto guardada como PDF. '
+            . 'Hay que leerlo como una foto.';
     }
     return $lineas;
 }
@@ -930,11 +980,17 @@ function imp_linea_a_item(string $linea): ?array
      * calle se leía como la cantidad. La lista de arriba no lo agarra porque
      * mira el principio del renglón, y ahí hay un número. Estas frases no
      * aparecen nunca en la descripción de una mercadería. */
+    /* "Cliente: 02369 - TAVAGNUTTI VANESA" entraba como 2369 unidades de un
+       insumo con el nombre de la clienta: el número de cliente se leía como
+       cantidad. Lo mismo el vendedor, con su legajo adelante. */
     foreach (['ing brutos', 'ingresos brutos', 'inicio actividades', 'domicilio',
               'localidad', 'responsable inscripto', 'cuit', 'cuil', 'impreso por',
-              'firma del', 'retirada por', 'patentes'] as $r) {
+              'firma del', 'retirada por', 'patentes', 'cliente', 'vendedor',
+              'condicion de pago', 'nota de pedido', 'bonificacion', 'recargo'] as $r) {
         if (strpos($n, $r) !== false) return null;
     }
+    // "01401 - ROSSI FRANCO": código y nombre de cliente o vendedor, no mercadería.
+    if (preg_match('/^\d{3,}\s*-\s*\p{L}/u', $l)) return null;
 
     /* La DIRECCIÓN del proveedor, que en el membrete de casi todo remito
        argentino arranca con un número y por eso entraba como si fuera una
@@ -947,6 +1003,10 @@ function imp_linea_a_item(string $linea): ?array
         || preg_match('/\b(av|avda|avenida|calle|ruta|esquina|piso|depto)\b/', $n)) {
         return null;
     }
+
+    // Factura o nota de pedido: el artículo primero y los números en columnas al final.
+    $alFinal = imp_linea_columnas_al_final($l);
+    if ($alFinal !== null) return $alFinal;
 
     $precio = null;
     // Importe al final, con símbolo o con dos decimales. Se recorta antes de
@@ -1018,7 +1078,11 @@ function imp_linea_a_item(string $linea): ?array
 
     // Referencias sueltas al final (2008-7633-680, o un lote como FV00ACR009).
     $referencia = '';
-    if (preg_match('/\s((?:[A-Z0-9]{2,}-){1,}[A-Z0-9]{2,})\s*$/u', $nombre, $mr)) {
+    if (preg_match('/\s+-\s*(\d{4,})\s*$/u', $nombre, $mr)) {
+        // El código de artículo pegado con guión: "CLETODIM ... x 20 LTS - 0000698".
+        $referencia = $mr[1];
+        $nombre = trim(substr($nombre, 0, -strlen($mr[0])));
+    } elseif (preg_match('/\s((?:[A-Z0-9]{2,}-){1,}[A-Z0-9]{2,})\s*$/u', $nombre, $mr)) {
         $referencia = $mr[1];
         $nombre = trim(substr($nombre, 0, -strlen($mr[0])));
     } elseif (preg_match('/\s([A-Za-z]{1,3}\d[A-Za-z0-9]{4,})\s*$/u', $nombre, $mr)) {
@@ -1056,6 +1120,76 @@ function imp_linea_a_item(string $linea): ?array
         'unidad'      => $unidad,
         'precio'      => $precio,
         'vencimiento' => $vencimiento,
+        'tipo'        => null,
+        'referencia'  => $referencia,
+    ];
+}
+
+/**
+ * El renglón de una factura o nota de pedido: el artículo PRIMERO y las columnas
+ * de números al final.
+ *
+ *     CLETODIM FENDER 24% (cyo) x 20 LTS - 0000698   120,00 LTS   5,75   719,33   0,00
+ *     artículo                         código        cant.   UM   precio importe desc%
+ *
+ * imp_linea_a_item() espera la cantidad adelante ("2 bolsas Urea… 45.300,00"),
+ * que es como viene un remito. Con este orden no reconocía ningún renglón:
+ * verificado con una nota de pedido real de un distribuidor de agroquímicos.
+ *
+ * Lo que impide leer las columnas corridas es una cuenta: cantidad × precio
+ * tiene que dar cerca del importe del renglón. No exacto, porque el importe puede
+ * traer un recargo financiero o una bonificación prorrateados —en esa nota de
+ * pedido cada importe es un 4,25 % más que cantidad × precio, por pagar con
+ * canje—, pero sí cerca. Sin esa cuenta no hay forma de saber cuál número es cuál.
+ *
+ * El precio que se toma es el unitario de lista, no importe ÷ cantidad: la suma
+ * de cantidad × precio es lo que el comprobante llama subtotal, y contra eso
+ * verifica la pantalla.
+ */
+function imp_linea_columnas_al_final(string $l): ?array
+{
+    $num = '\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?';
+    $um  = 'kgs?|kilos?|lts?|litros?|l|un|u|unid|uds?|bolsas?|bls|bidon(?:es)?|ds|dosis|tn|tns|ton|cc|ml|grs?|m3|cajas?|bultos?';
+    $patron = '/^(.*?\p{L}.*?)\s+(' . $num . ')\s*(' . $um . ')?\s+(' . $num . ')\s+(' . $num . ')(?:\s+-?(?:' . $num . ')\s*%?)?$/iu';
+    if (!preg_match($patron, $l, $m)) return null;
+
+    $cantidad = imp_a_numero($m[2]);
+    $precio   = imp_a_numero($m[4]);
+    $importe  = imp_a_numero($m[5]);
+    $cierra = fn($c, $p) => $c > 0 && $p > 0 && $importe > 0
+                         && $importe / ($c * $p) >= 0.75 && $importe / ($c * $p) <= 1.35;
+    if (!$cierra($cantidad, $precio)) {
+        /* La coma de los centavos que el lector de fotos se comió: "1895" por
+           "18,95". Con la coma, la cuenta cierra; sin ella da cien veces el
+           importe. Se prueba sólo con números escritos sin ningún separador, y
+           sólo vale si la cuenta cierra: no es adivinar, es la única lectura
+           que es coherente con el importe del renglón. La suma contra el
+           subtotal lo vuelve a verificar en pantalla. */
+        if (preg_match('/^\d{3,}$/', $m[4]) && $cierra($cantidad, $precio / 100)) {
+            $precio = $precio / 100;
+        } elseif (preg_match('/^\d{3,}$/', $m[2]) && $cierra($cantidad / 100, $precio)) {
+            $cantidad = $cantidad / 100;
+        } else {
+            return null;
+        }
+    }
+
+    $nombre = trim($m[1]);
+    $referencia = '';
+    if (preg_match('/\s+-\s*(\d{3,})\s*$/u', $nombre, $mr)) {   // "... - 0000698"
+        $referencia = $mr[1];
+        $nombre = trim(substr($nombre, 0, -strlen($mr[0])));
+    }
+    $nombre = trim($nombre, " \t>-–—·.");
+    // Una descripción de verdad: el mismo criterio que imp_linea_a_item().
+    if (!preg_match('/\p{L}{5,}/u', $nombre)) return null;
+
+    return [
+        'nombre'      => $nombre,
+        'cantidad'    => $cantidad,
+        'unidad'      => trim((string)($m[3] ?? '')),
+        'precio'      => $precio,
+        'vencimiento' => null,
         'tipo'        => null,
         'referencia'  => $referencia,
     ];
@@ -1253,6 +1387,9 @@ function imp_procesar(string $tipo, string $ruta, array $inventario): array
         'aviso'      => $aviso,
         // Para poder comprobar que los renglones suman lo que dice el papel.
         'totales'    => imp_totales_documento($grid),
+        // PDF sin una letra de texto: la pantalla lo pasa a imagen y lo lee como foto.
+        'pdf_sin_texto' => $tipo === 'pdf' && !$grid,
+        'moneda_sugerida' => imp_moneda_documento(implode("\n", array_map(fn($f) => implode(' ', $f), $grid))),
     ];
 }
 

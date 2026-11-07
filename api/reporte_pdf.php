@@ -291,6 +291,10 @@ $stmt->execute([$usuario_id]);
 $user = $stmt->fetch();
 $userName = $user['username'] ?? 'Usuario';
 $fechaGen = date('d/m/Y H:i');
+
+// Si lo saca un asesor, va con su firma. Ver includes/asesor.php.
+require_once __DIR__ . '/../includes/asesor.php';
+$firma = firma_informe($pdo);
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -625,7 +629,7 @@ $fechaGen = date('d/m/Y H:i');
     <div class="header-pdf">
         <div>
             <h1><?= htmlspecialchars($titulo) ?></h1>
-            <div class="meta">Generado el <?= $fechaGen ?> &bull; Usuario: <?= htmlspecialchars($userName) ?></div>
+            <div class="meta">Generado el <?= $fechaGen ?> &bull; Usuario: <?= htmlspecialchars($userName) ?><?php if ($firma): ?> &bull; Elaborado por: <?= htmlspecialchars($firma['nombre']) ?><?php endif; ?></div>
         </div>
         <div class="logo-text">
             AGROPLANNER
@@ -1061,6 +1065,8 @@ $fechaGen = date('d/m/Y H:i');
         <?php endif; ?>
 
     </div>
+
+    <?= $firma ? firma_html($firma) : '' ?>
 
     <div class="footer-pdf">
         <span>AgroPlanner &bull; Generado automáticamente el <?= $fechaGen ?></span>

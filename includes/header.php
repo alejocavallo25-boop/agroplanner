@@ -146,6 +146,48 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
     </script>
     <?php endif; ?>
 
+    <?php if (function_exists('asesor_activo') && asesor_activo()): ?>
+    <?php if (asesor_en_cliente()): ?>
+    <!-- El asesor está en la cuenta de un cliente. Siempre a la vista, para que
+         no cargue un gasto en el cliente equivocado. -->
+    <div class="asesor-banner" role="status">
+        <i class="fas fa-user-tie" aria-hidden="true"></i>
+        <span>Estás trabajando en la cuenta de <strong><?= htmlspecialchars($_SESSION['username']) ?></strong>.</span>
+        <form method="POST" action="cambiar_cuenta.php" style="margin:0 0 0 auto;">
+            <?php csrf_field(); ?>
+            <input type="hidden" name="cuenta_id" value="<?= (int)$_SESSION['asesor_id'] ?>">
+            <input type="hidden" name="volver" value="<?= htmlspecialchars(basename($_SERVER['PHP_SELF'])) ?>">
+            <button type="submit" class="asesor-banner-btn"><i class="fas fa-arrow-left" aria-hidden="true"></i> Volver a mi cuenta</button>
+        </form>
+    </div>
+    <style>
+        .asesor-banner{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:0 0 18px;padding:10px 16px;
+            border:1px solid oklch(0.480 0.110 250 / .35);background:oklch(0.480 0.110 250 / .08);
+            border-radius:10px;color:oklch(0.380 0.110 250);font-size:.92rem;line-height:1.45}
+        .asesor-banner i{flex:none}
+        .asesor-banner-btn{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:6px 14px;
+            border:1px solid oklch(0.480 0.110 250 / .45);border-radius:8px;background:#fff;
+            color:oklch(0.380 0.110 250);font:inherit;font-weight:600;cursor:pointer}
+        .asesor-banner-btn:hover{background:oklch(0.480 0.110 250 / .10)}
+    </style>
+    <?php endif; ?>
+    <script>
+    /* La sesión es una sola para todas las pestañas. Si el asesor cambia de cliente
+       en una, las otras siguen mostrando el anterior: esto las recarga para que
+       nunca se cargue algo mirando una cuenta y se guarde en otra. */
+    (function(){
+        var mia = <?= json_encode((string)$_SESSION['usuario_id']) ?>;
+        try { localStorage.setItem('ap_cuenta', mia); } catch (e) { return; }
+        function revisar(){
+            var otra; try { otra = localStorage.getItem('ap_cuenta'); } catch (e) { return; }
+            if (otra && otra !== mia) location.reload();
+        }
+        window.addEventListener('storage', function(e){ if (e.key === 'ap_cuenta') revisar(); });
+        document.addEventListener('visibilitychange', function(){ if (!document.hidden) revisar(); });
+    })();
+    </script>
+    <?php endif; ?>
+
     <?php
     if (function_exists('get_flash')) {
         $flash = get_flash();
