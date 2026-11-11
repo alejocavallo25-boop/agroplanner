@@ -3,7 +3,7 @@ require_once 'config/auth.php';
 require_agricultura();
 require_once 'config/database.php';
 require_once 'includes/cultivos.php';
-// Cómo se guarda, se edita y se borra un gasto: lo comparte con carga_lotes.php.
+// Cómo se guarda, se edita y se borra un gasto: una sola versión, en includes/carga_lotes.php.
 require_once 'includes/carga_lotes.php';
 require_once 'includes/exportar.php';
 // Muestra los importes en pesos o en dólares; no cambia nada de lo guardado.
@@ -389,16 +389,6 @@ function colorGrupo($g) {
 }
 ?>
 <style>
-.btn-carga-lotes {
-    display: inline-flex; align-items: center; gap: 8px;
-    background: var(--accent-soft); color: var(--accent);
-    border: 1.5px solid var(--accent); font-weight: 600; text-decoration: none;
-    transition: background .2s, color .2s, box-shadow .2s;
-}
-.btn-carga-lotes:hover, .btn-carga-lotes:focus-visible {
-    background: var(--accent); color: var(--on-accent); box-shadow: 0 0 12px var(--accent-glow);
-}
-@media (prefers-reduced-motion: reduce) { .btn-carga-lotes { transition: none; } }
 .filter-toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
 .grupo-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
 .grupo-tab {
@@ -480,6 +470,18 @@ function colorGrupo($g) {
 .modal-panel .ml-fila select { padding: 6px 8px; font-size: 0.85rem; }
 .ml-fila:not(.on) .ml-ha, .ml-fila:not(.on) select { display: none; }
 .ml-nota { color: var(--text-muted); font-size: 0.78rem; }
+.ml-grupos { display: flex; flex-wrap: wrap; gap: 6px; }
+.ml-grupos:empty { display: none; }
+.ml-grupo { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; min-height: 34px; border-radius: 20px;
+            border: 1px solid var(--border); background: var(--n-0); color: var(--text-primary); font: inherit; font-size: 0.82rem; cursor: pointer; }
+.ml-grupo small { color: var(--text-muted); }
+.ml-grupo:hover { border-color: var(--accent); }
+.ml-grupo.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.ml-grupo.on small { color: var(--on-accent); opacity: .85; }
+.ml-grupo.parcial { border-color: var(--accent); background: var(--accent-soft); }
+.modal-panel .ml-buscar { padding: 8px 12px; font-size: 0.88rem; }
+.ml-solo { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--text-muted); cursor: pointer; }
+.modal-panel .ml-solo input { width: 16px; height: 16px; padding: 0; margin: 0; accent-color: var(--accent); }
 </style>
 
 <div class="glass-panel" style="margin-bottom: 24px;">
@@ -498,12 +500,6 @@ function colorGrupo($g) {
                  'nueva_pestana' => true],
             ]);
             ?>
-            <?php /* Es la única entrada a la carga por lotes (no está en el menú),
-                     así que tiene que verse: verde de la app, sin competir con
-                     "Registrar Gasto", que sigue siendo el principal. */ ?>
-            <a href="carga_lotes.php" class="btn btn-carga-lotes" title="Una labor con sus insumos en varios lotes de una vez">
-                <i class="fas fa-layer-group"></i> Cargar en varios lotes
-            </a>
             <button class="btn btn-primary" onclick="openAddModal()">
                 <i class="fas fa-plus"></i> Registrar Gasto
             </button>
@@ -705,19 +701,6 @@ function colorGrupo($g) {
                             onclick='editOp(<?= json_encode($op, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>
                             <i class="fas fa-edit"></i>
                         </button>
-                        <?php /* Carga por lotes: editar la carga entera, o repetirla
-                                 (también un gasto suelto) en otros lotes u otra fecha. */
-                        $n_carga = !empty($op['carga_id']) ? (int)($lotes_por_carga[$op['carga_id']] ?? 0) : 0; ?>
-                        <?php if ($n_carga > 1): ?>
-                        <a href="carga_lotes.php?carga=<?= urlencode($op['carga_id']) ?>" class="btn" style="color: var(--accent); background: transparent; padding: 4px 8px;"
-                           title="Editar la carga entera (<?= $n_carga ?> lotes)" aria-label="Editar la carga entera (<?= $n_carga ?> lotes)">
-                            <i class="fas fa-layer-group"></i>
-                        </a>
-                        <?php endif; ?>
-                        <a href="carga_lotes.php?<?= $n_carga > 1 ? 'repetir=' . urlencode($op['carga_id']) : 'op=' . (int)$op['id'] ?>" class="btn" style="color: var(--text-muted); background: transparent; padding: 4px 8px;"
-                           title="Repetir en otros lotes u otra fecha" aria-label="Repetir en otros lotes u otra fecha">
-                            <i class="fas fa-copy"></i>
-                        </a>
                         <!-- Eliminar -->
                         <form method="POST" style="display: inline;" onsubmit="return confirm('¿Eliminar registro?');">
                             <?php csrf_field(); ?>
@@ -823,18 +806,27 @@ function colorGrupo($g) {
                     </span>
                 </label>
                 <div id="multiLoteContainer" class="ml-box">
+                    <?php /* Con muchos lotes, buscarlos de a uno en la lista no es práctico:
+                             se elige por cultivo de un toque ("todo el maíz"), se busca
+                             por nombre, y se puede mirar sólo lo elegido para revisar. */ ?>
+                    <div id="multiLoteGrupos" class="ml-grupos" aria-label="Elegir los lotes de un cultivo"></div>
+                    <?php if (count($lotes) > 6): ?>
+                    <input type="search" id="multiLoteBuscar" class="ml-buscar" placeholder="Buscar lote…" aria-label="Buscar lote" oninput="filtrarMultiLotes()">
+                    <?php endif; ?>
                     <div class="ml-head">
                         <span id="multiLoteResumen">Ningún lote elegido</span>
                         <span>
-                            <button type="button" onclick="marcarMultiLotes(true)">Todos</button>
-                            <button type="button" onclick="marcarMultiLotes(false)">Ninguno</button>
+                            <button type="button" onclick="marcarMultiLotes(true)" title="Tildar los que se ven">Todos</button>
+                            <button type="button" onclick="marcarMultiLotes(false)" title="Destildar los que se ven">Ninguno</button>
                         </span>
                     </div>
                     <div id="multiLoteLista" class="ml-lista"></div>
+                    <label class="ml-solo">
+                        <input type="checkbox" id="multiLoteSolo" onchange="filtrarMultiLotes()"> Ver sólo los elegidos
+                    </label>
                     <small class="ml-nota">
                         <i class="fas fa-info-circle"></i>
                         El precio y la dosis por ha son los mismos en todos; cada lote paga sus hectáreas.
-                        ¿Dosis o fechas distintas por lote? Usá <a href="carga_lotes.php">Cargar en varios lotes</a>.
                     </small>
                 </div>
             </div>
@@ -1234,8 +1226,10 @@ function renderMultiLotes() {
             return `<option value="${escHtml(val)}" ${i === 0 ? 'selected' : ''}>${escHtml(val)}</option>`;
         }).join('');
         const actual = opciones.length ? ` · ${escHtml(opciones[0].cult)} ${escHtml(opciones[0].c)}` : '';
+        // El cultivo actual del lote: con él se arman los botones "todo el maíz".
+        const grupo = opciones.length ? opciones[0].cult + ' ' + opciones[0].c : '';
         return `
-        <div class="multi-lote-row ml-fila" data-sup="${sup}">
+        <div class="multi-lote-row ml-fila" data-sup="${sup}" data-nombre="${escHtml(l.nombre.toLowerCase())}" data-grupo="${escHtml(grupo)}">
             <div class="ml-linea">
                 <label class="ml-nombre">
                     <input type="checkbox" class="ml-check" name="multi_lote[${l.id}]" value="1" onchange="toggleFormMode()">
@@ -1254,10 +1248,57 @@ function renderMultiLotes() {
             </select>
         </div>`;
     }).join('');
+
+    // Al abrir de nuevo, la búsqueda y el filtro arrancan limpios.
+    const buscar = document.getElementById('multiLoteBuscar');
+    if (buscar) buscar.value = '';
+    const solo = document.getElementById('multiLoteSolo');
+    if (solo) solo.checked = false;
+    renderGruposMultiLotes();
 }
 
+/* Un botón por cultivo actual ("Maíz 25/26 · 8 lotes"): un toque tilda todos
+   esos lotes, otro los destilda. Con uno solo no hace falta: para eso está "Todos". */
+function renderGruposMultiLotes() {
+    const cont = document.getElementById('multiLoteGrupos');
+    if (!cont) return;
+    const cuenta = {};
+    document.querySelectorAll('.multi-lote-row').forEach(r => { cuenta[r.dataset.grupo] = (cuenta[r.dataset.grupo] || 0) + 1; });
+    const grupos = Object.keys(cuenta).sort((a, b) => (a === '') - (b === '') || a.localeCompare(b, 'es'));
+    cont.innerHTML = grupos.length < 2 ? '' : grupos.map(g =>
+        `<button type="button" class="ml-grupo" data-grupo="${escHtml(g)}" onclick="marcarGrupoMultiLotes(this.dataset.grupo)">
+            ${escHtml(g || 'Sin cultivo')} <small>· ${cuenta[g]} ${cuenta[g] === 1 ? 'lote' : 'lotes'}</small></button>`).join('');
+}
+
+function filasDelGrupo(g) {
+    return [...document.querySelectorAll('.multi-lote-row')].filter(r => r.dataset.grupo === g);
+}
+
+function marcarGrupoMultiLotes(g) {
+    const filas = filasDelGrupo(g);
+    const todos = filas.every(r => r.querySelector('.ml-check').checked);
+    filas.forEach(r => r.querySelector('.ml-check').checked = !todos);
+    toggleFormMode();
+}
+
+/* Búsqueda por nombre y "ver sólo los elegidos". Lo que se oculta sigue
+   tildado: sólo se saca de la vista. */
+function filtrarMultiLotes() {
+    const q = (document.getElementById('multiLoteBuscar') || {}).value || '';
+    const solo = (document.getElementById('multiLoteSolo') || {}).checked;
+    const t = q.trim().toLowerCase();
+    document.querySelectorAll('.multi-lote-row').forEach(r => {
+        const coincide = !t || r.dataset.nombre.includes(t);
+        const elegido = r.querySelector('.ml-check').checked;
+        r.style.display = coincide && (!solo || elegido) ? '' : 'none';
+    });
+}
+
+// "Todos" y "Ninguno" actúan sobre lo que se ve: buscar "norte" y tocar Todos tilda los del norte.
 function marcarMultiLotes(on) {
-    document.querySelectorAll('.multi-lote-row .ml-check').forEach(chk => chk.checked = on);
+    document.querySelectorAll('.multi-lote-row').forEach(r => {
+        if (r.style.display !== 'none') r.querySelector('.ml-check').checked = on;
+    });
     toggleFormMode();
 }
 
@@ -1270,6 +1311,16 @@ function resumirMultiLotes() {
     el.innerHTML = elegidos.length
         ? `<b>${elegidos.length} de ${total} lotes</b> · ${ha.toLocaleString('es-AR', { maximumFractionDigits: 2 })} ha`
         : 'Ningún lote elegido';
+    // Cada botón de cultivo muestra si sus lotes están todos, algunos o ninguno.
+    document.querySelectorAll('.ml-grupo').forEach(b => {
+        const filas = filasDelGrupo(b.dataset.grupo);
+        const n = filas.filter(r => r.querySelector('.ml-check').checked).length;
+        b.classList.toggle('on', n > 0 && n === filas.length);
+        b.classList.toggle('parcial', n > 0 && n < filas.length);
+        b.setAttribute('aria-pressed', n > 0 && n === filas.length ? 'true' : 'false');
+    });
+    // Con "ver sólo los elegidos", un lote que se destilda desaparece de la vista.
+    if ((document.getElementById('multiLoteSolo') || {}).checked) filtrarMultiLotes();
 }
 
 // Lotes tildados con sus hectáreas (vacío o 0 = toda la superficie, igual que el servidor).

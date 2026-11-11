@@ -73,16 +73,14 @@ consulta filtra por `usuario_id` de la sesión.
   van con el id del lote como clave (`multi_ha[12]`); el servidor entra en
   multilote si llega `multi_lote[]`. La edición en el modal es de un lote.
 - **Guardar, editar y borrar un gasto pasa por `includes/carga_lotes.php`**
-  (`operacion_insertar`, `operacion_costo`, `operacion_borrar`), que comparten
-  `operaciones.php` y `carga_lotes.php`. No volver a copiar la cuenta del costo
-  ni el descuento de stock en otra pantalla.
-- **Carga por lotes (`carga_lotes.php`)**: planilla con fecha, ha, cultivo y
-  dosis propias por lote, plantillas (`plantillas_labor`) y editar, repetir o
-  borrar una carga entera. Editar = borrar los gastos de la carga devolviendo
-  stock y volver a insertarlos (los ids cambian; sólo `operacion_insumos`
-  apunta a `operaciones`, en cascada). La dosis "de arriba" al releer es la de
-  la mayoría de los lotes, no la del primero. Pruebas de ida y vuelta en
-  `tests/test_carga_lotes.php`.
+  (`operacion_insertar`, `operacion_costo`, `operacion_borrar`). No volver a
+  copiar la cuenta del costo ni el descuento de stock en otra pantalla.
+- **Para varios lotes hay un solo camino: "Repartir en varios lotes"** del
+  formulario. Hubo una planilla aparte (`carga_lotes.php`) y se sacó: hacía lo
+  mismo y confundía. Para quien tiene muchos lotes, la lista tiene botones por
+  cultivo actual (tildan todos esos lotes), buscador y "ver sólo los elegidos";
+  "Todos/Ninguno" actúan sobre lo que se ve. La tabla `plantillas_labor` quedó
+  en la base sin uso.
 
 ## Stock (`insumos.php`)
 

@@ -33,7 +33,7 @@ if (isset($pdo) && $pdo instanceof PDO) {
 
     <nav>
         <?php if (!empty($_SESSION['modulos']['agricultura'])): ?>
-        <?php $is_agri_active = (in_array($current_page, ['index.php', 'lotes.php', 'operaciones.php', 'carga_lotes.php', 'alquileres.php', 'insumos.php', 'produccion.php'])); ?>
+        <?php $is_agri_active = (in_array($current_page, ['index.php', 'lotes.php', 'operaciones.php', 'alquileres.php', 'insumos.php', 'produccion.php'])); ?>
         <div class="nav-section nav-section-agri <?= $is_agri_active ? 'active' : '' ?>">
             <div class="nav-section-header" onclick="toggleSection(this)">
                 <div class="nav-section-title"><i class="fas fa-wheat-awn"></i> <span class="nav-txt">Agricultura</span></div>
@@ -42,9 +42,7 @@ if (isset($pdo) && $pdo instanceof PDO) {
             <div class="nav-section-links">
                 <a href="index.php"        class="nav-link <?= is_active('index.php', $current_page) ?>"><i class="fas fa-home"></i> <span class="nav-txt">Panel General</span></a>
                 <a href="lotes.php"        class="nav-link <?= is_active('lotes.php', $current_page) ?>"><i class="fas fa-map-marked-alt"></i> <span class="nav-txt">Lotes y Cultivos</span></a>
-                <?php /* La carga por lotes no va en el menú: se entra desde Costos y
-                         Labores, así que estando ahí queda marcado ese enlace. */ ?>
-                <a href="operaciones.php"  class="nav-link <?= in_array($current_page, ['operaciones.php', 'carga_lotes.php'], true) ? 'active' : '' ?>"><i class="fas fa-tractor"></i> <span class="nav-txt">Costos y Labores</span></a>
+                <a href="operaciones.php"  class="nav-link <?= is_active('operaciones.php', $current_page) ?>"><i class="fas fa-tractor"></i> <span class="nav-txt">Costos y Labores</span></a>
                 <a href="alquileres.php"   class="nav-link <?= is_active('alquileres.php', $current_page) ?>"><i class="fas fa-file-contract"></i> <span class="nav-txt">Alquileres</span></a>
                 <a href="insumos.php"      class="nav-link <?= is_active('insumos.php', $current_page) ?>"><i class="fas fa-warehouse"></i> <span class="nav-txt">Insumos (Stock)</span></a>
                 <a href="produccion.php"   class="nav-link <?= is_active('produccion.php', $current_page) ?>"><i class="fas fa-seedling"></i> <span class="nav-txt">Producción y Ventas</span></a>

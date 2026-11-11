@@ -33,7 +33,6 @@ const ASESOR_PAGINAS_MODULO = [
     'index.php'             => 'agricultura',
     'lotes.php'             => 'agricultura',
     'operaciones.php'       => 'agricultura',
-    'carga_lotes.php'       => 'agricultura',
     'alquileres.php'        => 'agricultura',
     'insumos.php'           => 'agricultura',
     'produccion.php'        => 'agricultura',
