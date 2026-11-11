@@ -389,6 +389,23 @@ function colorGrupo($g) {
 }
 ?>
 <style>
+.btn-carga-lotes {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--accent-soft); color: var(--accent);
+    border: 1.5px solid var(--accent); font-weight: 600; text-decoration: none;
+    transition: background .2s, color .2s, box-shadow .2s;
+}
+.btn-carga-lotes:hover, .btn-carga-lotes:focus-visible {
+    background: var(--accent); color: var(--on-accent); box-shadow: 0 0 12px var(--accent-glow);
+}
+.btn-carga-lotes-nuevo {
+    font-size: .68rem; font-weight: 700; letter-spacing: .4px; text-transform: uppercase;
+    padding: 2px 7px; border-radius: 20px; background: var(--accent); color: var(--on-accent);
+}
+.btn-carga-lotes:hover .btn-carga-lotes-nuevo, .btn-carga-lotes:focus-visible .btn-carga-lotes-nuevo {
+    background: var(--on-accent); color: var(--accent);
+}
+@media (prefers-reduced-motion: reduce) { .btn-carga-lotes { transition: none; } }
 .filter-toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
 .grupo-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
 .grupo-tab {
@@ -488,8 +505,12 @@ function colorGrupo($g) {
                  'nueva_pestana' => true],
             ]);
             ?>
-            <a href="carga_lotes.php" class="btn" style="background: var(--n-100); color: var(--text-primary); border: 1px solid var(--border);">
+            <?php /* Es la única entrada a la carga por lotes (no está en el menú),
+                     así que tiene que verse: verde de la app, sin competir con
+                     "Registrar Gasto", que sigue siendo el principal. */ ?>
+            <a href="carga_lotes.php" class="btn btn-carga-lotes" title="Una labor con sus insumos en varios lotes de una vez">
                 <i class="fas fa-layer-group"></i> Cargar en varios lotes
+                <span class="btn-carga-lotes-nuevo">Nuevo</span>
             </a>
             <button class="btn btn-primary" onclick="openAddModal()">
                 <i class="fas fa-plus"></i> Registrar Gasto
