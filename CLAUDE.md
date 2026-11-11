@@ -161,6 +161,40 @@ consulta filtra por `usuario_id` de la sesión.
   cambiar de cuenta se va al inicio en vez de quedarse ahí.
 - Informes nuevos: `firma_informe($pdo)` + `firma_html()` / `firma_texto()`.
 
+## Cuenta corriente (`includes/cuenta_corriente.php`)
+
+- Proveedores y sus movimientos (`proveedores`, `cc_movimientos`): compra suma
+  deuda; pago y nota de crédito la bajan. Monto siempre positivo, el signo lo
+  da el tipo. Es de todos los módulos (`cuenta_corriente.php`, menú "Comercial").
+- **Pesos y dólares nunca se suman.** Un pago en la otra moneda se convierte
+  una vez, al cargarlo, con la cotización que pone el productor, y se guarda
+  lo pagado y a cuánto (`pagado_moneda`, `pagado_monto`, `cotizacion`).
+- Los pagos se aplican a la factura que vence primero (`cc_pendientes`, FIFO):
+  de ahí sale qué está vencido. La tasa es informativa: no se calculan intereses.
+- Al importar una factura en Insumos se puede anotar la compra (misma
+  transacción que el stock). Anda sin la migración: `cc_tablas_listas()`.
+- En un formulario, una función con el mismo nombre que el `id` de un control
+  no se ejecuta desde `onchange` (el navegador resuelve el control): pasó acá.
+
+## Pedidos de presupuesto (`includes/presupuestos.php`)
+
+- Pedido → Excel para el proveedor → se suben las respuestas → comparación.
+  El Excel es un **.xlsx de verdad armado a mano** (`pp_xlsx`, ZIP con XML), no
+  el HTML con extensión .xls de los reportes: ese el proveedor no lo puede
+  devolver bien. Hoja protegida sin contraseña; celdas amarillas libres.
+- Cada renglón se reconoce al volver por la columna "Cód." (`orden`) y el
+  archivo por el número `PP-000045`, no por la posición. Reenviar el archivo de
+  un proveedor reemplaza su oferta. Precios por WhatsApp/PDF: carga a mano.
+- Monedas mezcladas: se comparan pasadas a dólares con el dólar de referencia,
+  sólo en pantalla; cada oferta se guarda en su moneda.
+- **El chat también recibe las respuestas** (clip → `api/presupuesto_chat.php`,
+  sin IA): deduce el pedido del `PP-…` del archivo y contesta con
+  `pp_resumen_chat()`. Pantalla y chat leen con la misma `pp_cargar_respuesta()`
+  y comparan con la misma `pp_comparar()`: no duplicar ninguna de las dos.
+- Pruebas de ida y vuelta con un .xlsx de verdad en `tests/test_presupuestos.php`.
+  Las hojas de algunos programas vienen con ruta absoluta ("/xl/worksheets/…"):
+  `imp_parse_xlsx` lo contempla; antes rechazaba esos archivos.
+
 ## Cuenta demo — solo lectura
 
 `users.solo_lectura = 1`. `config/auth.php` corta todo POST de esas cuentas,

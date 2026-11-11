@@ -82,6 +82,20 @@ if (isset($pdo) && $pdo instanceof PDO) {
         </div>
         <?php endif; ?>
 
+        <?php if (!empty($_SESSION['modulos']['agricultura']) || !empty($_SESSION['modulos']['tambo']) || !empty($_SESSION['modulos']['ganaderia'])): ?>
+        <?php /* La cuenta corriente es de todos los módulos: el tambo y la ganadería
+                 también le compran a proveedores. */ ?>
+        <div class="nav-section">
+            <div class="nav-section-header nav-section-header-plain"><span class="nav-txt">Comercial</span></div>
+            <a href="cuenta_corriente.php" class="nav-link <?= is_active('cuenta_corriente.php', $current_page) ?>">
+                <i class="fas fa-file-invoice-dollar"></i> <span class="nav-txt">Cuenta corriente</span>
+            </a>
+            <a href="presupuestos.php" class="nav-link <?= is_active('presupuestos.php', $current_page) ?>">
+                <i class="fas fa-scale-balanced"></i> <span class="nav-txt">Presupuestos</span>
+            </a>
+        </div>
+        <?php endif; ?>
+
         <?php if ($sb_asesor): ?>
         <div class="nav-section">
             <div class="nav-section-header nav-section-header-plain"><span class="nav-txt">Asesor</span></div>

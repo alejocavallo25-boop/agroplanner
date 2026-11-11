@@ -43,11 +43,11 @@
 -- que es de MariaDB: en MySQL 8 falla. Si dice MySQL, pará acá.
 SELECT VERSION() AS motor, DATABASE() AS base;
 
--- Cuántas de las 34 tablas esperadas ya existen.
-SELECT COUNT(*) AS tablas_presentes, 34 AS tablas_esperadas
+-- Cuántas de las 40 tablas esperadas ya existen.
+SELECT COUNT(*) AS tablas_presentes, 40 AS tablas_esperadas
 FROM information_schema.TABLES
 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'
-  AND TABLE_NAME IN ('users', 'cultivos', 'lotes', 'depositos', 'alquileres', 'asesor_clientes', 'cotizaciones_siogranos', 'feedlot_alimentos', 'feedlot_costos_fijos', 'feedlot_lotes', 'ganaderia_egresos', 'ganaderia_egresos_conceptos', 'ganaderia_inventario', 'ganaderia_movimientos', 'ganaderia_pesadas', 'ganaderia_reproductivo', 'ia_uso', 'insumos', 'login_intentos', 'lote_historial_campanas', 'motor_consultas_fallidas', 'motor_preferencias', 'operacion_insumos', 'operaciones', 'plantillas_labor', 'produccion_ventas', 'tambo_calidad', 'tambo_dif_inventario', 'tambo_dolar_mes', 'tambo_egresos', 'tambo_egresos_conceptos', 'tambo_produccion', 'tambo_rodeo', 'tambo_ventas_carne');
+  AND TABLE_NAME IN ('users', 'cultivos', 'lotes', 'depositos', 'alquileres', 'asesor_clientes', 'cc_movimientos', 'cotizaciones_siogranos', 'feedlot_alimentos', 'feedlot_costos_fijos', 'feedlot_lotes', 'ganaderia_egresos', 'ganaderia_egresos_conceptos', 'ganaderia_inventario', 'ganaderia_movimientos', 'ganaderia_pesadas', 'ganaderia_reproductivo', 'ia_uso', 'insumos', 'login_intentos', 'lote_historial_campanas', 'motor_consultas_fallidas', 'motor_preferencias', 'operacion_insumos', 'operaciones', 'plantillas_labor', 'presupuesto_items', 'presupuesto_ofertas', 'presupuesto_pedidos', 'presupuesto_precios', 'produccion_ventas', 'proveedores', 'tambo_calidad', 'tambo_dif_inventario', 'tambo_dolar_mes', 'tambo_egresos', 'tambo_egresos_conceptos', 'tambo_produccion', 'tambo_rodeo', 'tambo_ventas_carne');
 
 
 -- ───────────────────────────────────────────────────────────────
@@ -153,6 +153,32 @@ CREATE TABLE IF NOT EXISTS `asesor_clientes` (
   KEY `idx_cliente` (`cliente_id`),
   CONSTRAINT `fk_asesor_clientes_asesor` FOREIGN KEY (`asesor_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_asesor_clientes_cliente` FOREIGN KEY (`cliente_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `cc_movimientos` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `usuario_id` int(11) NOT NULL,
+  `proveedor_id` int(11) NOT NULL,
+  `tipo` enum('compra','pago','nota_credito') NOT NULL,
+  `fecha` date NOT NULL,
+  `vencimiento` date DEFAULT NULL COMMENT 'Sólo compras',
+  `comprobante` varchar(60) DEFAULT NULL,
+  `concepto` varchar(255) DEFAULT NULL,
+  `moneda` enum('ARS','USD') NOT NULL,
+  `monto` decimal(14,2) NOT NULL COMMENT 'Positivo, en la moneda de la cuenta',
+  `forma_pago` varchar(30) DEFAULT NULL COMMENT 'Pagos: transferencia, efectivo, cheque... Compras: canje',
+  `pagado_moneda` enum('ARS','USD') DEFAULT NULL COMMENT 'Pago hecho en la otra moneda',
+  `pagado_monto` decimal(14,2) DEFAULT NULL,
+  `cotizacion` decimal(14,4) DEFAULT NULL,
+  `canje_cultivo` varchar(60) DEFAULT NULL,
+  `canje_toneladas` decimal(12,3) DEFAULT NULL,
+  `tasa_mensual` decimal(6,3) DEFAULT NULL COMMENT 'Porcentaje mensual, informativo',
+  `creado_en` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_cc_usuario_proveedor` (`usuario_id`,`proveedor_id`,`fecha`),
+  KEY `fk_cc_movimientos_proveedor` (`proveedor_id`),
+  CONSTRAINT `fk_cc_movimientos_proveedor` FOREIGN KEY (`proveedor_id`) REFERENCES `proveedores` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_cc_movimientos_usuario` FOREIGN KEY (`usuario_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `cotizaciones_siogranos` (
@@ -454,6 +480,60 @@ CREATE TABLE IF NOT EXISTS `plantillas_labor` (
   CONSTRAINT `fk_plantillas_labor_usuario` FOREIGN KEY (`usuario_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `presupuesto_items` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `pedido_id` int(11) NOT NULL,
+  `orden` smallint(6) NOT NULL,
+  `insumo_id` int(11) DEFAULT NULL COMMENT 'Del catálogo, si salió de ahí',
+  `descripcion` varchar(200) NOT NULL,
+  `cantidad` decimal(14,3) NOT NULL,
+  `unidad` varchar(30) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_pp_item_orden` (`pedido_id`,`orden`),
+  CONSTRAINT `fk_pp_items_pedido` FOREIGN KEY (`pedido_id`) REFERENCES `presupuesto_pedidos` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `presupuesto_ofertas` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `pedido_id` int(11) NOT NULL,
+  `proveedor` varchar(150) NOT NULL,
+  `moneda` enum('ARS','USD') NOT NULL,
+  `condicion_pago` varchar(150) DEFAULT NULL,
+  `plazo_entrega` varchar(100) DEFAULT NULL,
+  `validez` varchar(100) DEFAULT NULL,
+  `origen` enum('excel','manual') NOT NULL DEFAULT 'excel',
+  `archivo` varchar(255) DEFAULT NULL COMMENT 'Nombre del archivo que se subió; el archivo no se guarda',
+  `creado_en` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_pp_ofertas_pedido` (`pedido_id`),
+  CONSTRAINT `fk_pp_ofertas_pedido` FOREIGN KEY (`pedido_id`) REFERENCES `presupuesto_pedidos` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `presupuesto_pedidos` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `usuario_id` int(11) NOT NULL,
+  `titulo` varchar(150) NOT NULL,
+  `moneda` enum('ARS','USD') NOT NULL DEFAULT 'USD' COMMENT 'La que se le pide al proveedor',
+  `fecha_limite` date DEFAULT NULL,
+  `notas` varchar(500) DEFAULT NULL,
+  `creado_en` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_pp_usuario` (`usuario_id`),
+  CONSTRAINT `fk_pp_usuario` FOREIGN KEY (`usuario_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `presupuesto_precios` (
+  `oferta_id` int(11) NOT NULL,
+  `item_id` int(11) NOT NULL,
+  `precio` decimal(14,4) NOT NULL COMMENT 'Unitario, en la moneda de la oferta',
+  `marca` varchar(150) DEFAULT NULL,
+  `observacion` varchar(255) DEFAULT NULL,
+  PRIMARY KEY (`oferta_id`,`item_id`),
+  KEY `fk_pp_precios_item` (`item_id`),
+  CONSTRAINT `fk_pp_precios_item` FOREIGN KEY (`item_id`) REFERENCES `presupuesto_items` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_pp_precios_oferta` FOREIGN KEY (`oferta_id`) REFERENCES `presupuesto_ofertas` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `produccion_ventas` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `lote_id` int(11) NOT NULL,
@@ -475,6 +555,19 @@ CREATE TABLE IF NOT EXISTS `produccion_ventas` (
   CONSTRAINT `fk_produccion_ventas_usuario` FOREIGN KEY (`usuario_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `produccion_ventas_ibfk_1` FOREIGN KEY (`lote_id`) REFERENCES `lotes` (`id`) ON DELETE CASCADE,
   CONSTRAINT `produccion_ventas_ibfk_2` FOREIGN KEY (`cultivo_id`) REFERENCES `cultivos` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `proveedores` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `usuario_id` int(11) NOT NULL,
+  `nombre` varchar(150) NOT NULL,
+  `cuit` varchar(20) DEFAULT NULL,
+  `telefono` varchar(50) DEFAULT NULL,
+  `notas` varchar(255) DEFAULT NULL,
+  `creado_en` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_proveedor_nombre` (`usuario_id`,`nombre`),
+  CONSTRAINT `fk_proveedores_usuario` FOREIGN KEY (`usuario_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `tambo_calidad` (
@@ -670,6 +763,25 @@ ALTER TABLE `asesor_clientes` ADD COLUMN IF NOT EXISTS `asesor_id` int(11) NOT N
 ALTER TABLE `asesor_clientes` ADD COLUMN IF NOT EXISTS `cliente_id` int(11) NOT NULL AFTER `asesor_id`;
 ALTER TABLE `asesor_clientes` ADD COLUMN IF NOT EXISTS `origen` enum('admin','asesor') NOT NULL DEFAULT 'admin' COMMENT 'Quién hizo el vínculo: el admin desde su panel o el asesor al crear la cuenta' AFTER `cliente_id`;
 ALTER TABLE `asesor_clientes` ADD COLUMN IF NOT EXISTS `creado_en` timestamp NOT NULL DEFAULT current_timestamp() AFTER `origen`;
+
+-- cc_movimientos
+ALTER TABLE `cc_movimientos` ADD COLUMN IF NOT EXISTS `usuario_id` int(11) NOT NULL AFTER `id`;
+ALTER TABLE `cc_movimientos` ADD COLUMN IF NOT EXISTS `proveedor_id` int(11) NOT NULL AFTER `usuario_id`;
+ALTER TABLE `cc_movimientos` ADD COLUMN IF NOT EXISTS `tipo` enum('compra','pago','nota_credito') NOT NULL AFTER `proveedor_id`;
+ALTER TABLE `cc_movimientos` ADD COLUMN IF NOT EXISTS `fecha` date NOT NULL AFTER `tipo`;
+ALTER TABLE `cc_movimientos` ADD COLUMN IF NOT EXISTS `vencimiento` date NULL DEFAULT NULL COMMENT 'Sólo compras' AFTER `fecha`;
+ALTER TABLE `cc_movimientos` ADD COLUMN IF NOT EXISTS `comprobante` varchar(60) NULL DEFAULT NULL AFTER `vencimiento`;
+ALTER TABLE `cc_movimientos` ADD COLUMN IF NOT EXISTS `concepto` varchar(255) NULL DEFAULT NULL AFTER `comprobante`;
+ALTER TABLE `cc_movimientos` ADD COLUMN IF NOT EXISTS `moneda` enum('ARS','USD') NOT NULL AFTER `concepto`;
+ALTER TABLE `cc_movimientos` ADD COLUMN IF NOT EXISTS `monto` decimal(14,2) NOT NULL COMMENT 'Positivo, en la moneda de la cuenta' AFTER `moneda`;
+ALTER TABLE `cc_movimientos` ADD COLUMN IF NOT EXISTS `forma_pago` varchar(30) NULL DEFAULT NULL COMMENT 'Pagos: transferencia, efectivo, cheque... Compras: canje' AFTER `monto`;
+ALTER TABLE `cc_movimientos` ADD COLUMN IF NOT EXISTS `pagado_moneda` enum('ARS','USD') NULL DEFAULT NULL COMMENT 'Pago hecho en la otra moneda' AFTER `forma_pago`;
+ALTER TABLE `cc_movimientos` ADD COLUMN IF NOT EXISTS `pagado_monto` decimal(14,2) NULL DEFAULT NULL AFTER `pagado_moneda`;
+ALTER TABLE `cc_movimientos` ADD COLUMN IF NOT EXISTS `cotizacion` decimal(14,4) NULL DEFAULT NULL AFTER `pagado_monto`;
+ALTER TABLE `cc_movimientos` ADD COLUMN IF NOT EXISTS `canje_cultivo` varchar(60) NULL DEFAULT NULL AFTER `cotizacion`;
+ALTER TABLE `cc_movimientos` ADD COLUMN IF NOT EXISTS `canje_toneladas` decimal(12,3) NULL DEFAULT NULL AFTER `canje_cultivo`;
+ALTER TABLE `cc_movimientos` ADD COLUMN IF NOT EXISTS `tasa_mensual` decimal(6,3) NULL DEFAULT NULL COMMENT 'Porcentaje mensual, informativo' AFTER `canje_toneladas`;
+ALTER TABLE `cc_movimientos` ADD COLUMN IF NOT EXISTS `creado_en` timestamp NOT NULL DEFAULT current_timestamp() AFTER `tasa_mensual`;
 
 -- cotizaciones_siogranos
 ALTER TABLE `cotizaciones_siogranos` ADD COLUMN IF NOT EXISTS `fecha` date NOT NULL COMMENT 'Fecha de la cotizaci??n' AFTER `id`;
@@ -878,6 +990,40 @@ ALTER TABLE `plantillas_labor` ADD COLUMN IF NOT EXISTS `nombre` varchar(100) NO
 ALTER TABLE `plantillas_labor` ADD COLUMN IF NOT EXISTS `datos` text NOT NULL COMMENT 'JSON: grupo, tipo, labor, precio, moneda e insumos con dosis' AFTER `nombre`;
 ALTER TABLE `plantillas_labor` ADD COLUMN IF NOT EXISTS `creado_en` timestamp NOT NULL DEFAULT current_timestamp() AFTER `datos`;
 
+-- presupuesto_items
+ALTER TABLE `presupuesto_items` ADD COLUMN IF NOT EXISTS `pedido_id` int(11) NOT NULL AFTER `id`;
+ALTER TABLE `presupuesto_items` ADD COLUMN IF NOT EXISTS `orden` smallint(6) NOT NULL AFTER `pedido_id`;
+ALTER TABLE `presupuesto_items` ADD COLUMN IF NOT EXISTS `insumo_id` int(11) NULL DEFAULT NULL COMMENT 'Del catálogo, si salió de ahí' AFTER `orden`;
+ALTER TABLE `presupuesto_items` ADD COLUMN IF NOT EXISTS `descripcion` varchar(200) NOT NULL AFTER `insumo_id`;
+ALTER TABLE `presupuesto_items` ADD COLUMN IF NOT EXISTS `cantidad` decimal(14,3) NOT NULL AFTER `descripcion`;
+ALTER TABLE `presupuesto_items` ADD COLUMN IF NOT EXISTS `unidad` varchar(30) NULL DEFAULT NULL AFTER `cantidad`;
+
+-- presupuesto_ofertas
+ALTER TABLE `presupuesto_ofertas` ADD COLUMN IF NOT EXISTS `pedido_id` int(11) NOT NULL AFTER `id`;
+ALTER TABLE `presupuesto_ofertas` ADD COLUMN IF NOT EXISTS `proveedor` varchar(150) NOT NULL AFTER `pedido_id`;
+ALTER TABLE `presupuesto_ofertas` ADD COLUMN IF NOT EXISTS `moneda` enum('ARS','USD') NOT NULL AFTER `proveedor`;
+ALTER TABLE `presupuesto_ofertas` ADD COLUMN IF NOT EXISTS `condicion_pago` varchar(150) NULL DEFAULT NULL AFTER `moneda`;
+ALTER TABLE `presupuesto_ofertas` ADD COLUMN IF NOT EXISTS `plazo_entrega` varchar(100) NULL DEFAULT NULL AFTER `condicion_pago`;
+ALTER TABLE `presupuesto_ofertas` ADD COLUMN IF NOT EXISTS `validez` varchar(100) NULL DEFAULT NULL AFTER `plazo_entrega`;
+ALTER TABLE `presupuesto_ofertas` ADD COLUMN IF NOT EXISTS `origen` enum('excel','manual') NOT NULL DEFAULT 'excel' AFTER `validez`;
+ALTER TABLE `presupuesto_ofertas` ADD COLUMN IF NOT EXISTS `archivo` varchar(255) NULL DEFAULT NULL COMMENT 'Nombre del archivo que se subió; el archivo no se guarda' AFTER `origen`;
+ALTER TABLE `presupuesto_ofertas` ADD COLUMN IF NOT EXISTS `creado_en` timestamp NOT NULL DEFAULT current_timestamp() AFTER `archivo`;
+
+-- presupuesto_pedidos
+ALTER TABLE `presupuesto_pedidos` ADD COLUMN IF NOT EXISTS `usuario_id` int(11) NOT NULL AFTER `id`;
+ALTER TABLE `presupuesto_pedidos` ADD COLUMN IF NOT EXISTS `titulo` varchar(150) NOT NULL AFTER `usuario_id`;
+ALTER TABLE `presupuesto_pedidos` ADD COLUMN IF NOT EXISTS `moneda` enum('ARS','USD') NOT NULL DEFAULT 'USD' COMMENT 'La que se le pide al proveedor' AFTER `titulo`;
+ALTER TABLE `presupuesto_pedidos` ADD COLUMN IF NOT EXISTS `fecha_limite` date NULL DEFAULT NULL AFTER `moneda`;
+ALTER TABLE `presupuesto_pedidos` ADD COLUMN IF NOT EXISTS `notas` varchar(500) NULL DEFAULT NULL AFTER `fecha_limite`;
+ALTER TABLE `presupuesto_pedidos` ADD COLUMN IF NOT EXISTS `creado_en` timestamp NOT NULL DEFAULT current_timestamp() AFTER `notas`;
+
+-- presupuesto_precios
+ALTER TABLE `presupuesto_precios` ADD COLUMN IF NOT EXISTS `oferta_id` int(11) NOT NULL FIRST;
+ALTER TABLE `presupuesto_precios` ADD COLUMN IF NOT EXISTS `item_id` int(11) NOT NULL AFTER `oferta_id`;
+ALTER TABLE `presupuesto_precios` ADD COLUMN IF NOT EXISTS `precio` decimal(14,4) NOT NULL COMMENT 'Unitario, en la moneda de la oferta' AFTER `item_id`;
+ALTER TABLE `presupuesto_precios` ADD COLUMN IF NOT EXISTS `marca` varchar(150) NULL DEFAULT NULL AFTER `precio`;
+ALTER TABLE `presupuesto_precios` ADD COLUMN IF NOT EXISTS `observacion` varchar(255) NULL DEFAULT NULL AFTER `marca`;
+
 -- produccion_ventas
 ALTER TABLE `produccion_ventas` ADD COLUMN IF NOT EXISTS `lote_id` int(11) NOT NULL AFTER `id`;
 ALTER TABLE `produccion_ventas` ADD COLUMN IF NOT EXISTS `cultivo_id` int(11) NULL DEFAULT NULL AFTER `lote_id`;
@@ -891,6 +1037,14 @@ ALTER TABLE `produccion_ventas` ADD COLUMN IF NOT EXISTS `campania_vendida` varc
 ALTER TABLE `produccion_ventas` ADD COLUMN IF NOT EXISTS `cultivo_vendido` varchar(100) NULL DEFAULT NULL AFTER `campania_vendida`;
 ALTER TABLE `produccion_ventas` ADD COLUMN IF NOT EXISTS `notas` varchar(255) NULL DEFAULT NULL AFTER `cultivo_vendido`;
 ALTER TABLE `produccion_ventas` ADD COLUMN IF NOT EXISTS `moneda` enum('ARS','USD') NOT NULL DEFAULT 'ARS' COMMENT 'Moneda del precio por kilo. La conversiÃ³n se hace al calcular.' AFTER `notas`;
+
+-- proveedores
+ALTER TABLE `proveedores` ADD COLUMN IF NOT EXISTS `usuario_id` int(11) NOT NULL AFTER `id`;
+ALTER TABLE `proveedores` ADD COLUMN IF NOT EXISTS `nombre` varchar(150) NOT NULL AFTER `usuario_id`;
+ALTER TABLE `proveedores` ADD COLUMN IF NOT EXISTS `cuit` varchar(20) NULL DEFAULT NULL AFTER `nombre`;
+ALTER TABLE `proveedores` ADD COLUMN IF NOT EXISTS `telefono` varchar(50) NULL DEFAULT NULL AFTER `cuit`;
+ALTER TABLE `proveedores` ADD COLUMN IF NOT EXISTS `notas` varchar(255) NULL DEFAULT NULL AFTER `telefono`;
+ALTER TABLE `proveedores` ADD COLUMN IF NOT EXISTS `creado_en` timestamp NOT NULL DEFAULT current_timestamp() AFTER `notas`;
 
 -- tambo_calidad
 ALTER TABLE `tambo_calidad` ADD COLUMN IF NOT EXISTS `usuario_id` int(11) NOT NULL AFTER `id`;
@@ -1076,6 +1230,24 @@ FROM (
         UNION ALL SELECT 'asesor_clientes', 'cliente_id', 'int(11)'
         UNION ALL SELECT 'asesor_clientes', 'origen', 'enum(''admin'',''asesor'')'
         UNION ALL SELECT 'asesor_clientes', 'creado_en', 'timestamp'
+        UNION ALL SELECT 'cc_movimientos', 'id', 'int(11)'
+        UNION ALL SELECT 'cc_movimientos', 'usuario_id', 'int(11)'
+        UNION ALL SELECT 'cc_movimientos', 'proveedor_id', 'int(11)'
+        UNION ALL SELECT 'cc_movimientos', 'tipo', 'enum(''compra'',''pago'',''nota_credito'')'
+        UNION ALL SELECT 'cc_movimientos', 'fecha', 'date'
+        UNION ALL SELECT 'cc_movimientos', 'vencimiento', 'date'
+        UNION ALL SELECT 'cc_movimientos', 'comprobante', 'varchar(60)'
+        UNION ALL SELECT 'cc_movimientos', 'concepto', 'varchar(255)'
+        UNION ALL SELECT 'cc_movimientos', 'moneda', 'enum(''ARS'',''USD'')'
+        UNION ALL SELECT 'cc_movimientos', 'monto', 'decimal(14,2)'
+        UNION ALL SELECT 'cc_movimientos', 'forma_pago', 'varchar(30)'
+        UNION ALL SELECT 'cc_movimientos', 'pagado_moneda', 'enum(''ARS'',''USD'')'
+        UNION ALL SELECT 'cc_movimientos', 'pagado_monto', 'decimal(14,2)'
+        UNION ALL SELECT 'cc_movimientos', 'cotizacion', 'decimal(14,4)'
+        UNION ALL SELECT 'cc_movimientos', 'canje_cultivo', 'varchar(60)'
+        UNION ALL SELECT 'cc_movimientos', 'canje_toneladas', 'decimal(12,3)'
+        UNION ALL SELECT 'cc_movimientos', 'tasa_mensual', 'decimal(6,3)'
+        UNION ALL SELECT 'cc_movimientos', 'creado_en', 'timestamp'
         UNION ALL SELECT 'cotizaciones_siogranos', 'id', 'int(11)'
         UNION ALL SELECT 'cotizaciones_siogranos', 'fecha', 'date'
         UNION ALL SELECT 'cotizaciones_siogranos', 'cultivo', 'varchar(50)'
@@ -1263,6 +1435,35 @@ FROM (
         UNION ALL SELECT 'plantillas_labor', 'nombre', 'varchar(100)'
         UNION ALL SELECT 'plantillas_labor', 'datos', 'text'
         UNION ALL SELECT 'plantillas_labor', 'creado_en', 'timestamp'
+        UNION ALL SELECT 'presupuesto_items', 'id', 'int(11)'
+        UNION ALL SELECT 'presupuesto_items', 'pedido_id', 'int(11)'
+        UNION ALL SELECT 'presupuesto_items', 'orden', 'smallint(6)'
+        UNION ALL SELECT 'presupuesto_items', 'insumo_id', 'int(11)'
+        UNION ALL SELECT 'presupuesto_items', 'descripcion', 'varchar(200)'
+        UNION ALL SELECT 'presupuesto_items', 'cantidad', 'decimal(14,3)'
+        UNION ALL SELECT 'presupuesto_items', 'unidad', 'varchar(30)'
+        UNION ALL SELECT 'presupuesto_ofertas', 'id', 'int(11)'
+        UNION ALL SELECT 'presupuesto_ofertas', 'pedido_id', 'int(11)'
+        UNION ALL SELECT 'presupuesto_ofertas', 'proveedor', 'varchar(150)'
+        UNION ALL SELECT 'presupuesto_ofertas', 'moneda', 'enum(''ARS'',''USD'')'
+        UNION ALL SELECT 'presupuesto_ofertas', 'condicion_pago', 'varchar(150)'
+        UNION ALL SELECT 'presupuesto_ofertas', 'plazo_entrega', 'varchar(100)'
+        UNION ALL SELECT 'presupuesto_ofertas', 'validez', 'varchar(100)'
+        UNION ALL SELECT 'presupuesto_ofertas', 'origen', 'enum(''excel'',''manual'')'
+        UNION ALL SELECT 'presupuesto_ofertas', 'archivo', 'varchar(255)'
+        UNION ALL SELECT 'presupuesto_ofertas', 'creado_en', 'timestamp'
+        UNION ALL SELECT 'presupuesto_pedidos', 'id', 'int(11)'
+        UNION ALL SELECT 'presupuesto_pedidos', 'usuario_id', 'int(11)'
+        UNION ALL SELECT 'presupuesto_pedidos', 'titulo', 'varchar(150)'
+        UNION ALL SELECT 'presupuesto_pedidos', 'moneda', 'enum(''ARS'',''USD'')'
+        UNION ALL SELECT 'presupuesto_pedidos', 'fecha_limite', 'date'
+        UNION ALL SELECT 'presupuesto_pedidos', 'notas', 'varchar(500)'
+        UNION ALL SELECT 'presupuesto_pedidos', 'creado_en', 'timestamp'
+        UNION ALL SELECT 'presupuesto_precios', 'oferta_id', 'int(11)'
+        UNION ALL SELECT 'presupuesto_precios', 'item_id', 'int(11)'
+        UNION ALL SELECT 'presupuesto_precios', 'precio', 'decimal(14,4)'
+        UNION ALL SELECT 'presupuesto_precios', 'marca', 'varchar(150)'
+        UNION ALL SELECT 'presupuesto_precios', 'observacion', 'varchar(255)'
         UNION ALL SELECT 'produccion_ventas', 'id', 'int(11)'
         UNION ALL SELECT 'produccion_ventas', 'lote_id', 'int(11)'
         UNION ALL SELECT 'produccion_ventas', 'cultivo_id', 'int(11)'
@@ -1276,6 +1477,13 @@ FROM (
         UNION ALL SELECT 'produccion_ventas', 'cultivo_vendido', 'varchar(100)'
         UNION ALL SELECT 'produccion_ventas', 'notas', 'varchar(255)'
         UNION ALL SELECT 'produccion_ventas', 'moneda', 'enum(''ARS'',''USD'')'
+        UNION ALL SELECT 'proveedores', 'id', 'int(11)'
+        UNION ALL SELECT 'proveedores', 'usuario_id', 'int(11)'
+        UNION ALL SELECT 'proveedores', 'nombre', 'varchar(150)'
+        UNION ALL SELECT 'proveedores', 'cuit', 'varchar(20)'
+        UNION ALL SELECT 'proveedores', 'telefono', 'varchar(50)'
+        UNION ALL SELECT 'proveedores', 'notas', 'varchar(255)'
+        UNION ALL SELECT 'proveedores', 'creado_en', 'timestamp'
         UNION ALL SELECT 'tambo_calidad', 'id', 'int(11)'
         UNION ALL SELECT 'tambo_calidad', 'usuario_id', 'int(11)'
         UNION ALL SELECT 'tambo_calidad', 'fecha', 'date'
@@ -1431,6 +1639,24 @@ LEFT JOIN (
         UNION ALL SELECT 'asesor_clientes', 'cliente_id', 'int(11)'
         UNION ALL SELECT 'asesor_clientes', 'origen', 'enum(''admin'',''asesor'')'
         UNION ALL SELECT 'asesor_clientes', 'creado_en', 'timestamp'
+        UNION ALL SELECT 'cc_movimientos', 'id', 'int(11)'
+        UNION ALL SELECT 'cc_movimientos', 'usuario_id', 'int(11)'
+        UNION ALL SELECT 'cc_movimientos', 'proveedor_id', 'int(11)'
+        UNION ALL SELECT 'cc_movimientos', 'tipo', 'enum(''compra'',''pago'',''nota_credito'')'
+        UNION ALL SELECT 'cc_movimientos', 'fecha', 'date'
+        UNION ALL SELECT 'cc_movimientos', 'vencimiento', 'date'
+        UNION ALL SELECT 'cc_movimientos', 'comprobante', 'varchar(60)'
+        UNION ALL SELECT 'cc_movimientos', 'concepto', 'varchar(255)'
+        UNION ALL SELECT 'cc_movimientos', 'moneda', 'enum(''ARS'',''USD'')'
+        UNION ALL SELECT 'cc_movimientos', 'monto', 'decimal(14,2)'
+        UNION ALL SELECT 'cc_movimientos', 'forma_pago', 'varchar(30)'
+        UNION ALL SELECT 'cc_movimientos', 'pagado_moneda', 'enum(''ARS'',''USD'')'
+        UNION ALL SELECT 'cc_movimientos', 'pagado_monto', 'decimal(14,2)'
+        UNION ALL SELECT 'cc_movimientos', 'cotizacion', 'decimal(14,4)'
+        UNION ALL SELECT 'cc_movimientos', 'canje_cultivo', 'varchar(60)'
+        UNION ALL SELECT 'cc_movimientos', 'canje_toneladas', 'decimal(12,3)'
+        UNION ALL SELECT 'cc_movimientos', 'tasa_mensual', 'decimal(6,3)'
+        UNION ALL SELECT 'cc_movimientos', 'creado_en', 'timestamp'
         UNION ALL SELECT 'cotizaciones_siogranos', 'id', 'int(11)'
         UNION ALL SELECT 'cotizaciones_siogranos', 'fecha', 'date'
         UNION ALL SELECT 'cotizaciones_siogranos', 'cultivo', 'varchar(50)'
@@ -1618,6 +1844,35 @@ LEFT JOIN (
         UNION ALL SELECT 'plantillas_labor', 'nombre', 'varchar(100)'
         UNION ALL SELECT 'plantillas_labor', 'datos', 'text'
         UNION ALL SELECT 'plantillas_labor', 'creado_en', 'timestamp'
+        UNION ALL SELECT 'presupuesto_items', 'id', 'int(11)'
+        UNION ALL SELECT 'presupuesto_items', 'pedido_id', 'int(11)'
+        UNION ALL SELECT 'presupuesto_items', 'orden', 'smallint(6)'
+        UNION ALL SELECT 'presupuesto_items', 'insumo_id', 'int(11)'
+        UNION ALL SELECT 'presupuesto_items', 'descripcion', 'varchar(200)'
+        UNION ALL SELECT 'presupuesto_items', 'cantidad', 'decimal(14,3)'
+        UNION ALL SELECT 'presupuesto_items', 'unidad', 'varchar(30)'
+        UNION ALL SELECT 'presupuesto_ofertas', 'id', 'int(11)'
+        UNION ALL SELECT 'presupuesto_ofertas', 'pedido_id', 'int(11)'
+        UNION ALL SELECT 'presupuesto_ofertas', 'proveedor', 'varchar(150)'
+        UNION ALL SELECT 'presupuesto_ofertas', 'moneda', 'enum(''ARS'',''USD'')'
+        UNION ALL SELECT 'presupuesto_ofertas', 'condicion_pago', 'varchar(150)'
+        UNION ALL SELECT 'presupuesto_ofertas', 'plazo_entrega', 'varchar(100)'
+        UNION ALL SELECT 'presupuesto_ofertas', 'validez', 'varchar(100)'
+        UNION ALL SELECT 'presupuesto_ofertas', 'origen', 'enum(''excel'',''manual'')'
+        UNION ALL SELECT 'presupuesto_ofertas', 'archivo', 'varchar(255)'
+        UNION ALL SELECT 'presupuesto_ofertas', 'creado_en', 'timestamp'
+        UNION ALL SELECT 'presupuesto_pedidos', 'id', 'int(11)'
+        UNION ALL SELECT 'presupuesto_pedidos', 'usuario_id', 'int(11)'
+        UNION ALL SELECT 'presupuesto_pedidos', 'titulo', 'varchar(150)'
+        UNION ALL SELECT 'presupuesto_pedidos', 'moneda', 'enum(''ARS'',''USD'')'
+        UNION ALL SELECT 'presupuesto_pedidos', 'fecha_limite', 'date'
+        UNION ALL SELECT 'presupuesto_pedidos', 'notas', 'varchar(500)'
+        UNION ALL SELECT 'presupuesto_pedidos', 'creado_en', 'timestamp'
+        UNION ALL SELECT 'presupuesto_precios', 'oferta_id', 'int(11)'
+        UNION ALL SELECT 'presupuesto_precios', 'item_id', 'int(11)'
+        UNION ALL SELECT 'presupuesto_precios', 'precio', 'decimal(14,4)'
+        UNION ALL SELECT 'presupuesto_precios', 'marca', 'varchar(150)'
+        UNION ALL SELECT 'presupuesto_precios', 'observacion', 'varchar(255)'
         UNION ALL SELECT 'produccion_ventas', 'id', 'int(11)'
         UNION ALL SELECT 'produccion_ventas', 'lote_id', 'int(11)'
         UNION ALL SELECT 'produccion_ventas', 'cultivo_id', 'int(11)'
@@ -1631,6 +1886,13 @@ LEFT JOIN (
         UNION ALL SELECT 'produccion_ventas', 'cultivo_vendido', 'varchar(100)'
         UNION ALL SELECT 'produccion_ventas', 'notas', 'varchar(255)'
         UNION ALL SELECT 'produccion_ventas', 'moneda', 'enum(''ARS'',''USD'')'
+        UNION ALL SELECT 'proveedores', 'id', 'int(11)'
+        UNION ALL SELECT 'proveedores', 'usuario_id', 'int(11)'
+        UNION ALL SELECT 'proveedores', 'nombre', 'varchar(150)'
+        UNION ALL SELECT 'proveedores', 'cuit', 'varchar(20)'
+        UNION ALL SELECT 'proveedores', 'telefono', 'varchar(50)'
+        UNION ALL SELECT 'proveedores', 'notas', 'varchar(255)'
+        UNION ALL SELECT 'proveedores', 'creado_en', 'timestamp'
         UNION ALL SELECT 'tambo_calidad', 'id', 'int(11)'
         UNION ALL SELECT 'tambo_calidad', 'usuario_id', 'int(11)'
         UNION ALL SELECT 'tambo_calidad', 'fecha', 'date'

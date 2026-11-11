@@ -45,7 +45,7 @@ const ASESOR_PAGINAS_MODULO = [
     'ganaderia.php'         => 'ganaderia',
     'ganaderia_feedlot.php' => 'ganaderia',
 ];
-const ASESOR_PAGINAS_LIBRES = ['asesor.php', 'pendientes.php'];
+const ASESOR_PAGINAS_LIBRES = ['asesor.php', 'pendientes.php', 'cuenta_corriente.php', 'presupuestos.php'];
 
 /** Carga en la sesión la cuenta en la que se va a trabajar. La usan el login y el cambio de cuenta. */
 function sesion_cargar_cuenta(array $u, bool $como_cliente = false): void

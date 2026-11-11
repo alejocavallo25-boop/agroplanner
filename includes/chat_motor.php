@@ -313,18 +313,22 @@ $chat_voz_ia = ia_voz_disponible(isset($env) && is_array($env) ? $env : []);
         <input type="text" id="mc-q" placeholder="<?= $chat_es_tambo ? 'Preguntá por la leche, los costos o el margen' : 'Preguntá, o dictá un gasto' ?>">
         <?php /* Dictado: para el que está en el campo con las manos sucias. Se
                  muestra sólo si el navegador lo soporta — ver el JS de abajo. */ ?>
-        <?php if ($chat_ia): ?>
-        <?php /* Foto de una planta, un bicho o un remito: la mira una IA
-                 (api/diagnostico_ia.php), que decide qué es. Sin capture, por lo
-                 mismo que en insumos: con él el teléfono va derecho a la cámara
-                 y no deja elegir una foto ya sacada. */ ?>
-        <button type="button" class="mc-enviar" id="mc-foto" title="Mandá una foto: una planta, un bicho, un remito o una factura"
+        <?php /* Adjuntar. Dos cosas distintas por el mismo botón:
+                 - Excel de presupuesto que devolvió un proveedor: se guarda en su
+                   pedido y se compara (api/presupuesto_chat.php). No usa IA, así
+                   que el botón está aunque no haya IA configurada.
+                 - Foto de una planta, un bicho o un remito: la mira una IA
+                   (api/diagnostico_ia.php). Sólo si hay IA.
+                 Sin capture, por lo mismo que en insumos: con él el teléfono va
+                 derecho a la cámara y no deja elegir una foto ya sacada. */
+              $mc_adjunto_txt = $chat_ia ? 'Mandá una foto (planta, bicho, remito) o los Excel de presupuesto que te devolvieron'
+                                         : 'Mandá los Excel de presupuesto que te devolvieron los proveedores'; ?>
+        <button type="button" class="mc-enviar" id="mc-foto" title="<?= htmlspecialchars($mc_adjunto_txt) ?>"
                 style="background: var(--n-0); color: var(--accent); border: 1px solid var(--border);">
-            <i class="fas fa-camera" aria-hidden="true"></i>
-            <span class="ap-solo-lectores">Mandá una foto: una planta, un bicho, un remito o una factura</span>
+            <i class="fas fa-paperclip" aria-hidden="true"></i>
+            <span class="ap-solo-lectores"><?= htmlspecialchars($mc_adjunto_txt) ?></span>
         </button>
-        <input type="file" id="mc-foto-in" accept="image/*" hidden aria-hidden="true">
-        <?php endif; ?>
+        <input type="file" id="mc-foto-in" accept="<?= $chat_ia ? 'image/*,' : '' ?>.xlsx,.xlsm,.csv" multiple hidden aria-hidden="true">
         <button type="button" class="mc-enviar" id="mc-voz" title="Dictar" hidden
                 style="background: var(--n-0); color: var(--accent); border: 1px solid var(--border);">
             <i class="fas fa-microphone" aria-hidden="true"></i>
@@ -840,12 +844,69 @@ $chat_voz_ia = ia_voz_disponible(isset($env) && is_array($env) ? $env : []);
         enviar.disabled = false;
     }
 
+    /* ── Excel de presupuesto ─────────────────────────────────────────────
+       Los que devolvieron los proveedores. Se guardan en su pedido (lo dice el
+       número PP-… de cada archivo) y vuelve la comparación, calculada igual que
+       en la pantalla de Presupuestos. */
+    const CHAT_IA = <?= $chat_ia ? 'true' : 'false' ?>;
+    const esPlanilla = f => /\.(xlsx|xlsm|csv)$/i.test(f.name || '');
+
+    function agregarYoArchivos(archivos) {
+        const d = document.createElement('div');
+        d.className = 'mc-msg mc-msg-yo';
+        archivos.forEach((f, i) => {
+            if (i) d.appendChild(document.createElement('br'));
+            const ic = document.createElement('i');
+            ic.className = 'fas ' + (esPlanilla(f) ? 'fa-file-excel' : 'fa-file');
+            ic.setAttribute('aria-hidden', 'true');
+            d.appendChild(ic);
+            d.appendChild(document.createTextNode(' ' + f.name));
+        });
+        hilo.appendChild(d);
+        alFinal();
+    }
+
+    async function mandarPresupuestos(archivos) {
+        if (enVuelo) return;
+        enVuelo = true;
+        enviar.disabled = true;
+        agregarYoArchivos(archivos);
+        const pensando = agregarPensando();
+        let r;
+        try {
+            const datos = new FormData();
+            archivos.forEach(f => datos.append('archivos[]', f, f.name));
+            datos.append('csrf_token', document.getElementById('mc-csrf').value);
+            datos.append('ajax', 'presupuesto_chat');
+            const res = await fetch('api/presupuesto_chat.php', { method: 'POST', body: datos, credentials: 'same-origin' });
+            r = await res.json();
+            // La cuenta demo corta el POST y contesta con `msg` (ver mandarFoto).
+            if (!r.respuesta && r.msg) r = { ok: false, respuesta: r.msg };
+        } catch (e) {
+            r = { ok: false, respuesta: 'No pude mandar los archivos.', detalle: 'Revisá la conexión y probá de nuevo.' };
+        }
+        pensando.remove();
+        agregarMotor(r);
+        enVuelo = false;
+        enviar.disabled = false;
+    }
+
     if (btnFoto && inFoto) {
         btnFoto.addEventListener('click', () => { if (!enVuelo) inFoto.click(); });
         inFoto.addEventListener('change', () => {
-            const archivo = inFoto.files && inFoto.files[0];
-            inFoto.value = '';           // que se pueda volver a elegir la misma
-            if (archivo) mandarFoto(archivo);
+            const archivos = Array.from(inFoto.files || []);
+            inFoto.value = '';           // que se puedan volver a elegir los mismos
+            if (!archivos.length) return;
+            /* Sólo las imágenes van a la IA. Todo lo demás —los Excel, pero también
+               un PDF que alguien eligió— va a presupuestos, que explica qué lee y
+               qué hacer con el resto. Antes un PDF caía en la foto y contestaba
+               "No pude abrir esa imagen", que no le dice nada a nadie. */
+            const fotos = archivos.filter(f => /^image\//.test(f.type) && !esPlanilla(f));
+            const otros = archivos.filter(f => !fotos.includes(f));
+            if (otros.length) { mandarPresupuestos(otros); return; }
+            if (CHAT_IA) { mandarFoto(fotos[0]); return; }
+            agregarMotor({ ok: false, respuesta: 'Por ahora leo los Excel de presupuesto.',
+                           detalle: 'Para mirar fotos hace falta tener la IA configurada.' });
         });
     }
 

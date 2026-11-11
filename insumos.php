@@ -6,8 +6,11 @@ require_once 'includes/exportar.php';
 // Muestra los importes en pesos o en dólares; no cambia nada de lo guardado.
 require_once 'includes/moneda.php';
 require_once 'includes/ia.php';
+// Una factura importada se puede anotar en la cuenta corriente del proveedor.
+require_once 'includes/cuenta_corriente.php';
 $usuario_id = $_SESSION['usuario_id'];
 $ia_fotos   = ia_disponible($env);   // ¿la foto del remito se puede mandar a leer a una IA?
+$cc_listas  = cc_tablas_listas($pdo);
 $page_title = 'Gestión de Insumos (Stock)';
 
 validate_csrf();
@@ -136,6 +139,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         /** El precio como lo guarda el catálogo: siempre en dólares. */
         $aDolares = fn(float $p): float => $moneda_doc === 'USD' ? $p : $p / $cotizacion;
 
+        /* ── La compra en la cuenta corriente del proveedor, si se pidió ───────
+           Se valida ANTES de tocar nada: si el proveedor o el importe están mal,
+           no se importa ni el stock, y el productor lo corrige en la pantalla.
+           Va en la misma transacción que el stock: o quedan las dos cosas o
+           ninguna. La moneda es la del comprobante, la misma que eligió arriba. */
+        $cc_mov = null;
+        $cc_nombre = trim((string)($_POST['cc_proveedor'] ?? ''));
+        if (!empty($_POST['cc_anotar']) && $cc_listas) {
+            [$cc_mov, $cc_err] = cc_normalizar([
+                'tipo' => 'compra', 'proveedor_id' => -1, 'moneda' => $moneda_doc,
+                'fecha' => $_POST['cc_fecha'] ?? '', 'monto' => $_POST['cc_monto'] ?? '',
+                'comprobante' => $_POST['cc_comprobante'] ?? '',
+                'concepto' => 'Importado en Insumos',
+                'vencimiento' => $_POST['cc_vencimiento'] ?? '',
+                'condicion' => $_POST['cc_condicion'] ?? '', 'canje_cultivo' => $_POST['cc_canje_cultivo'] ?? '',
+            ], [-1 => true]);
+            if ($cc_nombre === '') $cc_err[] = 'Falta el proveedor.';
+            if ($cc_err) {
+                set_flash('error', 'No se importó nada: la compra para la cuenta corriente tiene un problema. ' . implode(' ', $cc_err));
+                header("Location: insumos.php"); exit;
+            }
+        }
+
         try {
             $pdo->beginTransaction();
 
@@ -198,6 +224,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $creados++;
             }
 
+            if ($cc_mov && ($creados || $sumados)) {
+                $cc_mov['proveedor_id'] = cc_proveedor_por_nombre($pdo, (int)$usuario_id, $cc_nombre);
+                cc_insertar($pdo, (int)$usuario_id, $cc_mov);
+            }
+
             $pdo->commit();
 
         } catch (Throwable $e) {
@@ -211,6 +242,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         if ($creados)  $partes[] = $creados . ' insumo'  . ($creados  > 1 ? 's' : '') . ' nuevo' . ($creados > 1 ? 's' : '');
         if ($sumados)  $partes[] = 'stock sumado a ' . $sumados . ' existente' . ($sumados > 1 ? 's' : '');
         if ($omitidos) $partes[] = $omitidos . ' fila' . ($omitidos > 1 ? 's' : '') . ' omitida' . ($omitidos > 1 ? 's' : '');
+        if ($cc_mov && ($creados || $sumados)) $partes[] = 'compra de ' . cc_plata($cc_mov['monto'], $cc_mov['moneda']) . ' anotada en la cuenta de ' . $cc_nombre;
 
         set_flash($creados || $sumados ? 'success' : 'error',
             $partes ? 'Importación lista: ' . implode(', ', $partes) . '.' : 'No se cargó ninguna fila.');
@@ -790,6 +822,10 @@ function tipoBadge($tipo) {
                     style="background:var(--n-0); border:1px solid var(--border); color:var(--text-primary); font-size:0.85rem;">
                 <i class="fas fa-file-import"></i> Importar
             </button>
+            <a href="presupuestos.php?nuevo=1" class="btn" title="Armar un Excel para pedir precios a tus proveedores y comparar lo que te devuelven"
+               style="background:var(--n-0); border:1px solid var(--border); color:var(--text-primary); font-size:0.85rem; text-decoration:none;">
+                <i class="fas fa-scale-balanced"></i> Pedir presupuesto
+            </a>
             <button class="btn btn-primary" onclick="openNewInsumoModal()">
                 <i class="fas fa-plus"></i> Nuevo Insumo
             </button>
@@ -1149,6 +1185,13 @@ function tipoBadge($tipo) {
     background: oklch(0.450 0.160 28 / 0.10); border: 1px solid oklch(0.450 0.160 28 / 0.10); color: #ff9d96;
 }
 .imp-acciones { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+
+/* La compra a la cuenta corriente del proveedor (ver includes/cuenta_corriente.php). */
+.imp-cc { margin-top: 16px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--n-25); }
+.imp-cc-tilde { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 0.92rem; }
+.imp-cc-tilde input { width: 18px; height: 18px; margin-top: 2px; flex: none; accent-color: var(--accent); }
+.imp-cc-campos { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-top: 12px; }
+.imp-cc-campos[hidden], .imp-cc-campos .imp-campo[hidden] { display: none; }
 
 /* ── Animación de análisis ──
    Un haz que barre una hoja de papel. Es deliberadamente pausada: leer un
@@ -1627,6 +1670,32 @@ function tipoBadge($tipo) {
             </table>
         </div>
 
+        <?php if ($cc_listas): $cc_nombres = array_column(cc_proveedores($pdo, (int)$usuario_id), 'nombre'); ?>
+        <?php /* La factura que se está importando, a la cuenta corriente del
+                 proveedor. Se guarda en la misma operación que el stock: si
+                 algo falla, no queda ni lo uno ni lo otro. */ ?>
+        <div class="imp-cc">
+            <label class="imp-cc-tilde">
+                <input type="checkbox" id="impCcAnotar" onchange="impCcMostrar()">
+                <span><b>Anotar esta compra en la cuenta corriente</b> del proveedor, para saber cuánto le debés y cuándo vence.</span>
+            </label>
+            <div id="impCcCampos" class="imp-cc-campos" hidden>
+                <label class="imp-campo"><span>Proveedor</span>
+                    <input type="text" id="impCcProveedor" list="impCcProvs" maxlength="150" placeholder="Ej: Grupo Agroapp">
+                    <datalist id="impCcProvs"><?php foreach ($cc_nombres as $n): ?><option value="<?= htmlspecialchars($n) ?>"><?php endforeach; ?></datalist>
+                </label>
+                <label class="imp-campo"><span>Comprobante</span><input type="text" id="impCcComprobante" maxlength="60" placeholder="Ej: 0002-00010794"></label>
+                <label class="imp-campo"><span>Fecha</span><input type="date" id="impCcFecha"></label>
+                <label class="imp-campo"><span>Vence</span><input type="date" id="impCcVenc"></label>
+                <label class="imp-campo"><span id="impCcMontoLbl">Total del comprobante</span><input type="text" inputmode="decimal" id="impCcMonto" placeholder="0,00"></label>
+                <label class="imp-campo"><span>Cómo se paga</span>
+                    <select id="impCcCondicion" onchange="impCcMostrar()"><option value="cuenta_corriente">Cuenta corriente</option><option value="canje">Canje en granos</option></select>
+                </label>
+                <label class="imp-campo" id="impCcCanjeWrap" hidden><span>Grano del canje</span><input type="text" id="impCcCanje" maxlength="60" placeholder="Ej: Soja"></label>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <div class="imp-acciones">
             <span class="imp-contador" id="impContador"></span>
             <button type="button" class="btn" onclick="impVolver()" style="background:rgba(255,255,255,0.1); color:var(--text-primary);">Volver</button>
@@ -1643,6 +1712,7 @@ function tipoBadge($tipo) {
                      precio que llega son pesos o dólares, y el catálogo guarda
                      siempre dólares. */ ?>
             <input type="hidden" name="moneda" id="impMonedaJson" value="ARS">
+            <div id="impCcHidden"></div>
         </form>
     </div>
 </div>
@@ -3167,6 +3237,7 @@ function impMostrarResultado(resp) {
 
     document.getElementById('impTodos').checked = true;
     document.getElementById('impDepGlobal').value = '';
+    impCcPreparar(resp);
 
     impRenderRemap();
     impRenderTabla();
@@ -3337,6 +3408,7 @@ function impCambiarMoneda(valor) {
     document.getElementById('impThPrecio').textContent =
         'Precio ' + (IMP.moneda === 'USD' ? 'US$' : '$');
     impRenderTabla();
+    impCcMostrar();   // la compra en la cuenta corriente va en la misma moneda
 }
 
 /**
@@ -3600,9 +3672,59 @@ function impConfirmar() {
         return;
     }
 
+    /* La compra para la cuenta corriente, si se tildó. El servidor la vuelve a
+       validar entera; acá sólo se frena lo obvio para no perder un viaje. */
+    const cc = document.getElementById('impCcHidden');
+    if (cc) {
+        cc.innerHTML = '';
+        if (document.getElementById('impCcAnotar').checked) {
+            const prov = document.getElementById('impCcProveedor').value.trim();
+            const monto = impNumero(document.getElementById('impCcMonto').value);
+            if (!prov) { alert('Escribí el proveedor para anotar la compra en la cuenta corriente.'); return; }
+            if (!(monto > 0)) { alert('Poné el total del comprobante para la cuenta corriente.'); return; }
+            const campos = {
+                cc_anotar: '1', cc_proveedor: prov, cc_monto: String(monto),
+                cc_comprobante: document.getElementById('impCcComprobante').value,
+                cc_fecha: document.getElementById('impCcFecha').value,
+                cc_vencimiento: document.getElementById('impCcVenc').value,
+                cc_condicion: document.getElementById('impCcCondicion').value,
+                cc_canje_cultivo: document.getElementById('impCcCanje').value,
+            };
+            Object.entries(campos).forEach(([k, v]) => {
+                const i = document.createElement('input');
+                i.type = 'hidden'; i.name = k; i.value = v;
+                cc.appendChild(i);
+            });
+        }
+    }
+
     document.getElementById('impItemsJson').value = JSON.stringify(payload);
     document.getElementById('impMonedaJson').value = IMP.moneda;
     document.getElementById('impForm').submit();
+}
+
+/** El bloque de la cuenta corriente: campos a la vista sólo si se tildó. */
+function impCcMostrar() {
+    const tilde = document.getElementById('impCcAnotar');
+    if (!tilde) return;
+    document.getElementById('impCcCampos').hidden = !tilde.checked;
+    document.getElementById('impCcCanjeWrap').hidden = document.getElementById('impCcCondicion').value !== 'canje';
+    document.getElementById('impCcMontoLbl').textContent = 'Total del comprobante (' + (IMP.moneda === 'USD' ? 'US$' : '$') + ')';
+}
+
+/** Al abrir la revisión: el total impreso (o la suma de los renglones) y la fecha de hoy. */
+function impCcPreparar(resp) {
+    const tilde = document.getElementById('impCcAnotar');
+    if (!tilde) return;
+    tilde.checked = false;
+    const total = (resp.totales || []).filter(t => t.etiqueta === 'Total').map(t => Number(t.valor))[0];
+    const suma = (resp.items || []).reduce((s, it) => s + (Number(it.cantidad) || 0) * (Number(it.precio) || 0), 0);
+    const monto = total > 0 ? total : suma;
+    document.getElementById('impCcMonto').value = monto > 0 ? monto.toFixed(2).replace('.', ',') : '';
+    document.getElementById('impCcFecha').value = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    ['impCcProveedor', 'impCcComprobante', 'impCcVenc', 'impCcCanje'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('impCcCondicion').value = 'cuenta_corriente';
+    impCcMostrar();
 }
 
 /* ── Un remito que llega desde el chat ───────────────────────────────────────

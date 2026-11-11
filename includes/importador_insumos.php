@@ -451,8 +451,16 @@ function imp_parse_xlsx(string $ruta): array
             $xr  = @simplexml_load_string($rels);
             if ($xwb !== false && $xr !== false && isset($xwb->sheets->sheet)) {
                 $destinos = [];
+                /* La ruta de cada hoja viene de dos maneras. Excel la escribe
+                   relativa a xl/ ("worksheets/sheet1.xml"); otros programas —la
+                   librería openpyxl, algunos sistemas de gestión— la escriben
+                   absoluta desde la raíz del paquete ("/xl/worksheets/sheet1.xml").
+                   Antes se le anteponía "xl/" siempre, la absoluta terminaba en
+                   "xl/xl/worksheets/..." y el archivo se rechazaba con "no tiene
+                   ninguna hoja con datos legibles". */
                 foreach ($xr->Relationship as $rel) {
-                    $destinos[(string)$rel['Id']] = 'xl/' . ltrim((string)$rel['Target'], '/');
+                    $t = (string)$rel['Target'];
+                    $destinos[(string)$rel['Id']] = $t !== '' && $t[0] === '/' ? ltrim($t, '/') : 'xl/' . $t;
                 }
                 foreach ($xwb->sheets->sheet as $sh) {
                     // Las hojas ocultas suelen ser auxiliares de fórmulas.
