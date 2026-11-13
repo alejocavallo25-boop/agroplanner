@@ -27,19 +27,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             set_flash('error', 'No se pudo eliminar el lote. Intenta nuevamente.');
         }
     } elseif ($_POST['action'] === 'set_campania') {
-        $lote_id      = (int)$_POST['lote_id'];
+        /* La misma campaña y cultivo a uno o varios lotes de una vez (lote_ids[]).
+           lote_id suelto sigue andando, por si algo viejo lo manda así. */
+        $pedidos = array_map('intval', (array)($_POST['lote_ids'] ?? []));
+        if (!empty($_POST['lote_id'])) $pedidos[] = (int)$_POST['lote_id'];
+        $pedidos = array_values(array_unique(array_filter($pedidos)));
         $campania_new = trim($_POST['campania'] ?? '');
         $cultivo_new  = trim($_POST['cultivo_actual'] ?? '');
-        if ($lote_id) {
-            $pdo->prepare("UPDATE lotes SET campania=?, cultivo_actual=? WHERE id=? AND usuario_id=?")
-                ->execute([$campania_new ?: null, $cultivo_new ?: null, $lote_id, $usuario_id]);
-            
-            // Registrar el cultivo canónico (find-or-create) si hay datos válidos.
-            if ($campania_new && $cultivo_new) {
-                cultivo_resolve($pdo, $usuario_id, $lote_id, $cultivo_new, $campania_new);
+
+        // Sólo los lotes que son de esta cuenta: un id ajeno se descarta.
+        $propios = [];
+        if ($pedidos) {
+            $st = $pdo->prepare("SELECT id FROM lotes WHERE usuario_id = ? AND id IN (" . implode(',', array_fill(0, count($pedidos), '?')) . ")");
+            $st->execute(array_merge([$usuario_id], $pedidos));
+            $propios = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+        }
+
+        if (!$propios) {
+            set_flash('error', 'Elegí al menos un lote.');
+        } else {
+            // Todos o ninguno: si uno falla, no queda la campaña asignada a medias.
+            $pdo->beginTransaction();
+            try {
+                $upd = $pdo->prepare("UPDATE lotes SET campania=?, cultivo_actual=? WHERE id=? AND usuario_id=?");
+                foreach ($propios as $lote_id) {
+                    $upd->execute([$campania_new ?: null, $cultivo_new ?: null, $lote_id, $usuario_id]);
+                    // Registrar el cultivo canónico (find-or-create) si hay datos válidos.
+                    if ($campania_new && $cultivo_new) {
+                        cultivo_resolve($pdo, $usuario_id, $lote_id, $cultivo_new, $campania_new);
+                    }
+                }
+                $pdo->commit();
+                $n = count($propios);
+                set_flash('success', 'Campaña ' . trim("$campania_new · $cultivo_new", ' ·') . ' asignada a '
+                                   . ($n === 1 ? '1 lote.' : "$n lotes."));
+            } catch (Throwable $e) {
+                $pdo->rollBack();
+                error_log('[lotes] set_campania: ' . $e->getMessage());
+                set_flash('error', 'No se pudo asignar la campaña. No se cambió ningún lote.');
             }
-            
-            set_flash('success', 'Campaña/Cultivo asignados exitosamente.');
         }
     }
     header("Location: lotes.php");
@@ -799,26 +825,42 @@ $lotes_json = json_encode(array_values(array_map(function($l) {
 
 <!-- ===== MODAL: Asignar / Cambiar Campaña ===== -->
 <div id="campaniaModal" class="modal-wrapper" style="display:none;">
-    <div class="glass-panel modal-panel" style="max-width: 440px;">
+    <div class="glass-panel modal-panel" style="max-width: 520px;">
         <h2 id="campModalTitle" style="margin-bottom:18px; font-size:1.1rem;">
             <i class="fas fa-seedling" style="color: var(--accent); margin-right:8px;"></i>
             Iniciar Nueva Campaña
         </h2>
-        <form method="POST" style="display:flex; flex-direction:column; gap:14px;" onsubmit="const b=this.querySelector('button[type=submit]'); if(b) b.disabled=true;">
+        <form method="POST" id="campForm" style="display:flex; flex-direction:column; gap:14px;" onsubmit="return enviarCampania(this)">
             <?php csrf_field(); ?>
             <input type="hidden" name="action"  value="set_campania">
 
-            <div style="display:flex; flex-direction:column; gap:5px;">
-                <label for="campLoteId">Lote</label>
-                <select name="lote_id" id="campLoteId" required
-                    style="padding:10px; border-radius:6px; border:1px solid var(--border); background:var(--bg-color); color:var(--text-primary);">
-                    <option value="">-- Seleccionar Lote --</option>
+            <?php /* Varios lotes de una vez: la misma campaña y cultivo a todos los que
+                     se tilden. Con muchos lotes, buscador y atajo a "los que no
+                     tienen campaña", que es el caso de arrancar una campaña nueva. */ ?>
+            <div style="display:flex; flex-direction:column; gap:8px;">
+                <div class="cl-cab">
+                    <label>Lotes</label>
+                    <span>
+                        <button type="button" onclick="campMarcar('libres')">Los que no tienen campaña</button>
+                        <button type="button" onclick="campMarcar('ninguno')">Ninguno</button>
+                    </span>
+                </div>
+                <?php if (count($lotes) > 6): ?>
+                <input type="search" id="campBuscar" placeholder="Buscar lote…" aria-label="Buscar lote" oninput="campFiltrar()" style="padding:8px 12px;">
+                <?php endif; ?>
+                <div class="cl-lista" id="campLotes">
                     <?php foreach ($lotes as $l): ?>
-                        <option value="<?= $l['id'] ?>"<?= !empty($l['campania']) ? ' style="color:var(--text-muted);"' : '' ?>>
-                            <?= htmlspecialchars($l['nombre']) ?> (<?= $l['superficie'] ?> ha)<?= !empty($l['campania']) ? ' — Campaña activa: '.$l['campania'] : '' ?>
-                        </option>
+                    <label class="cl-fila" data-nombre="<?= htmlspecialchars(mb_strtolower($l['nombre'])) ?>" data-activa="<?= !empty($l['campania']) ? '1' : '' ?>">
+                        <input type="checkbox" name="lote_ids[]" value="<?= (int)$l['id'] ?>" onchange="campResumir()">
+                        <span class="cl-txt">
+                            <b><?= htmlspecialchars($l['nombre']) ?></b>
+                            <small><?= htmlspecialchars((string)$l['superficie']) ?> ha<?= !empty($l['campania'])
+                                ? ' · <span class="cl-activa">campaña activa: ' . htmlspecialchars($l['campania'] . (!empty($l['cultivo_actual']) ? ' ' . $l['cultivo_actual'] : '')) . '</span>' : '' ?></small>
+                        </span>
+                    </label>
                     <?php endforeach; ?>
-                </select>
+                </div>
+                <small id="campResumen" style="color:var(--text-muted);">Ningún lote elegido</small>
             </div>
 
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
@@ -853,7 +895,7 @@ $lotes_json = json_encode(array_values(array_map(function($l) {
 
             <p style="font-size:0.82rem; color:var(--text-muted); margin:0;">
                 <i class="fas fa-info-circle"></i>
-                Esto asigna la campaña al lote seleccionado y lo habilita para registrar entregas.
+                Esto asigna la campaña a los lotes elegidos y los habilita para registrar entregas.
             </p>
 
             <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:4px;">
@@ -866,18 +908,73 @@ $lotes_json = json_encode(array_values(array_map(function($l) {
     </div>
 </div>
 
+<style>
+/* Lista de lotes del modal de campaña (varios lotes de una vez). */
+#campaniaModal .cl-cab { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+#campaniaModal .cl-cab button { background: none; border: none; color: var(--accent); font-weight: 600; font-size: 0.8rem; cursor: pointer; padding: 2px 4px; }
+#campaniaModal .cl-lista { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+#campaniaModal .cl-fila { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--n-0); cursor: pointer; }
+#campaniaModal .cl-fila.on { border-color: var(--accent); background: var(--accent-soft); }
+#campaniaModal .cl-fila input { width: 18px; height: 18px; padding: 0; margin: 0; flex: none; accent-color: var(--accent); }
+#campaniaModal .cl-txt { min-width: 0; display: flex; flex-direction: column; }
+#campaniaModal .cl-txt b { font-size: 0.9rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#campaniaModal .cl-txt small { color: var(--text-muted); font-size: 0.75rem; }
+#campaniaModal .cl-activa { color: var(--se-warning); }
+</style>
+
 <script>
 function abrirModalCampania(loteId = null) {
     document.getElementById('campInput').value     = '';
     document.getElementById('campCultivo').value   = '';
-    const loteSelect = document.getElementById('campLoteId');
-    if(loteId) {
-        loteSelect.value = loteId;
-    } else {
-        loteSelect.value = '';
-    }
+    // Si se abre desde un lote puntual, ése viene tildado; si no, ninguno.
+    document.querySelectorAll('#campLotes input[type=checkbox]').forEach(c => c.checked = loteId !== null && c.value == loteId);
+    const buscar = document.getElementById('campBuscar');
+    if (buscar) buscar.value = '';
+    campFiltrar();
+    campResumir();
+    // Si el navegador devolvió la página desde su caché (botón atrás), el botón quedaba deshabilitado.
+    const btn = document.querySelector('#campForm button[type=submit]');
+    if (btn) btn.disabled = false;
     document.getElementById('campaniaModal').style.display = 'flex';
     document.body.classList.add('modal-open');
+}
+
+function campFilas() { return [...document.querySelectorAll('#campLotes .cl-fila')]; }
+
+function campFiltrar() {
+    const q = ((document.getElementById('campBuscar') || {}).value || '').trim().toLowerCase();
+    campFilas().forEach(f => f.style.display = !q || f.dataset.nombre.includes(q) ? '' : 'none');
+}
+
+// Los atajos actúan sobre lo que se ve: con una búsqueda puesta, sólo sobre esos.
+function campMarcar(que) {
+    campFilas().forEach(f => {
+        if (f.style.display === 'none') return;
+        f.querySelector('input').checked = que === 'libres' ? !f.dataset.activa : false;
+    });
+    campResumir();
+}
+
+function campResumir() {
+    const elegidos = campFilas().filter(f => f.querySelector('input').checked);
+    const conActiva = elegidos.filter(f => f.dataset.activa).length;
+    campFilas().forEach(f => f.classList.toggle('on', f.querySelector('input').checked));
+    document.getElementById('campResumen').textContent = !elegidos.length ? 'Ningún lote elegido'
+        : elegidos.length + (elegidos.length === 1 ? ' lote elegido' : ' lotes elegidos')
+          + (conActiva ? ' · ' + conActiva + ' ya ' + (conActiva === 1 ? 'tiene' : 'tienen') + ' una campaña activa y se la vas a cambiar' : '');
+}
+
+/* Antes de guardar: al menos un lote, y si alguno ya tenía campaña activa, que
+   se sepa. Con "Todos" se le pisaba la campaña a un lote sin darse cuenta. */
+function enviarCampania(form) {
+    const elegidos = campFilas().filter(f => f.querySelector('input').checked);
+    if (!elegidos.length) { alert('Elegí al menos un lote.'); return false; }
+    const conActiva = elegidos.filter(f => f.dataset.activa).length;
+    if (conActiva && !confirm(conActiva + (conActiva === 1 ? ' de los lotes elegidos ya tiene' : ' de los lotes elegidos ya tienen')
+        + ' una campaña activa. Se la vas a cambiar por la nueva. ¿Seguir?')) return false;
+    const b = form.querySelector('button[type=submit]');
+    if (b) b.disabled = true;
+    return true;
 }
 function cerrarModalCampania() {
     document.getElementById('campaniaModal').style.display = 'none';

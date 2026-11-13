@@ -9,27 +9,12 @@ validate_csrf();
 
 $lote_id = isset($_GET['lote_id']) ? (int)$_GET['lote_id'] : null;
 
+/* Esta pantalla es para VER las campañas: cambiarles el estado, limpiar las
+   fantasma o borrarlas. Crearlas se hace sólo desde Lotes ("Nueva Campaña"),
+   que es donde se elige el lote y queda asignada. Antes había un segundo alta
+   acá, y tener dos caminos para lo mismo confundía. */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    if ($_POST['action'] === 'add') {
-        $pdo->beginTransaction();
-        try {
-            $stmt = $pdo->prepare("INSERT INTO cultivos (lote_id, nombre, fecha_siembra, fecha_cosecha_esperada, estado, usuario_id, ciclo) VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$_POST['lote_id'], $_POST['nombre'], $_POST['fecha_siembra'], $_POST['fecha_cosecha_esperada'], $_POST['estado'], $usuario_id, $_POST['ciclo'] ?? null]);
-            
-            // Sincronizar con el lote si el estado es activo
-            if ($_POST['estado'] === 'activo') {
-                $stmtLote = $pdo->prepare("UPDATE lotes SET campania = ?, cultivo_actual = ? WHERE id = ? AND usuario_id = ?");
-                $stmtLote->execute([$_POST['ciclo'] ?? null, $_POST['nombre'], $_POST['lote_id'], $usuario_id]);
-            }
-            $pdo->commit();
-            set_flash('success', 'Campaña registrada exitosamente.');
-        } catch (Exception $e) {
-            $pdo->rollBack();
-            set_flash('error', 'Error al registrar campaña.');
-        }
-        header("Location: cultivos.php" . ($lote_id ? "?lote_id=$lote_id" : ""));
-        exit;
-    } elseif ($_POST['action'] === 'clean_ghosts') {
+    if ($_POST['action'] === 'clean_ghosts') {
         $stmt = $pdo->prepare("
             UPDATE cultivos c
             JOIN lotes l ON c.lote_id = l.id
@@ -114,9 +99,6 @@ require_once 'includes/header.php';
                     <i class="fas fa-broom"></i> Limpiar Fantasmas
                 </button>
             </form>
-            <button class="btn btn-primary" onclick="document.getElementById('addCultivoModal').style.display='flex'">
-                <i class="fas fa-plus"></i> Nueva Campaña
-            </button>
         </div>
     </div>
 
@@ -168,60 +150,6 @@ require_once 'includes/header.php';
                 <?php endif; ?>
             </tbody>
         </table>
-    </div>
-</div>
-
-<!-- Modal -->
-<div id="addCultivoModal" class="modal-wrapper">
-    <div class="glass-panel modal-panel">
-        <h2 style="margin-bottom: 20px;">Registrar Nueva Campaña</h2>
-        <form method="POST" style="display: flex; flex-direction: column; gap: 15px;" onsubmit="const b=this.querySelector('button[type=submit]'); if(b) b.disabled=true;">
-            <?php csrf_field(); ?>
-            <input type="hidden" name="action" value="add">
-            
-            <div style="display: flex; flex-direction: column; gap: 5px;">
-                <label>Lote</label>
-                <select name="lote_id" required style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: white;">
-                    <?php foreach($lotes as $l): ?>
-                        <option value="<?= $l['id'] ?>" <?= ($lote_id == $l['id']) ? 'selected' : '' ?>><?= htmlspecialchars($l['nombre']) ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-            
-            <div style="display: flex; flex-direction: column; gap: 5px;">
-                <label>Nombre del Cultivo</label>
-                <input type="text" name="nombre" required placeholder="Ej: Soja de 1ra" style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: white;">
-            </div>
-
-            <div style="display: flex; flex-direction: column; gap: 5px;">
-                <label>Ciclo Comercial (Opcional)</label>
-                <input type="text" name="ciclo" placeholder="Ej: 25/26" style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: white;">
-            </div>
-
-            <div style="display: flex; flex-direction: column; gap: 5px;">
-                <label>Fecha de Siembra</label>
-                <input type="date" name="fecha_siembra" required style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: white;">
-            </div>
-
-            <div style="display: flex; flex-direction: column; gap: 5px;">
-                <label>Fecha de Cosecha Esperada</label>
-                <input type="date" name="fecha_cosecha_esperada" required style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); color: white;">
-            </div>
-
-            <div style="display: flex; flex-direction: column; gap: 5px;">
-                <label>Estado Inicial</label>
-                <select name="estado" style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: white;">
-                    <option value="activo">Activo</option>
-                    <option value="cosechado">Cosechado</option>
-                    <option value="perdido">Perdido</option>
-                </select>
-            </div>
-
-            <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
-                <button type="button" class="btn" onclick="document.getElementById('addCultivoModal').style.display='none'" style="background: rgba(255,255,255,0.1); color: white;">Cancelar</button>
-                <button type="submit" class="btn btn-primary">Guardar</button>
-            </div>
-        </form>
     </div>
 </div>
 
