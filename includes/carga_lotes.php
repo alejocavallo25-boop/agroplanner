@@ -15,8 +15,10 @@
  * Las reglas de la cuenta, iguales a las de siempre:
  *   - Insumos: dosis/ha × precio × hectáreas aplicadas del lote.
  *   - Labor sola: precio/ha × hectáreas trabajadas.
- *   - Receta (labor + insumos): la labor se cobra sobre la superficie TOTAL del
- *     lote y los insumos sobre las hectáreas aplicadas (ver api/excel_receta.php).
+ *   - Receta (labor + insumos): la labor y los insumos se cobran sobre las
+ *     hectáreas aplicadas. Antes la labor iba siempre sobre la superficie TOTAL
+ *     del lote y el campo quedaba bloqueado: no había forma de cargar una
+ *     aplicación en parte del lote.
  *   - El stock baja dosis × ha aplicadas, y puede quedar negativo.
  */
 
@@ -31,21 +33,34 @@
  */
 function carga_columna_existe(PDO $pdo): bool
 {
-    static $hay = null;
-    if ($hay === null) {
-        try {
-            $hay = (bool)$pdo->query("SHOW COLUMNS FROM operaciones LIKE 'carga_id'")->fetch();
-        } catch (Throwable $e) {
-            $hay = false;
-        }
-    }
-    return $hay;
+    return operaciones_tiene_columna($pdo, 'carga_id');
 }
 
-/** Hectáreas sobre las que se cobra la labor. */
+/**
+ * Si la tabla operaciones ya tiene una columna que agregó una migración. Lo
+ * mismo que carga_id vale para observaciones: el código puede llegar antes
+ * que la migración, y un INSERT con una columna que no existe deja a todos
+ * sin poder cargar un gasto.
+ */
+function operaciones_tiene_columna(PDO $pdo, string $columna): bool
+{
+    static $cache = [];
+    if (!isset($cache[$columna])) {
+        try {
+            // Con quote() y no con "LIKE ?": con prepares nativos, SHOW no acepta
+            // parámetros, tiraba excepción y la columna parecía no existir.
+            $cache[$columna] = (bool)$pdo->query("SHOW COLUMNS FROM operaciones LIKE " . $pdo->quote($columna))->fetch();
+        } catch (Throwable $e) {
+            $cache[$columna] = false;
+        }
+    }
+    return $cache[$columna];
+}
+
+/** Hectáreas sobre las que se cobra la labor: las aplicadas, también en una receta. */
 function operacion_ha_labor(string $tipo, float $sup, float $ha): float
 {
-    return $tipo === 'receta_labor' ? $sup : $ha;
+    return $ha > 0 ? $ha : $sup;
 }
 
 /** Costo de un gasto. $insumos: [['c' => dosis/ha, 'p' => precio], ...]. */
@@ -63,7 +78,7 @@ function operacion_costo(string $tipo, float $precio_labor, float $ha_labor, arr
  * la abre quien llama, para que varios lotes queden todos o ninguno.
  *
  * $op: grupo, grupo_desc, tipo (labor|insumo|receta_labor), proveedor, precio,
- *      moneda, cargas, carga_id
+ *      moneda, cargas, carga_id, observaciones
  * $d:  lote_id, cultivo_id, campania, cultivo, fecha, ha_labor, ha,
  *      insumos [['id' => insumo_id|null, 'nombre' => texto|null, 'c' => dosis, 'p' => precio]]
  */
@@ -83,14 +98,17 @@ function operacion_insertar(PDO $pdo, int $usuario_id, array $op, array $d): int
         $op['moneda'], $d['fecha'], $d['campania'], $d['cultivo'], $op['cargas'],
         $con_insumos ? $d['ha'] : null,
     ];
-    $con_carga = carga_columna_existe($pdo);
-    if ($con_carga) $valores[] = $op['carga_id'];
+    // Columnas que dependen de una migración: sólo si la base ya las tiene.
+    $extra = [];
+    if (carga_columna_existe($pdo)) $extra['carga_id'] = $op['carga_id'];
+    if (operaciones_tiene_columna($pdo, 'observaciones')) $extra['observaciones'] = $op['observaciones'] ?? null;
+    $valores = array_merge($valores, array_values($extra));
     $pdo->prepare(
         "INSERT INTO operaciones (usuario_id, lote_id, cultivo_id, grupo_gasto, grupo_descripcion,
              tipo_componente, insumo_id, proveedor_servicio, cantidad_ha, precio_unitario, costo_total,
              moneda, fecha, campania_operacion, cultivo_operacion, cargas, hectareas"
-        . ($con_carga ? ', carga_id' : '') . ")
-         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?" . ($con_carga ? ', ?' : '') . ")"
+        . ($extra ? ', ' . implode(', ', array_keys($extra)) : '') . ")
+         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?" . str_repeat(', ?', count($extra)) . ")"
     )->execute($valores);
     $id = (int)$pdo->lastInsertId();
     operacion_guardar_insumos($pdo, $usuario_id, $id, $insumos, (float)$d['ha']);
@@ -148,6 +166,50 @@ function operacion_borrar(PDO $pdo, int $usuario_id, int $id): bool
     if (!operacion_devolver_stock($pdo, $usuario_id, $id)) return false;
     $pdo->prepare("DELETE FROM operaciones WHERE id = ? AND usuario_id = ?")->execute([$id, $usuario_id]);
     return true;
+}
+
+/* ─── La receta impresa (api/pdf_receta.php y api/excel_receta.php) ────────── */
+
+/**
+ * El título de la receta según el grupo del gasto. Decía "PULVERIZACIÓN" fijo,
+ * y una siembra o una fertilización salían impresas como pulverización.
+ */
+function receta_titulo(array $op): string
+{
+    $titulos = [
+        'siembra' => 'SIEMBRA', 'fertilizacion' => 'FERTILIZACIÓN',
+        'pulverizacion' => 'PULVERIZACIÓN', 'cosecha' => 'COSECHA',
+    ];
+    $g = (string)($op['grupo_gasto'] ?? '');
+    if (isset($titulos[$g])) return $titulos[$g];
+    $desc = trim((string)($op['grupo_descripcion'] ?? ''));
+    return $desc !== '' ? mb_strtoupper($desc, 'UTF-8') : 'LABOR';
+}
+
+/**
+ * Las cuentas de la receta con lo GUARDADO, para que el papel diga lo mismo que
+ * la lista de gastos: insumos sobre las hectáreas aplicadas (`hectareas`) y la
+ * labor sobre las de la labor (`cantidad_ha`). Antes las dos se recalculaban
+ * con la superficie del lote, y una aplicación en parte del lote salía impresa
+ * con otro costo. Gastos viejos sin esos datos: la superficie del lote.
+ *
+ * $insumos: filas de operacion_insumos (cantidad_ha, precio_unitario).
+ */
+function receta_numeros(array $op, array $insumos, float $sup_lote): array
+{
+    $ha_aplic = (isset($op['hectareas']) && $op['hectareas'] !== null && (float)$op['hectareas'] > 0)
+        ? (float)$op['hectareas'] : $sup_lote;
+    $ha_labor = (float)($op['cantidad_ha'] ?? 0) > 0 ? (float)$op['cantidad_ha'] : $ha_aplic;
+    $cargas   = max(1, (int)($op['cargas'] ?? 1));
+    $total_ins = 0.0;
+    foreach ($insumos as $i) $total_ins += (float)$i['cantidad_ha'] * $ha_aplic * (float)$i['precio_unitario'];
+    $labor = (float)($op['precio_unitario'] ?? 0) * $ha_labor;
+    $total = $total_ins + $labor;
+    return [
+        'ha_aplic' => $ha_aplic, 'ha_labor' => $ha_labor, 'cargas' => $cargas,
+        'ha_carga' => $ha_aplic / $cargas, 'insumos' => $total_ins, 'labor' => $labor,
+        'total' => $total, 'total_ha' => $ha_aplic > 0 ? $total / $ha_aplic : 0.0,
+    ];
 }
 
 function carga_nuevo_id(): string

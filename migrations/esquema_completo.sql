@@ -458,6 +458,7 @@ CREATE TABLE IF NOT EXISTS `operaciones` (
   `moneda` enum('ARS','USD') NOT NULL DEFAULT 'ARS' COMMENT 'Moneda en que se pagÃ³. La conversiÃ³n se hace al calcular.',
   `idempotencia` char(36) DEFAULT NULL COMMENT 'Numero propio de la carga, generado en el telefono, para no duplicar al sincronizar',
   `carga_id` char(36) DEFAULT NULL COMMENT 'Gastos cargados juntos en varios lotes: se editan y se borran juntos',
+  `observaciones` text DEFAULT NULL COMMENT 'Notas libres del productor sobre el gasto',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_operaciones_idem` (`usuario_id`,`idempotencia`,`lote_id`),
   KEY `lote_id` (`lote_id`),
@@ -983,6 +984,7 @@ ALTER TABLE `operaciones` ADD COLUMN IF NOT EXISTS `hectareas` decimal(10,2) NUL
 ALTER TABLE `operaciones` ADD COLUMN IF NOT EXISTS `moneda` enum('ARS','USD') NOT NULL DEFAULT 'ARS' COMMENT 'Moneda en que se pagÃ³. La conversiÃ³n se hace al calcular.' AFTER `hectareas`;
 ALTER TABLE `operaciones` ADD COLUMN IF NOT EXISTS `idempotencia` char(36) NULL DEFAULT NULL COMMENT 'Numero propio de la carga, generado en el telefono, para no duplicar al sincronizar' AFTER `moneda`;
 ALTER TABLE `operaciones` ADD COLUMN IF NOT EXISTS `carga_id` char(36) NULL DEFAULT NULL COMMENT 'Gastos cargados juntos en varios lotes: se editan y se borran juntos' AFTER `idempotencia`;
+ALTER TABLE `operaciones` ADD COLUMN IF NOT EXISTS `observaciones` text NULL DEFAULT NULL COMMENT 'Notas libres del productor sobre el gasto' AFTER `carga_id`;
 
 -- plantillas_labor
 ALTER TABLE `plantillas_labor` ADD COLUMN IF NOT EXISTS `usuario_id` int(11) NOT NULL AFTER `id`;
@@ -1430,6 +1432,7 @@ FROM (
         UNION ALL SELECT 'operaciones', 'moneda', 'enum(''ARS'',''USD'')'
         UNION ALL SELECT 'operaciones', 'idempotencia', 'char(36)'
         UNION ALL SELECT 'operaciones', 'carga_id', 'char(36)'
+        UNION ALL SELECT 'operaciones', 'observaciones', 'text'
         UNION ALL SELECT 'plantillas_labor', 'id', 'int(11)'
         UNION ALL SELECT 'plantillas_labor', 'usuario_id', 'int(11)'
         UNION ALL SELECT 'plantillas_labor', 'nombre', 'varchar(100)'
@@ -1839,6 +1842,7 @@ LEFT JOIN (
         UNION ALL SELECT 'operaciones', 'moneda', 'enum(''ARS'',''USD'')'
         UNION ALL SELECT 'operaciones', 'idempotencia', 'char(36)'
         UNION ALL SELECT 'operaciones', 'carga_id', 'char(36)'
+        UNION ALL SELECT 'operaciones', 'observaciones', 'text'
         UNION ALL SELECT 'plantillas_labor', 'id', 'int(11)'
         UNION ALL SELECT 'plantillas_labor', 'usuario_id', 'int(11)'
         UNION ALL SELECT 'plantillas_labor', 'nombre', 'varchar(100)'

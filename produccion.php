@@ -402,8 +402,8 @@ require_once 'includes/header.php';
                 <label for="prodMoneda">Moneda de la venta</label>
                 <select name="moneda" id="prodMoneda" onchange="calcPreview()"
                     style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: var(--text-primary);">
-                    <option value="ARS" selected>$ — Pesos</option>
-                    <option value="USD">US$ — Dólares</option>
+                    <option value="USD" selected>US$ — Dólares</option>
+                    <option value="ARS">$ — Pesos</option>
                 </select>
             </div>
 

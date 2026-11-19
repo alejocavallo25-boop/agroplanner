@@ -37,36 +37,31 @@ $insumos = $stmtHijos->fetchAll(PDO::FETCH_ASSOC);
 
 // ─── Calculations ───────────────────────────────────────────────────────────
 $fecha = date('d/m/Y', strtotime($op['fecha']));
-$lote_nombre = strtoupper($op['lote_nombre']);
-$labor_desc = strtoupper($op['grupo_descripcion'] ?: $op['grupo_gasto']);
-$cargas = (int)($op['cargas'] ?: 1);
-$total_ha = (float)($op['lote_sup']);   // Superficie total del lote → base de la LABOR
-// Hectáreas a aplicar para los INSUMOS (aplicación sectorizada). Si la operación
-// es vieja (hectareas NULL) se usa la superficie total del lote.
-$ha_aplicacion = ($op['hectareas'] !== null && (float)$op['hectareas'] > 0)
-    ? (float)$op['hectareas'] : $total_ha;
-$ha_por_carga = $cargas > 0 ? ($ha_aplicacion / $cargas) : $ha_aplicacion;
-
-$total_insumos_cost = 0;
-foreach ($insumos as $ins) {
-    $cant_ha = (float)$ins['cantidad_ha'];
-    $precio_u = (float)$ins['precio_unitario'];
-    $total_insumos_cost += ($cant_ha * $ha_aplicacion * $precio_u);  // Insumos sobre ha aplicadas
-}
-
+require_once __DIR__ . '/../includes/carga_lotes.php';
+$lote_nombre = mb_strtoupper($op['lote_nombre'], 'UTF-8');
+$titulo     = receta_titulo($op);   // decía PULVERIZACIÓN fijo
+$labor_desc = mb_strtoupper($op['grupo_descripcion'] ?: $titulo, 'UTF-8');
+$total_ha = (float)$op['lote_sup'];
+// Con lo guardado: las hectáreas aplicadas y las de la labor (receta_numeros).
+$n = receta_numeros($op, $insumos, $total_ha);
+$cargas        = $n['cargas'];
+$ha_aplicacion = $n['ha_aplic'];
+$ha_por_carga  = $n['ha_carga'];
+$total_insumos_cost = $n['insumos'];
 $labor_precio = (float)$op['precio_unitario'];
-$labor_total = $labor_precio * $total_ha;   // Labor SIEMPRE sobre el total del lote
-
-$grand_total = $total_insumos_cost + $labor_total;
-$grand_total_ha = $total_ha > 0 ? ($grand_total / $total_ha) : 0;
+$labor_ha     = $n['ha_labor'];
+$labor_total  = $n['labor'];
+$grand_total    = $n['total'];
+$grand_total_ha = $n['total_ha'];
 $es_sectorizada = ($ha_aplicacion < $total_ha - 0.001);
+$sim = ($op['moneda'] ?? 'ARS') === 'USD' ? 'USD' : '$';
 
 // Si la saca un asesor, va con su nombre (el Excel no muestra el logo). Ver includes/asesor.php.
 require_once __DIR__ . '/../includes/asesor.php';
 $firma = firma_informe($pdo);
 
 // ─── Headers para forzar descarga Excel ─────────────────────────────────────
-$filename = "Receta_Pulverizacion_{$lote_nombre}_" . date('Ymd', strtotime($op['fecha'])) . ".xls";
+$filename = "Receta_" . ucfirst(strtolower(strtr($titulo, ['Ó' => 'O', 'É' => 'E']))) . "_{$lote_nombre}_" . date('Ymd', strtotime($op['fecha'])) . ".xls";
 $filename = preg_replace('/[^A-Za-z0-9_\-\.]/', '_', $filename);
 
 header("Content-Type: application/vnd.ms-excel; charset=utf-8");
@@ -94,7 +89,7 @@ header("Expires: 0");
     <!-- ===== ENCABEZADO ===== -->
     <table>
         <tr>
-            <td colspan="6" class="header-yellow" style="font-size:18px;">PULVERIZACIÓN</td>
+            <td colspan="6" class="header-yellow" style="font-size:18px;"><?= htmlspecialchars($titulo) ?></td>
         </tr>
         <tr>
             <td colspan="6" class="header-yellow" style="font-size:14px;">INSUMOS UTILIZADOS Y LABOR</td>
@@ -141,10 +136,10 @@ header("Expires: 0");
     <table>
         <tr>
             <th class="col-header text-left">PRODUCTO</th>
-            <th class="col-header">LTRS./HA</th>
-            <th class="col-header">LTRS. POR CARGA</th>
-            <th class="col-header">LTRS. TOTALES</th>
-            <th class="col-header">PRECIO UNIT (USD)</th>
+            <th class="col-header">DOSIS/HA</th>
+            <th class="col-header">POR CARGA</th>
+            <th class="col-header">CANT. TOTAL</th>
+            <th class="col-header">PRECIO UNIT (<?= $sim ?>)</th>
             <th class="col-header">COSTO TOTAL</th>
         </tr>
         <?php foreach ($insumos as $ins): 
@@ -175,11 +170,11 @@ header("Expires: 0");
     <table>
         <tr>
             <th class="col-header text-left" style="width:50%;">LABOR</th>
-            <th class="col-header" style="width:25%;">USD/HA</th>
+            <th class="col-header" style="width:25%;"><?= $sim ?>/HA</th>
             <th class="col-header" style="width:25%;">TOTAL</th>
         </tr>
         <tr>
-            <td class="text-left">PULVERIZACIÓN / APLICACIÓN</td>
+            <td class="text-left"><?= htmlspecialchars($labor_desc) ?> (<?= number_format($labor_ha, 2, ',', '.') ?> ha)</td>
             <td class="text-center"><?= number_format($labor_precio, 2, ',', '.') ?></td>
             <td class="text-center"><?= number_format($labor_total, 2, ',', '.') ?></td>
         </tr>
@@ -189,9 +184,9 @@ header("Expires: 0");
     <!-- ===== RESUMEN FINAL ===== -->
     <table>
         <tr>
-            <td class="grand-total" style="width:40%;">COSTO TOTAL (USD)</td>
+            <td class="grand-total" style="width:40%;">COSTO TOTAL (<?= $sim ?>)</td>
             <td class="grand-total text-center" style="width:30%;"><?= number_format($grand_total, 2, ',', '.') ?></td>
-            <td class="grand-total text-center" style="width:15%;">USD/HA</td>
+            <td class="grand-total text-center" style="width:15%;"><?= $sim ?>/HA</td>
             <td class="grand-total text-center" style="width:15%;"><?= number_format($grand_total_ha, 2, ',', '.') ?></td>
         </tr>
     </table>

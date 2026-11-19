@@ -41,24 +41,25 @@ $fecha = date('d-M', strtotime($op['fecha']));
 $meses = ['Jan'=>'Ene','Feb'=>'Feb','Mar'=>'Mar','Apr'=>'Abr','May'=>'May','Jun'=>'Jun','Jul'=>'Jul','Aug'=>'Ago','Sep'=>'Sep','Oct'=>'Oct','Nov'=>'Nov','Dec'=>'Dic'];
 $fecha = strtr($fecha, $meses);
 
-$lote_nombre = strtoupper($op['lote_nombre']);
-$labor_desc = strtoupper($op['grupo_descripcion'] ?: $op['grupo_gasto']);
-$cargas = (int)($op['cargas'] ?: 1);
-$total_ha = (float)($op['lote_sup']);
-$ha_por_carga = $cargas > 0 ? ($total_ha / $cargas) : $total_ha;
-
-$total_insumos_cost = 0;
-foreach ($insumos as $ins) {
-    $cant_ha = (float)$ins['cantidad_ha'];
-    $precio_u = (float)$ins['precio_unitario'];
-    $total_insumos_cost += ($cant_ha * $total_ha * $precio_u);
-}
-
+require_once __DIR__ . '/../includes/carga_lotes.php';
+$lote_nombre = mb_strtoupper($op['lote_nombre'], 'UTF-8');
+$titulo     = receta_titulo($op);
+$labor_desc = mb_strtoupper($op['grupo_descripcion'] ?: $titulo, 'UTF-8');
+// Con lo guardado: las hectáreas aplicadas y las de la labor (receta_numeros).
+$n = receta_numeros($op, $insumos, (float)$op['lote_sup']);
+$cargas       = $n['cargas'];
+$total_ha     = $n['ha_aplic'];
+$ha_por_carga = $n['ha_carga'];
+$total_insumos_cost = $n['insumos'];
 $labor_precio = (float)$op['precio_unitario'];
-$labor_total = $labor_precio * $total_ha;
-
-$grand_total = $total_insumos_cost + $labor_total;
-$grand_total_ha = $total_ha > 0 ? ($grand_total / $total_ha) : 0;
+$labor_ha     = $n['ha_labor'];
+$labor_total  = $n['labor'];
+$grand_total    = $n['total'];
+$grand_total_ha = $n['total_ha'];
+// La moneda en que se cargó (decía USD fijo).
+$mon = ($op['moneda'] ?? 'ARS') === 'USD' ? 'USD' : 'ARS';
+$sim = $mon === 'USD' ? 'USD' : '$';
+$sectorizada = $total_ha < (float)$op['lote_sup'] - 0.001;
 
 // Si la saca un asesor, va con su firma. Ver includes/asesor.php.
 require_once __DIR__ . '/../includes/asesor.php';
@@ -68,7 +69,7 @@ $firma = firma_informe($pdo);
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Receta de Aplicación #<?= $op_id ?></title>
+    <title>Receta de <?= htmlspecialchars(mb_convert_case($titulo, MB_CASE_TITLE, 'UTF-8')) ?> #<?= $op_id ?></title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; color: #1a1a2e; background: #fff; }
@@ -106,7 +107,7 @@ $firma = firma_informe($pdo);
     </div>
     
     <div class="content">
-        <div class="header-title">PULVERIZACIÓN</div>
+        <div class="header-title"><?= htmlspecialchars($titulo) ?></div>
         <div class="header-subtitle">INSUMOS UTILIZADOS Y LABOR</div>
         
         <div class="info-row">
@@ -120,7 +121,7 @@ $firma = firma_informe($pdo);
                     <th style="width: 40%;">DETALLE LABOR</th>
                     <th style="width: 20%;">CARGAS</th>
                     <th style="width: 20%;">HA/CARGA</th>
-                    <th style="width: 20%;">TOTAL HA.</th>
+                    <th style="width: 20%;">HA APLICADAS</th>
                 </tr>
             </thead>
             <tbody>
@@ -128,7 +129,7 @@ $firma = firma_informe($pdo);
                     <td class="bold"><i><?= htmlspecialchars($labor_desc) ?></i></td>
                     <td class="bold"><i><?= $cargas ?></i></td>
                     <td class="bold"><i><?= number_format($ha_por_carga, 2, ',', '.') ?></i></td>
-                    <td class="bold"><i><?= number_format($total_ha, 2, ',', '.') ?></i></td>
+                    <td class="bold"><i><?= number_format($total_ha, 2, ',', '.') ?></i><?php if ($sectorizada): ?><br><small>de <?= number_format((float)$op['lote_sup'], 2, ',', '.') ?> del lote</small><?php endif; ?></td>
                 </tr>
             </tbody>
         </table>
@@ -137,10 +138,10 @@ $firma = firma_informe($pdo);
             <thead>
                 <tr>
                     <th class="text-left" style="width: 30%;">PRODUCTO</th>
-                    <th>LTRS./HA</th>
-                    <th>LTRS. POR CARGA</th>
-                    <th>LTRS. TOTALES</th>
-                    <th>PRECIO UNIT (USD)</th>
+                    <th>DOSIS/HA</th>
+                    <th>POR CARGA</th>
+                    <th>CANT. TOTAL</th>
+                    <th>PRECIO UNIT (<?= $sim ?>)</th>
                     <th>COSTO TOTAL</th>
                 </tr>
             </thead>
@@ -173,13 +174,13 @@ $firma = firma_informe($pdo);
             <thead>
                 <tr>
                     <th class="text-left" style="width: 50%;">LABOR</th>
-                    <th style="width: 25%;">USD/HA</th>
+                    <th style="width: 25%;"><?= $sim ?>/HA</th>
                     <th style="width: 25%;">TOTAL</th>
                 </tr>
             </thead>
             <tbody>
                 <tr>
-                    <td class="text-left">PULVERIZACIÓN / APLICACIÓN</td>
+                    <td class="text-left"><?= htmlspecialchars($labor_desc) ?> (<?= number_format($labor_ha, 2, ',', '.') ?> HA)</td>
                     <td><?= number_format($labor_precio, 2, ',', '.') ?></td>
                     <td><?= number_format($labor_total, 2, ',', '.') ?></td>
                 </tr>
@@ -189,9 +190,9 @@ $firma = firma_informe($pdo);
         <div style="display: flex; justify-content: flex-end;">
             <table style="width: 60%; margin-bottom: 0;">
                 <tr>
-                    <td class="bold bg-yellow" style="width: 40%;">COSTO TOTAL (USD)</td>
+                    <td class="bold bg-yellow" style="width: 40%;">COSTO TOTAL (<?= $sim ?>)</td>
                     <td class="bold bg-yellow" style="width: 30%;"><?= number_format($grand_total, 2, ',', '.') ?></td>
-                    <td class="bold bg-yellow" style="width: 15%;">USD/HA</td>
+                    <td class="bold bg-yellow" style="width: 15%;"><?= $sim ?>/HA</td>
                     <td class="bold bg-yellow" style="width: 15%;"><?= number_format($grand_total_ha, 2, ',', '.') ?></td>
                 </tr>
             </table>

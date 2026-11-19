@@ -13,6 +13,19 @@ $page_title = 'Registro de Costos y Labores';
 
 validate_csrf();
 
+/* A dónde volver después de guardar o borrar: a la misma lista, con los mismos
+   filtros y la misma página. Antes volvía a operaciones.php pelado y el
+   productor que venía cargando gastos de un lote tenía que volver a filtrar
+   después de cada uno. Sólo se aceptan los parámetros de la lista. */
+function ops_volver(): string
+{
+    parse_str((string)($_POST['volver'] ?? ''), $q);
+    $q = array_intersect_key($q, array_flip(['grupo', 'lote_id', 'campania', 'q', 'page']));
+    $q = array_filter(array_map(fn($v) => is_scalar($v) ? (string)$v : '', $q), fn($v) => $v !== '');
+    return 'operaciones.php' . ($q ? '?' . http_build_query($q) : '');
+}
+$con_observaciones = operaciones_tiene_columna($pdo, 'observaciones');
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     // ─── Shared logic: parse cultivo info (solo para add/edit) ───────────────
@@ -27,7 +40,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $cargas = null;
     $tipo_comp_db = ($tipo_comp === 'insumo') ? 'multi_insumo' : $tipo_comp;
     // La moneda en que se pagó. No se convierte al guardar: se convierte al mirar.
-    $moneda = (($_POST['moneda'] ?? 'ARS') === 'USD') ? 'USD' : 'ARS';
+    $moneda = (($_POST['moneda'] ?? 'USD') === 'ARS') ? 'ARS' : 'USD';
+    // Observaciones libres del gasto (texto del productor). Sólo si la base ya tiene la columna.
+    $observaciones = $con_observaciones ? (mb_substr(trim((string)($_POST['observaciones'] ?? '')), 0, 1000) ?: null) : null;
     $con_labor   = ($tipo_comp === 'labor' || $tipo_comp === 'receta_labor');
     $con_insumos = ($tipo_comp === 'insumo' || $tipo_comp === 'receta_labor');
 
@@ -62,8 +77,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 if ($ha <= 0) $ha = $sup;
                 $destinos[$mid] = [
                     'lote_id' => $mid, 'sup' => $sup, 'ha' => $ha,
-                    // La labor sola se cobra por las ha trabajadas; en la receta, sobre el total del lote.
-                    'cant_ha' => ($tipo_comp === 'receta_labor') ? $sup : $ha,
+                    // La labor se cobra por las ha de este lote, también en una receta.
+                    'cant_ha' => operacion_ha_labor($tipo_comp, $sup, $ha),
                     'cultivo_info' => $_POST['multi_cultivo'][$mid] ?? '',
                 ];
             }
@@ -84,7 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
         if (!$destinos) {
             set_flash('error', 'No se guardó nada: elegí al menos un lote con superficie cargada.');
-            header("Location: operaciones.php"); exit;
+            header('Location: ' . ops_volver()); exit;
         }
 
         // En modo "Cant. Total" la cantidad ingresada es el total del gasto (no por ha):
@@ -146,6 +161,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 'proveedor' => $proveedor, 'precio' => $precio_u, 'moneda' => $moneda, 'cargas' => $cargas,
                 // Repartido en varios lotes: los gastos quedan agrupados para editarlos juntos.
                 'carga_id' => count($destinos) > 1 ? carga_nuevo_id() : null,
+                'observaciones' => $observaciones,
             ];
             foreach ($destinos as $d) {
                 operacion_insertar($pdo, $usuario_id, $op, [
@@ -154,6 +170,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     'ha_labor' => $d['cant_ha'], 'ha' => $d['ha'], 'insumos' => $insumos_op,
                 ]);
             }
+            $n = count($destinos);
+            set_flash('success', $n > 1 ? "Gasto guardado en $n lotes." : 'Gasto guardado.');
 
         } elseif ($_POST['action'] === 'edit') {
             $id = (int)$_POST['id'];
@@ -170,12 +188,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             // Actualizar padre
             $stmt = $pdo->prepare("UPDATE operaciones SET lote_id=?, cultivo_id=?, grupo_gasto=?, grupo_descripcion=?, tipo_componente=?, insumo_id=NULL, proveedor_servicio=?, cantidad_ha=?, precio_unitario=?, costo_total=?, moneda=?, fecha=?, campania_operacion=?, cultivo_operacion=?, cargas=?, hectareas=? WHERE id=? AND usuario_id=?");
             $stmt->execute([$d['lote_id'], $d['cultivo_id'], $grupo, $grupo_desc, $tipo_comp_db, $proveedor, $d['cant_ha'], $precio_u, $d['costo_total'], $moneda, $fecha, $d['campania'], $d['cultivo'], $cargas, $d['hectareas_db'], $id, $usuario_id]);
+            if ($con_observaciones) {
+                $pdo->prepare("UPDATE operaciones SET observaciones = ? WHERE id = ? AND usuario_id = ?")
+                    ->execute([$observaciones, $id, $usuario_id]);
+            }
 
             // Insertar hijos nuevos
             if ($con_insumos) operacion_guardar_insumos($pdo, $usuario_id, $id, $insumos_op, $d['ha']);
+            set_flash('success', 'Cambios guardados.');
 
         } elseif ($_POST['action'] === 'delete') {
-            operacion_borrar($pdo, $usuario_id, (int)$_POST['id']);
+            if (operacion_borrar($pdo, $usuario_id, (int)$_POST['id'])) set_flash('success', 'Gasto eliminado.');
 
         } elseif ($_POST['action'] === 'delete_carga') {
             // Todos los gastos de una carga en varios lotes, devolviendo el stock de cada uno.
@@ -190,7 +213,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             set_flash('success', 'Se borró la carga: ' . count($ids) . ' gastos, con su stock devuelto.');
         }
         $pdo->commit();
-        header("Location: operaciones.php"); exit;
+        header('Location: ' . ops_volver()); exit;
     } catch (Exception $e) {
         $pdo->rollBack();
 
@@ -215,7 +238,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         set_flash('error', 'No se pudo ' . $que . '. No quedó nada a medias: '
                          . 'la operación se deshizo completa y el stock quedó como estaba. '
                          . 'Probá de nuevo; si vuelve a pasar, avisanos.');
-        header("Location: operaciones.php"); exit;
+        header('Location: ' . ops_volver()); exit;
     }
 }
 
@@ -249,7 +272,10 @@ $campanias_disponibles = $stmtCamp->fetchAll(PDO::FETCH_COLUMN);
 
 // Filtros desde GET
 $f_grupo = $_GET['grupo'] ?? 'todos';
-$f_lote  = $_GET['lote_id'] ?? 'todos';
+/* Lotes: uno o varios, separados por coma (?lote_id=3,7,12). "todos" o vacío = sin filtro.
+   Un solo número sigue andando igual que antes, así los enlaces viejos no se rompen. */
+$f_lotes = array_values(array_unique(array_filter(array_map('intval', explode(',', (string)($_GET['lote_id'] ?? ''))))));
+$f_lote  = $f_lotes ? implode(',', $f_lotes) : 'todos';
 $f_camp  = $_GET['campania'] ?? 'todos';
 $q       = trim($_GET['q'] ?? '');
 
@@ -260,9 +286,9 @@ if ($f_grupo !== 'todos') {
     $where .= " AND o.grupo_gasto = ?";
     $params[] = $f_grupo;
 }
-if ($f_lote !== 'todos') {
-    $where .= " AND o.lote_id = ?";
-    $params[] = $f_lote;
+if ($f_lotes) {
+    $where .= " AND o.lote_id IN (" . implode(',', array_fill(0, count($f_lotes), '?')) . ")";
+    $params = array_merge($params, $f_lotes);
 }
 if ($f_camp !== 'todos') {
     $where .= " AND o.campania_operacion = ?";
@@ -287,10 +313,19 @@ if ($q !== '') {
         OR EXISTS (SELECT 1 FROM cultivos c2 WHERE c2.id = o.cultivo_id AND c2.nombre LIKE ?)
         OR EXISTS (SELECT 1 FROM insumos i2 WHERE i2.id = o.insumo_id AND i2.nombre LIKE ?)
         OR EXISTS (SELECT 1 FROM operacion_insumos oi2 LEFT JOIN insumos i3 ON oi2.insumo_id = i3.id
-                   WHERE oi2.operacion_id = o.id AND (i3.nombre LIKE ? OR oi2.nombre_libre LIKE ?))
+                   WHERE oi2.operacion_id = o.id AND (i3.nombre LIKE ? OR oi2.nombre_libre LIKE ?))"
+        . ($con_observaciones ? "\n        OR o.observaciones LIKE ?" : '') . "
     )";
-    for ($k = 0; $k < 14; $k++) $params[] = $like;
+    for ($k = 0; $k < ($con_observaciones ? 15 : 14); $k++) $params[] = $like;
 }
+// Los filtros de la lista, para la paginación y para volver a ellos después de guardar.
+$qs_filtros = http_build_query(array_filter([
+    'grupo' => $f_grupo !== 'todos' ? $f_grupo : null,
+    'lote_id' => $f_lotes ? $f_lote : null,
+    'campania' => $f_camp !== 'todos' ? $f_camp : null,
+    'q' => $q !== '' ? $q : null,
+]));
+$qs_volver = $qs_filtros . ($page > 1 ? ($qs_filtros ? '&' : '') . 'page=' . $page : '');
 
 // 1. Contar total para paginación
 $stmtCount = $pdo->prepare("SELECT COUNT(*) FROM operaciones o $where");
@@ -431,6 +466,25 @@ function colorGrupo($g) {
     }
 .filter-select { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--n-100); color: var(--text-primary); font-size: 0.85rem; cursor: pointer; min-width: 160px; }
 .filter-select:focus { outline: none; border-color: var(--accent); }
+/* Filtro de varios lotes */
+.op-obs { margin-top: 4px; font-size: .78rem; color: var(--text-muted); line-height: 1.35; max-width: 340px; white-space: normal; }
+.op-obs i { opacity: .7; margin-right: 2px; }
+.flt-lotes { position: relative; }
+.flt-lotes > summary { list-style: none; display: inline-flex; align-items: center; gap: 8px; user-select: none; }
+.flt-lotes > summary::-webkit-details-marker { display: none; }
+.flt-lotes .flt-chev { margin-left: auto; font-size: .75em; color: var(--text-muted); }
+.flt-lotes .flt-activo { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.flt-panel { position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; width: 280px; max-width: 90vw; background: var(--n-0);
+             border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.12); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.flt-buscar { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font: inherit; font-size: .85rem; }
+.flt-lista { max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; }
+.flt-op { display: flex; align-items: center; gap: 8px; padding: 7px 6px; border-radius: 6px; cursor: pointer; font-size: .88rem; }
+.flt-op:hover { background: var(--n-25); }
+.flt-op input { width: 16px; height: 16px; accent-color: var(--accent); flex: none; }
+.flt-acc { display: flex; justify-content: space-between; align-items: center; gap: 8px; border-top: 1px solid var(--border); padding-top: 8px; }
+.flt-limpiar { background: none; border: none; color: var(--accent); font-weight: 600; cursor: pointer; font-size: .85rem; }
+.flt-aplicar { padding: 6px 14px; font-size: .85rem; }
+@media (max-width: 600px) { .flt-panel { right: auto; left: 0; } }
 
 /* KPI Resumen Gastos */
 .gastos-kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px,1fr)); gap: 10px; margin-bottom: 20px; }
@@ -522,7 +576,7 @@ function colorGrupo($g) {
     </div>
 
     <!-- ===== KPIs DE RESUMEN ===== -->
-    <div class="gastos-kpi-grid" id="gastosKpiGrid">
+    <div class="gastos-kpi-grid" id="gastosKpiGrid" data-ap-vivo>
         <div class="gasto-kpi" data-grupo="siembra">
             <div class="gk-label"><i class="fas fa-seedling" style="margin-right:4px;"></i> Siembra</div>
             <div class="gk-val" id="kpiSiembra" data-val="<?= $totales_grupo['siembra'] ?>"><?= ap_plata($totales_grupo['siembra'], 0) ?></div>
@@ -571,17 +625,38 @@ function colorGrupo($g) {
                 <?php endforeach; ?>
             </select>
             <?php endif; ?>
-            <!-- Filtro por Lote -->
-            <select class="filter-select" id="loteFilter" aria-label="Filtrar por lote" onchange="aplicarFiltros()">
-                <option value="todos">-- Todos los Lotes --</option>
-                <?php foreach($lotes as $l): ?>
-                    <option value="<?= $l['id'] ?>" <?= (string)$f_lote === (string)$l['id'] ? 'selected' : '' ?>><?= htmlspecialchars($l['nombre']) ?></option>
-                <?php endforeach; ?>
-            </select>
+            <!-- Filtro por Lote: uno o varios -->
+            <?php
+            $nombres_lote = array_column($lotes, 'nombre', 'id');
+            $txt_lotes = !$f_lotes ? 'Todos los lotes'
+                       : (count($f_lotes) === 1 ? ($nombres_lote[$f_lotes[0]] ?? '1 lote') : count($f_lotes) . ' lotes');
+            ?>
+            <details class="flt-lotes" id="fltLotes">
+                <summary class="filter-select <?= $f_lotes ? 'flt-activo' : '' ?>" aria-label="Filtrar por lote">
+                    <i class="fas fa-map-marked-alt"></i> <?= htmlspecialchars($txt_lotes) ?> <i class="fas fa-chevron-down flt-chev"></i>
+                </summary>
+                <div class="flt-panel">
+                    <?php if (count($lotes) > 6): ?>
+                    <input type="search" class="flt-buscar" placeholder="Buscar lote…" aria-label="Buscar lote" oninput="fltLotesBuscar(this.value)">
+                    <?php endif; ?>
+                    <div class="flt-lista">
+                        <?php foreach ($lotes as $l): ?>
+                        <label class="flt-op" data-nombre="<?= htmlspecialchars(mb_strtolower($l['nombre'])) ?>">
+                            <input type="checkbox" value="<?= (int)$l['id'] ?>" <?= in_array((int)$l['id'], $f_lotes, true) ? 'checked' : '' ?>>
+                            <?= htmlspecialchars($l['nombre']) ?>
+                        </label>
+                        <?php endforeach; ?>
+                    </div>
+                    <div class="flt-acc">
+                        <button type="button" class="flt-limpiar" onclick="fltLotesAplicar(true)">Todos</button>
+                        <button type="button" class="btn btn-primary flt-aplicar" onclick="fltLotesAplicar(false)">Aplicar</button>
+                    </div>
+                </div>
+            </details>
         </div>
     </div>
 
-    <div class="table-container">
+    <div class="table-container" id="opsTabla" data-ap-vivo>
         <table>
             <thead>
                 <tr>
@@ -670,6 +745,9 @@ function colorGrupo($g) {
                                 </div>
                             </div>
                         <?php endif; ?>
+                        <?php if (!empty($op['observaciones'])): ?>
+                            <div class="op-obs" title="Observaciones"><i class="fas fa-note-sticky"></i> <?= nl2br(htmlspecialchars($op['observaciones'])) ?></div>
+                        <?php endif; ?>
                     </td>
                     <td data-label="Lote / Cultivo">
                         <?= htmlspecialchars($op['lote_nombre']) ?>
@@ -698,13 +776,21 @@ function colorGrupo($g) {
                     <td data-label="Acciones">
                         <!-- Editar -->
                         <button type="button" class="btn" style="color: var(--accent); background: transparent; padding: 4px 8px;"
+                            title="Editar" aria-label="Editar"
                             onclick='editOp(<?= json_encode($op, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>
                             <i class="fas fa-edit"></i>
+                        </button>
+                        <!-- Replicar: abre el formulario con este gasto ya cargado, para guardarlo como uno nuevo -->
+                        <button type="button" class="btn" style="color: var(--text-muted); background: transparent; padding: 4px 8px;"
+                            title="Replicar: cargar otro gasto igual (podés cambiar lote, fecha o lo que haga falta)" aria-label="Replicar"
+                            onclick='replicarOp(<?= json_encode($op, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>
+                            <i class="fas fa-copy"></i>
                         </button>
                         <!-- Eliminar -->
                         <form method="POST" style="display: inline;" onsubmit="return confirm('¿Eliminar registro?');">
                             <?php csrf_field(); ?>
                             <input type="hidden" name="action" value="delete">
+                            <input type="hidden" name="volver" value="<?= htmlspecialchars($qs_volver) ?>">
                             <input type="hidden" name="id" value="<?= $op['id'] ?>">
                             <button type="submit" class="btn" style="color: var(--danger); background: transparent; padding: 4px 8px;">
                                 <i class="fas fa-trash"></i>
@@ -723,20 +809,22 @@ function colorGrupo($g) {
         </table>
     </div>
 
-    <!-- Paginación -->
+    <!-- Paginación (el contenedor está siempre: el buscador lo reemplaza en vivo) -->
+    <div id="opsPaginas" data-ap-vivo>
     <?php if ($total_pages > 1): ?>
     <div style="display:flex; justify-content: center; gap:10px; margin-top:20px; padding-bottom:10px;">
         <?php if ($page > 1): ?>
-            <a href="?page=<?= $page-1 ?>&grupo=<?= $f_grupo ?>&lote_id=<?= $f_lote ?>&campania=<?= urlencode($f_camp) ?>&q=<?= urlencode($q) ?>" class="btn" style="background:var(--n-100); color:var(--text-primary); padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
+            <a href="?<?= htmlspecialchars(($qs_filtros ? $qs_filtros . '&' : '') . 'page=' . ($page - 1)) ?>" class="btn" style="background:var(--n-100); color:var(--text-primary); padding:8px 16px;"><i class="fas fa-chevron-left"></i> Anterior</a>
         <?php endif; ?>
         
         <span style="color:var(--text-muted); align-self:center; font-size:0.9rem;">Página <?= $page ?> de <?= $total_pages ?></span>
 
         <?php if ($page < $total_pages): ?>
-            <a href="?page=<?= $page+1 ?>&grupo=<?= $f_grupo ?>&lote_id=<?= $f_lote ?>&campania=<?= urlencode($f_camp) ?>&q=<?= urlencode($q) ?>" class="btn" style="background:var(--n-100); color:var(--text-primary); padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
+            <a href="?<?= htmlspecialchars(($qs_filtros ? $qs_filtros . '&' : '') . 'page=' . ($page + 1)) ?>" class="btn" style="background:var(--n-100); color:var(--text-primary); padding:8px 16px;">Siguiente <i class="fas fa-chevron-right"></i></a>
         <?php endif; ?>
     </div>
     <?php endif; ?>
+    </div>
 </div>
 
 <!-- ===== MODAL: Registrar / Editar Gasto ===== -->
@@ -747,12 +835,14 @@ function colorGrupo($g) {
             <?php csrf_field(); ?>
             <input type="hidden" name="action" id="opAction" value="add">
             <input type="hidden" name="id"     id="opId"     value="">
+            <?php /* Después de guardar se vuelve a la lista con los mismos filtros. */ ?>
+            <input type="hidden" name="volver" id="opVolver" data-ap-vivo value="<?= htmlspecialchars($qs_volver) ?>">
 
             <!-- Grupo de Gasto -->
             <div style="display: flex; flex-direction: column; gap: 5px;">
                 <label for="grupoGastoSelect">Grupo de Gasto</label>
                 <select name="grupo_gasto" id="grupoGastoSelect" required
-                    onchange="toggleGrupoDesc(); togglePulv();"
+                    onchange="toggleGrupoDesc();"
                     style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: var(--text-primary);">
                     <option value="siembra">🌱 Siembra</option>
                     <option value="cosecha">🚜 Cosecha</option>
@@ -852,8 +942,9 @@ function colorGrupo($g) {
                 <label for="monedaSelect">Moneda del gasto</label>
                 <select name="moneda" id="monedaSelect"
                     style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: var(--text-primary);">
-                    <option value="ARS" selected>$ — Pesos</option>
-                    <option value="USD">US$ — Dólares</option>
+                    <?php /* Dólares por defecto: es la moneda en que se compran casi todos los insumos y labores. */ ?>
+                    <option value="USD" selected>US$ — Dólares</option>
+                    <option value="ARS">$ — Pesos</option>
                 </select>
                 <small style="color:var(--text-muted);">
                     <i class="fas fa-info-circle"></i>
@@ -926,6 +1017,16 @@ function colorGrupo($g) {
                     style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--n-100); color: var(--text-primary);">
             </div>
 
+            <?php if ($con_observaciones): ?>
+            <!-- Observaciones: lo que el productor quiera dejar anotado del gasto -->
+            <div style="display: flex; flex-direction: column; gap: 5px;">
+                <label for="obsInput">Observaciones <small style="color:var(--text-muted);">(opcional)</small></label>
+                <textarea name="observaciones" id="obsInput" rows="2" maxlength="1000"
+                    placeholder="Ej: se aplicó con viento leve; quedó una franja sin pasar"
+                    style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--n-0); color: var(--text-primary); font: inherit; resize: vertical;"></textarea>
+            </div>
+            <?php endif; ?>
+
             <!-- Preview costo calculado -->
             <div id="costoPreview" style="display:none; background: var(--accent-soft); border: 1px solid var(--accent-soft); border-radius: 8px; padding: 12px; text-align: center;">
                 <span style="font-size:0.85rem; color:var(--text-muted);">Costo Total Estimado</span><br>
@@ -988,6 +1089,9 @@ function renderKpis() {
     }
 }
 
+// El buscador reemplaza los KPI en vivo: se vuelven a pintar en el modo elegido.
+window.apTrasBuscar = function () { if (kpiMode !== 'money') renderKpis(); };
+
 /* ── FILTRADO POR SERVIDOR ── */
 function setFiltroGrupo(grupo) {
     const url = new URL(window.location);
@@ -998,14 +1102,29 @@ function setFiltroGrupo(grupo) {
 
 function aplicarFiltros() {
     const url = new URL(window.location);
-    const lote = document.getElementById('loteFilter').value;
     const campania = document.getElementById('campaniaFilter') ? document.getElementById('campaniaFilter').value : 'todos';
-    
-    url.searchParams.set('lote_id', lote);
     url.searchParams.set('campania', campania);
     url.searchParams.set('page', 1);
     window.location.href = url.href;
 }
+
+/* Filtro de varios lotes: se tildan y se aplica de una vez (no recarga con cada tilde). */
+function fltLotesAplicar(todos) {
+    const url = new URL(window.location);
+    const ids = todos ? [] : [...document.querySelectorAll('#fltLotes .flt-op input:checked')].map(c => c.value);
+    if (ids.length) url.searchParams.set('lote_id', ids.join(',')); else url.searchParams.delete('lote_id');
+    url.searchParams.set('page', 1);
+    window.location.href = url.href;
+}
+function fltLotesBuscar(q) {
+    q = q.trim().toLowerCase();
+    document.querySelectorAll('#fltLotes .flt-op').forEach(o => o.style.display = !q || o.dataset.nombre.includes(q) ? '' : 'none');
+}
+// El panel se cierra al tocar afuera, como cualquier menú.
+document.addEventListener('click', e => {
+    const d = document.getElementById('fltLotes');
+    if (d && d.open && !d.contains(e.target)) d.open = false;
+});
 
 function toggleInsumosList(id) {
     const list = document.getElementById('insumos-list-' + id);
@@ -1430,21 +1549,19 @@ function toggleFormMode() {
         lbl.textContent = (modoCalculo === 'total') ? 'Cant. Total' : 'Cant/Ha';
     });
 
-    // En receta, la labor se imputa SIEMPRE al total del lote: campo automático y bloqueado.
+    /* En receta, las hectáreas de la labor siguen a las aplicadas mientras no se
+       toquen a mano. Antes quedaban bloqueadas en el total del lote y no se podía
+       cargar una aplicación en parte del lote. */
     const lblCantHa = document.getElementById('lblCantHaLabor');
     if (mode === 'receta_labor') {
-        const lote = lotesRaw.find(l => l.id == document.getElementById('loteSelect').value);
-        if (lote) cantLabor.value = parseFloat(lote.superficie);
-        cantLabor.readOnly = true;
-        cantLabor.style.opacity = '0.7';
-        cantLabor.style.cursor = 'not-allowed';
-        if (lblCantHa) lblCantHa.innerHTML = 'Cantidad de Has. <small style="color:var(--text-muted);">(automático: total del lote)</small>';
+        if (!cantLabor.dataset.tocado) cantLabor.value = haLaborPorDefecto();
+        if (lblCantHa) lblCantHa.innerHTML = 'Hectáreas de la labor <small style="color:var(--text-muted);">(las aplicadas; podés cambiarlas)</small>';
     } else {
-        cantLabor.readOnly = false;
-        cantLabor.style.opacity = '';
-        cantLabor.style.cursor = '';
         if (lblCantHa) lblCantHa.textContent = 'Cantidad de Has.';
     }
+    cantLabor.readOnly = false;
+    cantLabor.style.opacity = '';
+    cantLabor.style.cursor = '';
 
     // Vista previa del Excel y ancho del modal (solo para recetas).
     const previewWrap = document.getElementById('recetaPreviewWrap');
@@ -1463,12 +1580,33 @@ function prefillHectareasFromLote() {
     const sup  = lote ? parseFloat(lote.superficie) : '';
     const hectField = document.getElementById('hectareasInsumo');
     if (hectField) hectField.value = sup;
-    // En receta, la labor se imputa al TOTAL del lote → fijamos sus hectáreas.
+    // En receta, la labor arranca con las hectáreas aplicadas (si no se tocó a mano).
     const mode = document.getElementById('tipoCompSelect').value;
     const cantLabor = document.getElementById('cantHaLabor');
-    if (mode === 'receta_labor' && cantLabor) cantLabor.value = sup;
+    if (mode === 'receta_labor' && cantLabor && !cantLabor.dataset.tocado) cantLabor.value = haLaborPorDefecto();
     updateCostoPreview();
 }
+
+/* Las hectáreas de la labor en una receta, si no se tocaron a mano: las aplicadas
+   (o el lote entero si todavía no hay hectáreas cargadas). */
+function haLaborPorDefecto() {
+    const hect = parseFloat((document.getElementById('hectareasInsumo') || {}).value);
+    if (hect > 0) return hect;
+    const lote = lotesRaw.find(l => l.id == document.getElementById('loteSelect').value);
+    return lote ? parseFloat(lote.superficie) : '';
+}
+document.addEventListener('DOMContentLoaded', () => {
+    const cantLabor = document.getElementById('cantHaLabor');
+    const hect = document.getElementById('hectareasInsumo');
+    // Tocadas a mano, dejan de seguir a las aplicadas.
+    if (cantLabor) cantLabor.addEventListener('input', () => { cantLabor.dataset.tocado = '1'; });
+    if (hect) hect.addEventListener('input', () => {
+        if (document.getElementById('tipoCompSelect').value === 'receta_labor' && !cantLabor.dataset.tocado) {
+            cantLabor.value = haLaborPorDefecto();
+        }
+        updateCostoPreview();
+    });
+});
 
 /* ───── Preview costo calculado ───── */
 function updateCostoPreview() {
@@ -1540,7 +1678,9 @@ function renderRecetaPreview() {
     const gDesc = document.getElementById('grupoDescInput').value.trim();
     const titulo = (gDesc || (gSel ? gSel.options[gSel.selectedIndex].text.replace(/[^\wáéíóúñ\s/]/gi, '').trim() : 'RECETA')).toUpperCase();
     const laborPrecio = parseFloat(document.getElementById('priceHaLabor').value) || 0;
-    const laborTotal  = laborPrecio * totalHa;
+    // La labor sobre las hectáreas que dice el campo (por defecto, las aplicadas).
+    const laborHa     = parseFloat(document.getElementById('cantHaLabor').value) || haAplic;
+    const laborTotal  = laborPrecio * laborHa;
 
     // Fecha
     const fRaw = document.getElementById('fechaInput').value;
@@ -1584,7 +1724,7 @@ function renderRecetaPreview() {
     });
 
     const grandTotal = totalInsumos + laborTotal;
-    const grandTotalHa = totalHa > 0 ? (grandTotal / totalHa) : 0;
+    const grandTotalHa = haAplic > 0 ? (grandTotal / haAplic) : 0;
 
     cont.innerHTML = `
     <div style="font-family:Arial,sans-serif;font-size:12px;color:#0f172a;min-width:560px;">
@@ -1632,7 +1772,7 @@ function renderRecetaPreview() {
         <table style="border-collapse:collapse;width:100%;margin-top:8px;">
             <tr><th style="${th}text-align:left;">LABOR</th><th style="${th}">USD/HA</th><th style="${th}">TOTAL</th></tr>
             <tr>
-                <td style="${td}text-align:left;">${titulo} (sobre total del lote)</td>
+                <td style="${td}text-align:left;">${titulo} (${fmt(laborHa)} ha)</td>
                 <td style="${td}">${fmt(laborPrecio)}</td>
                 <td style="${td}">${fmt(laborTotal)}</td>
             </tr>
@@ -1675,6 +1815,12 @@ function openAddModal() {
     document.getElementById('priceHaLabor').value     = '';
     document.getElementById('hectareasInsumo').value  = '';
     document.getElementById('insumosContainer').innerHTML = '';
+    delete document.getElementById('cantHaLabor').dataset.tocado;
+    // La moneda por defecto de una carga nueva es el dólar.
+    const monSel = document.getElementById('monedaSelect');
+    if (monSel) { monSel.value = 'USD'; sincronizarLabelsMoneda(); }
+    const obs = document.getElementById('obsInput');
+    if (obs) obs.value = '';
     const multiChk = document.getElementById('multiLoteCheck');
     if (multiChk) {
         multiChk.checked = false;
@@ -1700,6 +1846,14 @@ function editOp(op) {
     document.getElementById('tipoCompSelect').value   = (op.tipo_componente === 'multi_insumo') ? 'insumo' : op.tipo_componente;
     document.getElementById('loteSelect').value       = op.lote_id;
     document.getElementById('fechaInput').value       = op.fecha;
+    // La moneda guardada. Antes no se ponía y un gasto en dólares, al
+    // editarlo, se volvía a guardar en la moneda que mostrara el select.
+    const monSel = document.getElementById('monedaSelect');
+    if (monSel) { monSel.value = (op.moneda === 'ARS') ? 'ARS' : 'USD'; sincronizarLabelsMoneda(); }
+    const obs = document.getElementById('obsInput');
+    if (obs) obs.value = op.observaciones || '';
+    // Las hectáreas de la labor guardadas mandan: no seguir a las aplicadas.
+    document.getElementById('cantHaLabor').dataset.tocado = '1';
     // Una operación es de un solo lote: al editar no se reparte.
     const multiChk = document.getElementById('multiLoteCheck');
     if (multiChk) {
@@ -1746,14 +1900,37 @@ function editOp(op) {
     document.body.classList.add('modal-open');
 }
 
+/* ───── Replicar: el mismo gasto como uno nuevo ─────
+   Abre el formulario lleno con los datos de otro gasto (insumos, dosis,
+   precios, proveedor) para cambiar lo que haga falta —el lote, la fecha— y
+   guardarlo como gasto nuevo. El original no se toca. */
+function replicarOp(op) {
+    editOp(op);
+    document.getElementById('opModalTitle').innerText = '📋 Replicar gasto';
+    document.getElementById('opAction').value = 'add';
+    document.getElementById('opId').value     = '';
+    document.getElementById('fechaInput').value = '<?= date('Y-m-d') ?>';
+    // Un gasto nuevo sí se puede repartir en varios lotes.
+    const multiChk = document.getElementById('multiLoteCheck');
+    if (multiChk) {
+        document.getElementById('multiLoteToggleWrap').style.display = 'flex';
+        renderMultiLotes();
+    }
+    toggleFormMode();
+    updateCostoPreview();
+    const modal = document.getElementById('addOpModal');
+    if (modal) modal.dataset.sucio = '1';   // viene lleno: no cerrarlo sin preguntar
+}
+
 function closeOpModal() {
     document.getElementById('addOpModal').style.display = 'none';
     document.body.classList.remove('modal-open');
 }
 
+// Tocar afuera no cierra un formulario con datos sin preguntar.
 window.addEventListener('click', e => {
     const modal = document.getElementById('addOpModal');
-    if (e.target === modal) closeOpModal();
+    if (e.target === modal && window.apPuedeCerrar(modal)) closeOpModal();
 });
 
 /* ───── Init ───── */

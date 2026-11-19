@@ -34,25 +34,91 @@
 .ap-search-box input:focus-visible{border-color:var(--accent);outline:2px solid var(--accent);outline-offset:2px;}
 .ap-search-box .ap-search-clear{position:absolute;right:8px;background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:0.9rem;padding:4px;display:none;}
 .ap-search-box.has-value .ap-search-clear{display:inline-flex;}
+.ap-search-box.ap-buscando .fa-search{color:var(--accent);animation:apLatido 1s ease-in-out infinite;}
+@keyframes apLatido{50%{opacity:.35;}}
+@media (prefers-reduced-motion: reduce){.ap-search-box.ap-buscando .fa-search{animation:none;}}
+
+/* Aviso de "guardado / eliminado": al medio de la pantalla, un par de segundos.
+   Un cliente sentía que guardaba y no le aparecía: el cartel de arriba de todo
+   no se veía si la lista estaba scrolleada o el modal acababa de cerrarse. */
+.ap-toast{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%) scale(.96);z-index:10000;
+  display:flex;align-items:center;gap:12px;max-width:calc(100vw - 32px);padding:16px 24px;border-radius:14px;
+  background:var(--n-0,#fff);color:var(--text-primary,#111);border:1px solid var(--border,#ddd);
+  box-shadow:0 18px 50px rgba(0,0,0,.22);font-size:1.02rem;font-weight:600;opacity:0;pointer-events:none;
+  transition:opacity .18s ease, transform .18s ease;}
+.ap-toast.visible{opacity:1;transform:translate(-50%,-50%) scale(1);}
+.ap-toast i{font-size:1.5rem;color:var(--accent,#10b981);}
+.ap-toast.error i{color:#ef4444;}
+@media (prefers-reduced-motion: reduce){.ap-toast{transition:none;}}
 </style>
 <script>
-// Buscador universal: actualiza el parámetro ?q= preservando el resto de filtros.
+/* Buscador universal: actualiza el parámetro ?q= preservando el resto de filtros.
+ *
+ * Antes recargaba la página a los 450 ms de dejar de tipear: el cursor se iba
+ * del cuadro y lo que se seguía escribiendo se perdía ("me va sacando"). Ahora:
+ *   - Si la pantalla marcó sus zonas de resultados con data-ap-vivo (cada una
+ *     con id), se pide la página nueva por detrás y se cambian sólo esas zonas.
+ *     El cuadro de búsqueda no se toca: se sigue escribiendo sin cortes.
+ *   - Si no las marcó (o la respuesta no las trae: sesión vencida), recarga como
+ *     antes, pero con más espera y devolviendo el cursor al cuadro al volver.
+ */
 (function(){
-    let _apTimer;
-    function _apGo(value){
+    let _apTimer, _apPedido = 0;
+    const CLAVE_FOCO = 'ap_buscador_foco';
+
+    function _apUrl(value){
         const url = new URL(window.location);
         const v = (value || '').trim();
         if (v) url.searchParams.set('q', v); else url.searchParams.delete('q');
         url.searchParams.set('page', 1);
-        window.location.href = url.href;
+        return url;
     }
+    function _apRecargar(url){
+        try { sessionStorage.setItem(CLAVE_FOCO, location.pathname); } catch (e) {}
+        window.location.replace(url.href);
+    }
+    function _apGo(value){
+        const url = _apUrl(value);
+        const zonas = [...document.querySelectorAll('[data-ap-vivo][id]')];
+        if (!zonas.length || !window.fetch || !window.DOMParser) { _apRecargar(url); return; }
+        const n = ++_apPedido;
+        document.querySelectorAll('.ap-search-box').forEach(b => b.classList.add('ap-buscando'));
+        fetch(url.href, { credentials: 'same-origin', headers: { 'X-Requested-With': 'ap-buscador' } })
+            .then(r => { if (!r.ok) throw new Error('http ' + r.status); return r.text(); })
+            .then(html => {
+                if (n !== _apPedido) return;   // llegó una búsqueda más nueva
+                const doc = new DOMParser().parseFromString(html, 'text/html');
+                const nuevas = zonas.map(z => doc.getElementById(z.id));
+                if (nuevas.some(x => !x)) { _apRecargar(url); return; }
+                zonas.forEach((z, i) => z.replaceWith(document.importNode(nuevas[i], true)));
+                history.replaceState(history.state, '', url.href);
+                if (typeof window.apTrasBuscar === 'function') window.apTrasBuscar();
+            })
+            .catch(() => { if (n === _apPedido) _apRecargar(url); })
+            .finally(() => {
+                if (n === _apPedido) document.querySelectorAll('.ap-search-box').forEach(b => b.classList.remove('ap-buscando'));
+            });
+    }
+    // Si recargó, el cursor vuelve al cuadro, al final de lo escrito.
+    document.addEventListener('DOMContentLoaded', function(){
+        let p = null;
+        try { p = sessionStorage.getItem(CLAVE_FOCO); sessionStorage.removeItem(CLAVE_FOCO); } catch (e) {}
+        if (p !== location.pathname) return;
+        const input = document.querySelector('.ap-search-box input');
+        if (!input) return;
+        input.focus();
+        const fin = input.value.length;
+        try { input.setSelectionRange(fin, fin); } catch (e) {}
+    });
     window.apBuscar = function(input){
         const box = input.closest('.ap-search-box');
         if (box) box.classList.toggle('has-value', input.value.trim() !== '');
         // Si la caja está marcada "solo Enter", no buscar mientras se escribe.
         if (input.dataset.searchOnEnter === '1') return;
         clearTimeout(_apTimer);
-        _apTimer = setTimeout(() => _apGo(input.value), 450);
+        // En vivo alcanza con una pausa corta; si hay que recargar, se espera más.
+        const enVivo = !!document.querySelector('[data-ap-vivo][id]');
+        _apTimer = setTimeout(() => _apGo(input.value), enVivo ? 400 : 1000);
     };
     window.apBuscarEnter = function(input, ev){
         if (ev.key === 'Enter'){ ev.preventDefault(); clearTimeout(_apTimer); _apGo(input.value); }
@@ -62,6 +128,55 @@
         const input = box ? box.querySelector('input') : null;
         if (input){ input.value=''; } _apGo('');
     };
+})();
+
+/* ───── Aviso al medio: apAviso('Gasto guardado.') ─────
+   Lo usa el flash de éxito de header.php y lo puede llamar cualquier pantalla. */
+window.apAviso = function(texto, tipo){
+    const t = document.createElement('div');
+    t.className = 'ap-toast' + (tipo === 'error' ? ' error' : '');
+    t.setAttribute('role', 'status');
+    t.setAttribute('aria-live', 'polite');
+    t.innerHTML = '<i class="fas ' + (tipo === 'error' ? 'fa-exclamation-circle' : 'fa-check-circle') + '"></i><span></span>';
+    t.querySelector('span').textContent = texto;
+    document.body.appendChild(t);
+    requestAnimationFrame(() => t.classList.add('visible'));
+    setTimeout(() => { t.classList.remove('visible'); setTimeout(() => t.remove(), 250); }, 1800);
+};
+document.addEventListener('DOMContentLoaded', function(){
+    const f = document.getElementById('apFlashAviso');
+    if (f) window.apAviso(f.dataset.texto || '', 'ok');
+});
+
+/* ───── Formularios en modales: no cerrarlos sin querer ─────
+   Tocar afuera de un modal lo cerraba y se perdía lo cargado. Ahora:
+   - si se tocó algo adentro (data-sucio, sólo con eventos del usuario: los que
+     dispara el código al abrir no cuentan), pregunta antes de cerrar;
+   - si el clic empezó adentro y terminó afuera (seleccionar texto arrastrando,
+     muy común en el celular), no cierra.
+   El estado se limpia al cerrarse el modal. Uso: if (apPuedeCerrar(modal)) cerrar(); */
+(function(){
+    let bajoEn = null;
+    document.addEventListener('pointerdown', e => { bajoEn = e.target; }, true);
+    function marcar(e){
+        if (!e.isTrusted || !e.target.closest) return;
+        const m = e.target.closest('.modal-wrapper');
+        if (m) m.dataset.sucio = '1';
+    }
+    document.addEventListener('input', marcar, true);
+    document.addEventListener('change', marcar, true);
+    window.apPuedeCerrar = function(modal){
+        if (!modal) return true;
+        if (bajoEn && bajoEn !== modal) return false;
+        if (!modal.dataset.sucio) return true;
+        return confirm('¿Seguro que querés cerrar? Lo que cargaste en el formulario se pierde.');
+    };
+    function visible(m){ return m.style.display !== 'none' && getComputedStyle(m).display !== 'none'; }
+    const obs = new MutationObserver(lista => {
+        lista.forEach(r => { if (!visible(r.target)) delete r.target.dataset.sucio; });
+    });
+    document.querySelectorAll('.modal-wrapper').forEach(m =>
+        obs.observe(m, { attributes: true, attributeFilter: ['style', 'class'] }));
 })();
 </script>
 <?php if(isset($scripts)) echo $scripts; ?>

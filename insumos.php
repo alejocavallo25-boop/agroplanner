@@ -1632,8 +1632,8 @@ function tipoBadge($tipo) {
             <label for="impMoneda" class="imp-campo">
                 <span>Los precios del comprobante están en</span>
                 <select id="impMoneda" onchange="impCambiarMoneda(this.value)">
-                    <option value="ARS">$ pesos</option>
                     <option value="USD">US$ dólares</option>
+                    <option value="ARS">$ pesos</option>
                 </select>
             </label>
             <label for="impDepGlobal" class="imp-campo">
@@ -1711,7 +1711,7 @@ function tipoBadge($tipo) {
             <?php /* La moneda del comprobante. Sin esto el servidor no sabe si el
                      precio que llega son pesos o dólares, y el catálogo guarda
                      siempre dólares. */ ?>
-            <input type="hidden" name="moneda" id="impMonedaJson" value="ARS">
+            <input type="hidden" name="moneda" id="impMonedaJson" value="USD">
             <div id="impCcHidden"></div>
         </form>
     </div>
@@ -1787,8 +1787,10 @@ function closeModal() {
 }
 
 window.addEventListener('click', e => {
-    if (e.target === modal) closeModal();
-    if (e.target === document.getElementById('depositoModal')) closeDepModal();
+    // Con datos tocados, pregunta antes de cerrar (apPuedeCerrar, footer.php).
+    if (e.target === modal && window.apPuedeCerrar(modal)) closeModal();
+    const dep = document.getElementById('depositoModal');
+    if (e.target === dep && window.apPuedeCerrar(dep)) closeDepModal();
 });
 
 // ─── ORDEN POR SERVIDOR ─────────────────────────────────────────────────────
@@ -3197,12 +3199,13 @@ function impMostrarResultado(resp) {
 
     IMP.datos = resp;
     IMP.cotizacion = Number(resp.cotizacion) || 0;
-    IMP.moneda = 'ARS';
-    document.getElementById('impMoneda').value = 'ARS';
+    // Por defecto en dólares, como el resto de las cargas.
+    IMP.moneda = 'USD';
+    document.getElementById('impMoneda').value = 'USD';
     // El encabezado tiene que decir la moneda desde el arranque, no recién
     // cuando alguien toca el selector: es el dato que evita cargar pesos
     // creyendo que son dólares.
-    document.getElementById('impThPrecio').textContent = 'Precio $';
+    document.getElementById('impThPrecio').textContent = 'Precio US$';
     IMP.items = resp.items.map(it => Object.assign({}, it, {
         incluir: true,
         // Si se parece a algo que ya está en el inventario, la propuesta por
@@ -3232,6 +3235,16 @@ function impMostrarResultado(resp) {
         impCambiarMoneda('USD');
         aviso.textContent = (aviso.textContent ? aviso.textContent + ' ' : '') +
             'El comprobante dice que está en dólares, así que elegí US$. Si no es así, cambialo arriba.';
+        aviso.hidden = false;
+    } else if (sugerida === 'ARS') {
+        document.getElementById('impMoneda').value = 'ARS';
+        impCambiarMoneda('ARS');
+        aviso.textContent = (aviso.textContent ? aviso.textContent + ' ' : '') +
+            'El comprobante dice que está en pesos, así que elegí $. Si no es así, cambialo arriba.';
+        aviso.hidden = false;
+    } else {
+        aviso.textContent = (aviso.textContent ? aviso.textContent + ' ' : '') +
+            'Los precios se toman en dólares. Si el comprobante está en pesos, cambialo arriba.';
         aviso.hidden = false;
     }
 

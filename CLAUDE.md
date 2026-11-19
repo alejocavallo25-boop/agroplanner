@@ -75,12 +75,30 @@ consulta filtra por `usuario_id` de la sesión.
 - **Guardar, editar y borrar un gasto pasa por `includes/carga_lotes.php`**
   (`operacion_insertar`, `operacion_costo`, `operacion_borrar`). No volver a
   copiar la cuenta del costo ni el descuento de stock en otra pantalla.
+- **Receta: la labor va sobre las ha aplicadas** (editable; sigue a las
+  aplicadas hasta que se toca). Antes iba fija sobre el lote entero. La receta
+  impresa (`api/pdf_receta.php`, `excel_receta.php`) sale de `receta_titulo()`
+  y `receta_numeros()` con lo guardado: no recalcular con la superficie.
+- Después de guardar/borrar se vuelve con los filtros (`volver` → `ops_volver()`,
+  lista blanca). El filtro de lote acepta varios (`lote_id=1,2`). Moneda por
+  defecto de toda carga nueva: USD. `observaciones` depende de migración:
+  `operaciones_tiene_columna()` (con `quote()`: `SHOW ... LIKE ?` falla con
+  prepares nativos y la columna "no existía").
 - **Para varios lotes hay un solo camino: "Repartir en varios lotes"** del
   formulario. Hubo una planilla aparte (`carga_lotes.php`) y se sacó: hacía lo
   mismo y confundía. Para quien tiene muchos lotes, la lista tiene botones por
   cultivo actual (tildan todos esos lotes), buscador y "ver sólo los elegidos";
   "Todos/Ninguno" actúan sobre lo que se ve. La tabla `plantillas_labor` quedó
   en la base sin uso.
+
+## Común a todas las pantallas (`includes/footer.php`)
+
+- Un `set_flash('success', …)` se muestra como aviso al medio ~2 s
+  (`apAviso`); los errores siguen como cartel. Todo guardar/borrar lleva flash.
+- Clic afuera de un modal: `if (apPuedeCerrar(modal)) cerrar();` — pregunta si
+  se tocó algo adentro, y no cierra si el clic empezó adentro.
+- Buscador: las zonas con `data-ap-vivo` + id se reemplazan por fetch sin
+  recargar (hoy sólo `operaciones.php`); sin zonas, recarga y devuelve el foco.
 
 ## Stock (`insumos.php`)
 

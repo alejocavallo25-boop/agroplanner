@@ -196,12 +196,20 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
             $color = $flash['type'] === 'success' ? 'var(--accent)' : '#ef4444';
             $border = $flash['type'] === 'success' ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)';
             $icon = $flash['type'] === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle';
+            /* Un éxito se avisa al medio de la pantalla, un par de segundos
+               (apAviso, en footer.php): el cartel de acá arriba no se veía y un
+               cliente sentía que guardaba y no quedaba. Los errores siguen como
+               cartel fijo: ésos hay que poder leerlos con calma. */
+            if ($flash['type'] === 'success'):
     ?>
+    <div id="apFlashAviso" hidden data-texto="<?= htmlspecialchars($flash['message']) ?>"></div>
+    <?php else: ?>
     <div style="background:<?= $bg ?>; color:<?= $color ?>; padding:12px 20px; border-radius:10px; border:1px solid <?= $border ?>; margin-bottom:20px; font-size:.95rem; display: flex; align-items: center; gap: 10px;">
         <i class="fas <?= $icon ?>"></i>
         <?= htmlspecialchars($flash['message']) ?>
     </div>
-    <?php 
+    <?php
+            endif;
         endif;
     }
     ?>

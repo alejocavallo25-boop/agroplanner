@@ -143,6 +143,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     } elseif ($_POST['action'] === 'delete_egreso') {
         $pdo->prepare("DELETE FROM tambo_egresos WHERE id=? AND usuario_id=?")
             ->execute([$_POST['id'], $usuario_id]);
+        set_flash('success', 'Egreso eliminado.');
         header('Location: tambo_egresos.php'); exit;
     } elseif ($_POST['action'] === 'replicar_mes') {
         $mes_destino = $_POST['mes_destino'];
@@ -712,13 +713,14 @@ $total_general_mes = $total_mes_ars; // Asumimos ARS para la matriz principal
                 <div class="form-group">
                     <label for="inputMoneda">Moneda</label>
                     <div class="moneda-toggle">
-                        <button type="button" class="moneda-btn active-ars" id="btnArs" onclick="setMoneda('ARS')">🇦🇷 ARS</button>
-                        <button type="button" class="moneda-btn"            id="btnUsd" onclick="setMoneda('USD')">🇺🇸 USD</button>
+                        <button type="button" class="moneda-btn"            id="btnArs" onclick="setMoneda('ARS')">🇦🇷 ARS</button>
+                        <button type="button" class="moneda-btn active-usd" id="btnUsd" onclick="setMoneda('USD')">🇺🇸 USD</button>
                     </div>
-                    <input type="hidden" name="moneda" id="inputMoneda" value="ARS">
+                    <?php /* Una carga nueva arranca en dólares (pedido de los productores). */ ?>
+                    <input type="hidden" name="moneda" id="inputMoneda" value="USD">
                 </div>
                 <div class="form-group">
-                    <label for="inputMontoVisible">Monto total <span id="signoMoneda" style="color:var(--mod-tambo);">(ARS)</span></label>
+                    <label for="inputMontoVisible">Monto total <span id="signoMoneda" style="color:var(--mod-tambo);">(USD)</span></label>
                     <input type="text" inputmode="decimal" class="format-number" id="inputMontoVisible" placeholder="0.00" oninput="syncMonto(this.value)" required>
                 </div>
             </div>
@@ -894,7 +896,7 @@ function openAddModal() {
     ['wrapSub','wrapSubLibre','wrapConc','wrapConcLibre'].forEach(reset);
     document.getElementById('calcPreview').classList.remove('show');
     document.getElementById('hiddenMonto').value = '';
-    setMoneda('ARS');
+    setMoneda('USD');
     document.getElementById('addEgresoModal').style.display = 'flex';
     document.body.classList.add('modal-open');
 }
@@ -1268,7 +1270,7 @@ function editarEgreso(id, fecha, cat, sub, conc, cantidad, unidad, precioU, mont
 }
 
 /* ── FORM LOGIC ── */
-let monedaActual = 'ARS';
+let monedaActual = 'USD';
 function setMoneda(m) {
     monedaActual = m;
     document.getElementById('inputMoneda').value = m;
@@ -1518,8 +1520,9 @@ function validarForm() { if(!getEl('hiddenMonto').value && !getEl('inputMontoVis
 window.onclick = function(event) {
     const m1 = document.getElementById('addEgresoModal');
     const m2 = document.getElementById('modalConcepto');
-    if (event.target == m1) closeAddModal();
-    if (event.target == m2) cerrarModalConcepto();
+    // Con datos tocados, pregunta antes de cerrar (apPuedeCerrar, footer.php).
+    if (event.target == m1 && window.apPuedeCerrar(m1)) closeAddModal();
+    if (event.target == m2 && window.apPuedeCerrar(m2)) cerrarModalConcepto();
 }
 </script>
 

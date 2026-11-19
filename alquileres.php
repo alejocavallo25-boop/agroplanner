@@ -970,7 +970,7 @@ require_once 'includes/header.php';
 
     window.addEventListener('click', e => {
         const modal = document.getElementById('alqModal');
-        if (e.target === modal) closeAlqModal();
+        if (e.target === modal && window.apPuedeCerrar(modal)) closeAlqModal();
     });
 
     /* ─── Calculadora de referencia ─── */
