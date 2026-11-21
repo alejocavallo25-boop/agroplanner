@@ -139,6 +139,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 if (count($partes) === 2) { $d['campania'] = trim($partes[0]); $d['cultivo'] = trim($partes[1]); }
                 else                      { $d['cultivo'] = trim($d['cultivo_info']); }
             }
+        }
+        unset($d);
+
+        /* Todo gasto va imputado a un lote Y a una campaña: un gasto sin campaña
+           no entra en el margen de ninguna y el productor no lo encuentra al
+           filtrar. El formulario ya lo pide; esto es por si llega igual. */
+        $sin_campania = array_filter($destinos, fn($d) => (string)$d['campania'] === '');
+        if ($sin_campania) {
+            $nombres = $pdo->prepare("SELECT nombre FROM lotes WHERE id = ? AND usuario_id = ?");
+            $lista = array_map(function ($d) use ($nombres, $usuario_id) {
+                $nombres->execute([$d['lote_id'], $usuario_id]);
+                return $nombres->fetchColumn() ?: ('lote ' . $d['lote_id']);
+            }, $sin_campania);
+            set_flash('error', 'No se guardó: elegí la campaña de ' . implode(', ', $lista)
+                . '. Si el lote no tiene ninguna, asignásela primero en Lotes.');
+            header('Location: ' . ops_volver()); exit;
+        }
+
+        foreach ($destinos as &$d) {
             // Cultivo canónico (find-or-create). El texto se sigue guardando como snapshot.
             $d['cultivo_id'] = cultivo_resolve($pdo, $usuario_id, $d['lote_id'], $d['cultivo'], $d['campania']);
             if (!$con_labor) $d['cant_ha'] = 0;
@@ -467,6 +486,8 @@ function colorGrupo($g) {
 .filter-select { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--n-100); color: var(--text-primary); font-size: 0.85rem; cursor: pointer; min-width: 160px; }
 .filter-select:focus { outline: none; border-color: var(--accent); }
 /* Filtro de varios lotes */
+.aviso-sin-campania { color: var(--danger); font-size: .8rem; line-height: 1.4; }
+.aviso-sin-campania a { color: inherit; font-weight: 600; text-decoration: underline; }
 .op-obs { margin-top: 4px; font-size: .78rem; color: var(--text-muted); line-height: 1.35; max-width: 340px; white-space: normal; }
 .op-obs i { opacity: .7; margin-right: 2px; }
 .flt-lotes { position: relative; }
@@ -924,11 +945,16 @@ function colorGrupo($g) {
 
             <!-- Campaña / Cultivo -->
             <div id="cultivoWrap" style="display: flex; flex-direction: column; gap: 5px;">
-                <label for="cultivoSelect">Campaña / Cultivo Actual</label>
-                <select name="form_cultivo" id="cultivoSelect"
+                <label for="cultivoSelect">Campaña / Cultivo <span style="color:var(--danger);">*</span></label>
+                <?php /* Obligatoria: un gasto sin campaña no entra en el margen de ninguna. */ ?>
+                <select name="form_cultivo" id="cultivoSelect" required
                     style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-color); color: var(--text-primary);">
                     <option value="">-- Seleccionar primero un lote --</option>
                 </select>
+                <small id="cultivoSinCampania" class="aviso-sin-campania" hidden>
+                    <i class="fas fa-exclamation-triangle"></i> Este lote no tiene ninguna campaña.
+                    Asignásela en <a href="lotes.php">Lotes</a> antes de cargarle un gasto.
+                </small>
             </div>
 
             <?php /* Moneda del gasto. Se guarda la que se pagó y la conversión se
@@ -1296,7 +1322,10 @@ function cultivoOpciones(loteId) {
 function updateCultivos(preselect) {
     const loteId = document.getElementById('loteSelect').value;
     const sel    = document.getElementById('cultivoSelect');
-    sel.innerHTML = '<option value="">-- General / Sin Cultivo Específico --</option>';
+    const aviso  = document.getElementById('cultivoSinCampania');
+    // La campaña es obligatoria: ya no hay opción "sin cultivo específico".
+    sel.innerHTML = '<option value="">' + (loteId ? '-- Elegí la campaña --' : '-- Seleccionar primero un lote --') + '</option>';
+    if (aviso) aviso.hidden = true;
     if (loteId) {
         let options = cultivoOpciones(loteId);
 
@@ -1316,6 +1345,7 @@ function updateCultivos(preselect) {
         if (!preselect && options.length === 1 && !window.isEditingMode) {
             sel.value = options[0].c + ' | ' + options[0].cult;
         }
+        if (aviso) aviso.hidden = options.length > 0;
     }
 }
 
@@ -1362,8 +1392,8 @@ function renderMultiLotes() {
                     <span>ha</span>
                 </span>
             </div>
-            <select name="multi_cultivo[${l.id}]" aria-label="Campaña y cultivo de ${escHtml(l.nombre)}">
-                <option value="">-- General / Sin Cultivo Específico --</option>${cults}
+            <select name="multi_cultivo[${l.id}]" class="ml-campania" aria-label="Campaña y cultivo de ${escHtml(l.nombre)}">
+                <option value="">${opciones.length ? '-- Elegí la campaña --' : '-- Sin campaña: asignala en Lotes --'}</option>${cults}
             </select>
         </div>`;
     }).join('');
@@ -1469,6 +1499,7 @@ function aplicarModoMulti() {
     }
     // El lote, el cultivo y las hectáreas pasan a ser de cada fila de la lista.
     document.getElementById('loteSelect').required = !multi;
+    document.getElementById('cultivoSelect').required = !multi;
     document.getElementById('loteSimpleWrap').style.display     = multi ? 'none' : 'flex';
     document.getElementById('cultivoWrap').style.display        = multi ? 'none' : 'flex';
     document.getElementById('divHectareasInsumo').style.display = multi ? 'none' : 'flex';
@@ -1485,6 +1516,17 @@ function validarMultiLote() {
     if (esMulti() && multiLotesElegidos().length === 0) {
         alert('Tildá al menos un lote para repartir el gasto.');
         return false;
+    }
+    // Cada lote tildado tiene que ir con su campaña.
+    if (esMulti()) {
+        const sinCamp = [...document.querySelectorAll('.multi-lote-row')]
+            .filter(r => r.querySelector('.ml-check').checked && !r.querySelector('.ml-campania').value)
+            .map(r => r.querySelector('.ml-nombre-txt b').textContent);
+        if (sinCamp.length) {
+            alert('Falta la campaña de: ' + sinCamp.join(', ') +
+                  '.\nSi un lote no tiene ninguna, asignásela primero en Lotes.');
+            return false;
+        }
     }
     return true;
 }

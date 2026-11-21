@@ -79,6 +79,9 @@ consulta filtra por `usuario_id` de la sesión.
   aplicadas hasta que se toca). Antes iba fija sobre el lote entero. La receta
   impresa (`api/pdf_receta.php`, `excel_receta.php`) sale de `receta_titulo()`
   y `receta_numeros()` con lo guardado: no recalcular con la superficie.
+- **Todo gasto va con lote y campaña**: el formulario lo pide y el servidor lo
+  rechaza igual (también por varios lotes). El chat (`api/registrar.php`) usa
+  la campaña dicha o la actual del lote; sin ninguna, no guarda.
 - Después de guardar/borrar se vuelve con los filtros (`volver` → `ops_volver()`,
   lista blanca). El filtro de lote acepta varios (`lote_id=1,2`). Moneda por
   defecto de toda carga nueva: USD. `observaciones` depende de migración:

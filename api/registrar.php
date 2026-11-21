@@ -200,16 +200,25 @@ if (!$lotes_in) {
     $errores[] = 'falta el lote';
 } else {
     $ph = implode(',', array_fill(0, count($lotes_in), '?'));
-    $st = $pdo->prepare("SELECT id, nombre, superficie FROM lotes
+    $st = $pdo->prepare("SELECT id, nombre, superficie, campania FROM lotes
                           WHERE id IN ($ph) AND usuario_id = ?");
     $st->execute(array_merge($lotes_in, [$usuario_id]));
     foreach ($st->fetchAll() as $row) {
+        /* Todo gasto va imputado a una campaña: la que dijo el chat o, si no
+           dijo, la actual del lote. Sin ninguna de las dos no se guarda (igual
+           que el formulario de operaciones.php). */
         $destinos[] = ['id' => (int)$row['id'], 'nombre' => $row['nombre'],
-                       'sup' => (float)$row['superficie']];
+                       'sup' => (float)$row['superficie'],
+                       'campania' => trim($campania) !== '' ? trim($campania) : trim((string)$row['campania'])];
     }
     if (count($destinos) !== count($lotes_in)) {
         $errores[] = count($lotes_in) === 1 ? 'el lote no existe o no es tuyo'
                                             : 'alguno de los lotes no existe o no es tuyo';
+    }
+    $sin_campania = array_column(array_filter($destinos, fn($d) => $d['campania'] === ''), 'nombre');
+    if ($sin_campania) {
+        $errores[] = (count($sin_campania) === 1 ? 'el lote ' : 'los lotes ') . implode(', ', $sin_campania)
+                   . ' no tiene' . (count($sin_campania) === 1 ? '' : 'n') . ' campaña (asignala en Lotes)';
     }
 }
 
@@ -367,7 +376,7 @@ try {
             $op_precio  = $d['precio_ha'];
         }
         $stmt->execute([$usuario_id, $d['id'], $grupo, $tipo_db, $d['monto'], $moneda, $fecha,
-                        $campania ?: null, 'Cargado desde el chat',
+                        $d['campania'], 'Cargado desde el chat',
                         $tipo === 'insumo' ? null : $detalle,
                         $op_cant_ha,
                         $op_precio,
