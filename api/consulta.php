@@ -67,8 +67,11 @@ if (!empty($_GET['alta'])) {
         $limpio = [];
         // Qué se está cargando: un gasto de una operación o un insumo del catálogo.
         if (isset($a['que'])) {
-            $limpio['que'] = in_array($a['que'], ['insumo','alquiler','venta'], true) ? $a['que'] : 'gasto';
+            $limpio['que'] = in_array($a['que'], ['insumo','alquiler','venta','nota'], true) ? $a['que'] : 'gasto';
         }
+
+        // ── Casillero de la nota del lote (el lote viaja en lote_id, más abajo) ──
+        if (isset($a['texto'])) $limpio['texto'] = mb_substr(trim((string)$a['texto']), 0, 2000);
 
         // ── Casilleros de la entrega vendida ──
         // El ingreso no viaja: lo calcula la base al guardar (columna generada).

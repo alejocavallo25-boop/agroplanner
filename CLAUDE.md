@@ -94,6 +94,17 @@ consulta filtra por `usuario_id` de la sesión.
   "Todos/Ninguno" actúan sobre lo que se ve. La tabla `plantillas_labor` quedó
   en la base sin uso.
 
+## Notas del lote (`includes/lote_notas.php`)
+
+- Libreta por lote en `lotes.php` (tabla `lote_notas`): fecha, texto y la
+  campaña que tenía el lote al anotar. Aparte de las `observaciones` de un
+  gasto. Sin la tabla, el botón no aparece (`lote_notas_lista()`).
+- Desde el chat: "quiero guardar una nota / una observación" → alta `que=nota`
+  (`motor_alta_nota`, lote y texto) → `api/registrar_nota.php`. Mientras
+  escribe el texto, la frase es la nota: no corrige ni cancela (`$escribeNota`).
+  Un `que` nuevo hay que sumarlo también a la lista de `api/consulta.php`, o
+  vuelve como "gasto" a mitad de la charla.
+
 ## Común a todas las pantallas (`includes/footer.php`)
 
 - Un `set_flash('success', …)` se muestra como aviso al medio ~2 s

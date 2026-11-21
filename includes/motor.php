@@ -1456,7 +1456,13 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
            de Costos y Labores siempre ofreció todos; acá faltaba. */
         $lotes = motor_lotes_del_usuario($pdo, $usuarioId) ?: $lotes;
 
-        if (motor_alta_cancelada($texto)) {
+        /* Escribiendo el texto de una nota, la frase ES la nota: "nada de malezas"
+           no cancela y "cambiar el alambrado del lote" no corrige el lote. Sólo
+           una frase corta de cancelar ("cancelar", "dejalo") corta. */
+        $escribeNota = is_array($enCurso) && ($enCurso['que'] ?? '') === 'nota'
+                    && motor_alta_paso_pendiente($enCurso) === 'texto';
+
+        if (motor_alta_cancelada($texto) && (!$escribeNota || str_word_count($texto) <= 2)) {
             return [
                 'ok' => true, 'tipo' => 'alta_cancelada',
                 'respuesta' => 'Listo, lo dejamos. No guardé nada.',
@@ -1504,7 +1510,7 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
         /* Corregir un casillero. Va antes del reparto por tipo de alta para que
            valga en los cuatro formularios: se vacía el casillero y el paso a
            paso lo vuelve a preguntar solo, sin tocar el resto de lo cargado. */
-        $corregir = motor_alta_pide_correccion($texto, $slots['que'], $slots);
+        $corregir = $escribeNota ? null : motor_alta_pide_correccion($texto, $slots['que'], $slots);
         /* Lo que se le antepone a la próxima pregunta cuando esta vuelta no fue una
            respuesta sino una charla sobre la carga ("era un dato anterior"). */
         $avisoPaso = '';
@@ -1515,7 +1521,7 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
         /* "Era un dato anterior": no se toca nada, se sigue desde donde estaba y se
            le dice dónde lo va a poder arreglar. No se interpreta la frase como
            respuesta del paso: en "¿qué insumo fue?" se anotaría como un insumo. */
-        if (is_array($enCurso) && ($corregir === null || $corregir === '') && $previo['pendiente']
+        if (is_array($enCurso) && !$escribeNota && ($corregir === null || $corregir === '') && $previo['pendiente']
             && motor_alta_dato_anterior($texto)) {
             $avisoPaso = 'Dale, sigamos. Al final, antes de guardar, te muestro todo junto '
                        . 'y con "Corregir" cambiás ese dato.';
@@ -1641,6 +1647,9 @@ function motor_responder(PDO $pdo, int $usuarioId, string $pregunta, array $cont
         }
         if ($slots['que'] === 'venta') {
             return $conAviso(motor_alta_venta($pdo, $usuarioId, $slots, $texto, $pregunta, $interpretar, $lotes, $campania));
+        }
+        if ($slots['que'] === 'nota') {
+            return $conAviso(motor_alta_nota($pdo, $usuarioId, $slots, $texto, $pregunta, $interpretar, $lotes, !is_array($enCurso)));
         }
 
         $pasos = motor_alta_pasos();
@@ -3906,6 +3915,12 @@ function motor_alta_campos(string $que = 'gasto'): array {
             'fecha_pago'       => $fecha,
         ];
     }
+    if ($que === 'nota') {
+        return [
+            'lote_id' => ['etiqueta' => 'el lote',  'sinonimos' => ['lote','campo']],
+            'texto'   => ['etiqueta' => 'la nota',  'sinonimos' => ['nota','texto','observacion','lo que dice']],
+        ];
+    }
     if ($que === 'venta') {
         return [
             'lote_id'     => ['etiqueta' => 'el lote',      'sinonimos' => ['lote','campo']],
@@ -4049,6 +4064,7 @@ function motor_alta_pasos(string $que = 'gasto'): array {
     if ($que === 'insumo')   return motor_alta_pasos_insumo();
     if ($que === 'alquiler') return motor_alta_pasos_alquiler();
     if ($que === 'venta')    return motor_alta_pasos_venta();
+    if ($que === 'nota')     return motor_alta_pasos_nota();
     return [
         'grupo_gasto' => [
             'pregunta' => '¿En qué gastaste?',
@@ -4341,6 +4357,22 @@ function motor_alta_pasos_venta(): array {
             'pregunta' => '¿Cuándo fue la entrega?',
             'ayuda'    => 'Podés decir hoy, ayer, o una fecha como 14 de agosto.',
             'opciones' => ['Hoy', 'Ayer'],
+        ],
+    ];
+}
+
+/** Una nota del lote (la libreta de lotes.php): de qué lote y qué dice. */
+function motor_alta_pasos_nota(): array {
+    return [
+        'lote_id' => [
+            'pregunta' => '¿De qué lote es la nota?',
+            'ayuda'    => '',
+            'opciones' => [],   // se completan con los lotes del productor
+        ],
+        'texto' => [
+            'pregunta' => '¿Qué querés anotar?',
+            'ayuda'    => 'Escribilo como te salga, por ejemplo: malezas en la cabecera norte.',
+            'opciones' => [],
         ],
     ];
 }
@@ -5042,6 +5074,88 @@ function motor_alta_alquiler(PDO $pdo, int $usuarioId, array $slots, string $tex
             'campania'         => $camp,
             'monto_pagado'     => $slots['monto_pagado'],
             'fecha_pago'       => $slots['fecha_pago'],
+        ],
+        'alta_pendiente' => null,
+        'filtros' => [], 'link' => null, 'sugerencias' => [],
+    ];
+}
+
+/**
+ * Una nota del lote, de punta a punta (la libreta de lotes.php; se guarda por
+ * api/registrar_nota.php). Dos datos: el lote y el texto. La fecha es la de hoy
+ * y la campaña la pone el servidor: la que tiene el lote al anotar.
+ *
+ * Con la primera frase ya se aprovecha lo que traiga: "guardá una nota en La
+ * Loma: hay malezas en la cabecera" llega directo a la confirmación. El texto se
+ * toma de lo que va después de los dos puntos, tal cual lo escribió (con sus
+ * mayúsculas), no de la frase normalizada.
+ */
+function motor_alta_nota(PDO $pdo, int $usuarioId, array $slots, string $texto, string $original,
+                         bool $enCurso, array $lotes, bool $primera): array {
+    require_once __DIR__ . '/lote_notas.php';
+    if (!lote_notas_lista($pdo)) {
+        return [
+            'ok' => false, 'tipo' => 'falta_dato',
+            'respuesta' => 'Las notas del lote todavía no están habilitadas.',
+            'detalle' => '', 'valor' => null, 'alta_pendiente' => null,
+            'filtros' => [], 'link' => null, 'sugerencias' => [],
+        ];
+    }
+    if (!$lotes) {
+        return [
+            'ok' => false, 'tipo' => 'falta_dato',
+            'respuesta' => 'Todavía no tenés lotes cargados, así que no tengo dónde anotar la nota.',
+            'detalle' => 'Creá un lote desde Lotes y después anotale lo que quieras.',
+            'valor' => null, 'alta_pendiente' => null,
+            'filtros' => [], 'link' => 'lotes.php', 'sugerencias' => [],
+        ];
+    }
+
+    if ($primera) {
+        $l = motor_detectar_lote($texto, $lotes);
+        if ($l) $slots['lote_id'] = (int)$l['id'];
+        $pos = mb_strpos($original, ':');
+        if ($pos !== false) {
+            $resto = trim(mb_substr($original, $pos + 1));
+            if (mb_strlen($resto) >= 2) $slots['texto'] = mb_substr($resto, 0, 2000);
+        }
+    } elseif ($enCurso) {
+        $pend = motor_alta_paso_pendiente($slots);
+        if ($pend === 'lote_id') {
+            $l = motor_detectar_lote($texto, $lotes);
+            if ($l) $slots['lote_id'] = (int)$l['id'];
+        } elseif ($pend === 'texto') {
+            $t = trim($original);
+            if (mb_strlen($t) >= 2) $slots['texto'] = mb_substr($t, 0, 2000);
+        }
+    }
+
+    $nombreLote = '';
+    foreach ($lotes as $l) if ((int)$l['id'] === (int)($slots['lote_id'] ?? 0)) $nombreLote = $l['nombre'];
+
+    foreach (motor_alta_pasos_nota() as $campo => $paso) {
+        if (isset($slots[$campo])) continue;
+        return [
+            'ok' => true, 'tipo' => 'alta_paso',
+            'respuesta' => $paso['pregunta'],
+            'detalle' => trim(($nombreLote !== '' ? 'Lote: ' . $nombreLote . '. ' : '') . $paso['ayuda']),
+            'valor' => null,
+            'alta_pendiente' => $slots,
+            'filtros' => [], 'link' => null,
+            'sugerencias' => $campo === 'lote_id' ? array_map(fn($l) => $l['nombre'], $lotes) : [],
+        ];
+    }
+
+    return [
+        'ok' => true, 'tipo' => 'propuesta_alta',
+        'respuesta' => 'Listo. ¿La guardo así?',
+        'detalle' => "Lote: $nombreLote\nFecha: " . date('d/m/Y') . "\nNota: " . $slots['texto'],
+        'valor' => null,
+        'alta' => [
+            'que'     => 'nota',
+            'lote_id' => (int)$slots['lote_id'],
+            'texto'   => $slots['texto'],
+            'fecha'   => date('Y-m-d'),
         ],
         'alta_pendiente' => null,
         'filtros' => [], 'link' => null, 'sugerencias' => [],
@@ -6170,6 +6284,16 @@ function motor_tema_sin_datos(string $t): ?array {
 function motor_pide_alta_guiada(string $t, string $original = ''): ?string {
     // Una pregunta de consejo nunca es una orden de cargar.
     if (motor_es_consulta_de_consejo($t)) return null;
+    /* Una nota del lote ("quiero guardar una nota", "anotá una observación en La
+       Loma"). Va primero: "quiero anotar" solo es el arranque de un gasto, y con
+       la palabra nota u observación es otra cosa. Palabra entera: "anotar" no
+       contiene "nota" como palabra. Una pregunta ("qué notas tengo") no carga. */
+    if (preg_match('/(^|\s)(nota|notas|observacion|observaciones)(\s|$)/u', $t)
+        && preg_match('/(guarda|guardar|anota|anotar|carga|cargar|agrega|agregar|registra|registrar|'
+                    . 'quiero|nueva|deja|dejar|escribi|escribir|hace|hacer|toma|tomar)/u', $t)
+        && !preg_match('/^(que|cuales|cuantas|donde|como|cuando|mostra|mostrame|ver)\b/u', $t)) {
+        return 'nota';
+    }
     /* La venta, el alquiler y el insumo se miran PRIMERO. "cargar un insumo"
        contiene "cargar", así que con el orden al revés todas esas altas arrancaban
        como si fueran un gasto. */

@@ -43,11 +43,11 @@
 -- que es de MariaDB: en MySQL 8 falla. Si dice MySQL, pará acá.
 SELECT VERSION() AS motor, DATABASE() AS base;
 
--- Cuántas de las 40 tablas esperadas ya existen.
-SELECT COUNT(*) AS tablas_presentes, 40 AS tablas_esperadas
+-- Cuántas de las 41 tablas esperadas ya existen.
+SELECT COUNT(*) AS tablas_presentes, 41 AS tablas_esperadas
 FROM information_schema.TABLES
 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'
-  AND TABLE_NAME IN ('users', 'cultivos', 'lotes', 'depositos', 'alquileres', 'asesor_clientes', 'cc_movimientos', 'cotizaciones_siogranos', 'feedlot_alimentos', 'feedlot_costos_fijos', 'feedlot_lotes', 'ganaderia_egresos', 'ganaderia_egresos_conceptos', 'ganaderia_inventario', 'ganaderia_movimientos', 'ganaderia_pesadas', 'ganaderia_reproductivo', 'ia_uso', 'insumos', 'login_intentos', 'lote_historial_campanas', 'motor_consultas_fallidas', 'motor_preferencias', 'operacion_insumos', 'operaciones', 'plantillas_labor', 'presupuesto_items', 'presupuesto_ofertas', 'presupuesto_pedidos', 'presupuesto_precios', 'produccion_ventas', 'proveedores', 'tambo_calidad', 'tambo_dif_inventario', 'tambo_dolar_mes', 'tambo_egresos', 'tambo_egresos_conceptos', 'tambo_produccion', 'tambo_rodeo', 'tambo_ventas_carne');
+  AND TABLE_NAME IN ('users', 'cultivos', 'lotes', 'depositos', 'alquileres', 'asesor_clientes', 'cc_movimientos', 'cotizaciones_siogranos', 'feedlot_alimentos', 'feedlot_costos_fijos', 'feedlot_lotes', 'ganaderia_egresos', 'ganaderia_egresos_conceptos', 'ganaderia_inventario', 'ganaderia_movimientos', 'ganaderia_pesadas', 'ganaderia_reproductivo', 'ia_uso', 'insumos', 'login_intentos', 'lote_historial_campanas', 'lote_notas', 'motor_consultas_fallidas', 'motor_preferencias', 'operacion_insumos', 'operaciones', 'plantillas_labor', 'presupuesto_items', 'presupuesto_ofertas', 'presupuesto_pedidos', 'presupuesto_precios', 'produccion_ventas', 'proveedores', 'tambo_calidad', 'tambo_dif_inventario', 'tambo_dolar_mes', 'tambo_egresos', 'tambo_egresos_conceptos', 'tambo_produccion', 'tambo_rodeo', 'tambo_ventas_carne');
 
 
 -- ───────────────────────────────────────────────────────────────
@@ -401,6 +401,21 @@ CREATE TABLE IF NOT EXISTS `lote_historial_campanas` (
   PRIMARY KEY (`id`),
   KEY `lote_id` (`lote_id`),
   CONSTRAINT `lote_historial_campanas_ibfk_1` FOREIGN KEY (`lote_id`) REFERENCES `lotes` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `lote_notas` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `usuario_id` int(11) NOT NULL,
+  `lote_id` int(11) NOT NULL,
+  `fecha` date NOT NULL,
+  `campania` varchar(50) DEFAULT NULL COMMENT 'La del lote al anotar',
+  `texto` text NOT NULL,
+  `creado_en` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_lote_notas_lote` (`usuario_id`,`lote_id`,`fecha`),
+  KEY `fk_lote_notas_lote` (`lote_id`),
+  CONSTRAINT `fk_lote_notas_lote` FOREIGN KEY (`lote_id`) REFERENCES `lotes` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_lote_notas_usuario` FOREIGN KEY (`usuario_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `motor_consultas_fallidas` (
@@ -943,6 +958,14 @@ ALTER TABLE `lote_historial_campanas` ADD COLUMN IF NOT EXISTS `kg_total` decima
 ALTER TABLE `lote_historial_campanas` ADD COLUMN IF NOT EXISTS `ingreso_total` decimal(12,2) NULL DEFAULT 0.00 AFTER `kg_total`;
 ALTER TABLE `lote_historial_campanas` ADD COLUMN IF NOT EXISTS `created_at` timestamp NOT NULL DEFAULT current_timestamp() AFTER `ingreso_total`;
 
+-- lote_notas
+ALTER TABLE `lote_notas` ADD COLUMN IF NOT EXISTS `usuario_id` int(11) NOT NULL AFTER `id`;
+ALTER TABLE `lote_notas` ADD COLUMN IF NOT EXISTS `lote_id` int(11) NOT NULL AFTER `usuario_id`;
+ALTER TABLE `lote_notas` ADD COLUMN IF NOT EXISTS `fecha` date NOT NULL AFTER `lote_id`;
+ALTER TABLE `lote_notas` ADD COLUMN IF NOT EXISTS `campania` varchar(50) NULL DEFAULT NULL COMMENT 'La del lote al anotar' AFTER `fecha`;
+ALTER TABLE `lote_notas` ADD COLUMN IF NOT EXISTS `texto` text NOT NULL AFTER `campania`;
+ALTER TABLE `lote_notas` ADD COLUMN IF NOT EXISTS `creado_en` timestamp NOT NULL DEFAULT current_timestamp() AFTER `texto`;
+
 -- motor_consultas_fallidas
 ALTER TABLE `motor_consultas_fallidas` ADD COLUMN IF NOT EXISTS `usuario_id` int(11) NOT NULL AFTER `id`;
 ALTER TABLE `motor_consultas_fallidas` ADD COLUMN IF NOT EXISTS `pregunta` varchar(300) NOT NULL AFTER `usuario_id`;
@@ -1395,6 +1418,13 @@ FROM (
         UNION ALL SELECT 'lote_historial_campanas', 'kg_total', 'decimal(14,2)'
         UNION ALL SELECT 'lote_historial_campanas', 'ingreso_total', 'decimal(12,2)'
         UNION ALL SELECT 'lote_historial_campanas', 'created_at', 'timestamp'
+        UNION ALL SELECT 'lote_notas', 'id', 'int(11)'
+        UNION ALL SELECT 'lote_notas', 'usuario_id', 'int(11)'
+        UNION ALL SELECT 'lote_notas', 'lote_id', 'int(11)'
+        UNION ALL SELECT 'lote_notas', 'fecha', 'date'
+        UNION ALL SELECT 'lote_notas', 'campania', 'varchar(50)'
+        UNION ALL SELECT 'lote_notas', 'texto', 'text'
+        UNION ALL SELECT 'lote_notas', 'creado_en', 'timestamp'
         UNION ALL SELECT 'motor_consultas_fallidas', 'id', 'int(11)'
         UNION ALL SELECT 'motor_consultas_fallidas', 'usuario_id', 'int(11)'
         UNION ALL SELECT 'motor_consultas_fallidas', 'pregunta', 'varchar(300)'
@@ -1805,6 +1835,13 @@ LEFT JOIN (
         UNION ALL SELECT 'lote_historial_campanas', 'kg_total', 'decimal(14,2)'
         UNION ALL SELECT 'lote_historial_campanas', 'ingreso_total', 'decimal(12,2)'
         UNION ALL SELECT 'lote_historial_campanas', 'created_at', 'timestamp'
+        UNION ALL SELECT 'lote_notas', 'id', 'int(11)'
+        UNION ALL SELECT 'lote_notas', 'usuario_id', 'int(11)'
+        UNION ALL SELECT 'lote_notas', 'lote_id', 'int(11)'
+        UNION ALL SELECT 'lote_notas', 'fecha', 'date'
+        UNION ALL SELECT 'lote_notas', 'campania', 'varchar(50)'
+        UNION ALL SELECT 'lote_notas', 'texto', 'text'
+        UNION ALL SELECT 'lote_notas', 'creado_en', 'timestamp'
         UNION ALL SELECT 'motor_consultas_fallidas', 'id', 'int(11)'
         UNION ALL SELECT 'motor_consultas_fallidas', 'usuario_id', 'int(11)'
         UNION ALL SELECT 'motor_consultas_fallidas', 'pregunta', 'varchar(300)'

@@ -24,11 +24,11 @@ SELECT VERSION() AS motor,
           'PARA: elegi tu base en el panel izquierdo y corre esto de nuevo',
           'OK, segui') AS estado;
 
--- Cuántas de las 40 tablas esperadas existen.
-SELECT COUNT(*) AS tablas_presentes, 40 AS tablas_esperadas
+-- Cuántas de las 41 tablas esperadas existen.
+SELECT COUNT(*) AS tablas_presentes, 41 AS tablas_esperadas
 FROM information_schema.TABLES
 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'
-  AND TABLE_NAME IN ('users', 'cultivos', 'lotes', 'depositos', 'alquileres', 'asesor_clientes', 'cc_movimientos', 'cotizaciones_siogranos', 'feedlot_alimentos', 'feedlot_costos_fijos', 'feedlot_lotes', 'ganaderia_egresos', 'ganaderia_egresos_conceptos', 'ganaderia_inventario', 'ganaderia_movimientos', 'ganaderia_pesadas', 'ganaderia_reproductivo', 'ia_uso', 'insumos', 'login_intentos', 'lote_historial_campanas', 'motor_consultas_fallidas', 'motor_preferencias', 'operacion_insumos', 'operaciones', 'plantillas_labor', 'presupuesto_items', 'presupuesto_ofertas', 'presupuesto_pedidos', 'presupuesto_precios', 'produccion_ventas', 'proveedores', 'tambo_calidad', 'tambo_dif_inventario', 'tambo_dolar_mes', 'tambo_egresos', 'tambo_egresos_conceptos', 'tambo_produccion', 'tambo_rodeo', 'tambo_ventas_carne');
+  AND TABLE_NAME IN ('users', 'cultivos', 'lotes', 'depositos', 'alquileres', 'asesor_clientes', 'cc_movimientos', 'cotizaciones_siogranos', 'feedlot_alimentos', 'feedlot_costos_fijos', 'feedlot_lotes', 'ganaderia_egresos', 'ganaderia_egresos_conceptos', 'ganaderia_inventario', 'ganaderia_movimientos', 'ganaderia_pesadas', 'ganaderia_reproductivo', 'ia_uso', 'insumos', 'login_intentos', 'lote_historial_campanas', 'lote_notas', 'motor_consultas_fallidas', 'motor_preferencias', 'operacion_insumos', 'operaciones', 'plantillas_labor', 'presupuesto_items', 'presupuesto_ofertas', 'presupuesto_pedidos', 'presupuesto_precios', 'produccion_ventas', 'proveedores', 'tambo_calidad', 'tambo_dif_inventario', 'tambo_dolar_mes', 'tambo_egresos', 'tambo_egresos_conceptos', 'tambo_produccion', 'tambo_rodeo', 'tambo_ventas_carne');
 
 -- Cuáles faltan, por nombre.
 SELECT t.nombre AS tabla_faltante FROM (
@@ -53,6 +53,7 @@ SELECT t.nombre AS tabla_faltante FROM (
     UNION ALL SELECT 'insumos' AS nombre
     UNION ALL SELECT 'login_intentos' AS nombre
     UNION ALL SELECT 'lote_historial_campanas' AS nombre
+    UNION ALL SELECT 'lote_notas' AS nombre
     UNION ALL SELECT 'motor_consultas_fallidas' AS nombre
     UNION ALL SELECT 'motor_preferencias' AS nombre
     UNION ALL SELECT 'operacion_insumos' AS nombre
@@ -61,14 +62,14 @@ SELECT t.nombre AS tabla_faltante FROM (
     UNION ALL SELECT 'presupuesto_items' AS nombre
     UNION ALL SELECT 'presupuesto_ofertas' AS nombre
     UNION ALL SELECT 'presupuesto_pedidos' AS nombre
-    UNION ALL SELECT 'presupuesto_precios' AS nombre
 ) t
 LEFT JOIN information_schema.TABLES x
        ON x.TABLE_SCHEMA = DATABASE() AND x.TABLE_NAME = t.nombre
 WHERE x.TABLE_NAME IS NULL;
 
 SELECT t.nombre AS tabla_faltante FROM (
-    SELECT 'produccion_ventas' AS nombre
+    SELECT 'presupuesto_precios' AS nombre
+    UNION ALL SELECT 'produccion_ventas' AS nombre
     UNION ALL SELECT 'proveedores' AS nombre
     UNION ALL SELECT 'tambo_calidad' AS nombre
     UNION ALL SELECT 'tambo_dif_inventario' AS nombre
@@ -321,6 +322,13 @@ FROM (
         UNION ALL SELECT 'lote_historial_campanas', 'kg_total', 'decimal(14,2)'
         UNION ALL SELECT 'lote_historial_campanas', 'ingreso_total', 'decimal(12,2)'
         UNION ALL SELECT 'lote_historial_campanas', 'created_at', 'timestamp'
+        UNION ALL SELECT 'lote_notas', 'id', 'int(11)'
+        UNION ALL SELECT 'lote_notas', 'usuario_id', 'int(11)'
+        UNION ALL SELECT 'lote_notas', 'lote_id', 'int(11)'
+        UNION ALL SELECT 'lote_notas', 'fecha', 'date'
+        UNION ALL SELECT 'lote_notas', 'campania', 'varchar(50)'
+        UNION ALL SELECT 'lote_notas', 'texto', 'text'
+        UNION ALL SELECT 'lote_notas', 'creado_en', 'timestamp'
         UNION ALL SELECT 'motor_consultas_fallidas', 'id', 'int(11)'
         UNION ALL SELECT 'motor_consultas_fallidas', 'usuario_id', 'int(11)'
         UNION ALL SELECT 'motor_consultas_fallidas', 'pregunta', 'varchar(300)'
@@ -731,6 +739,13 @@ LEFT JOIN (
         UNION ALL SELECT 'lote_historial_campanas', 'kg_total', 'decimal(14,2)'
         UNION ALL SELECT 'lote_historial_campanas', 'ingreso_total', 'decimal(12,2)'
         UNION ALL SELECT 'lote_historial_campanas', 'created_at', 'timestamp'
+        UNION ALL SELECT 'lote_notas', 'id', 'int(11)'
+        UNION ALL SELECT 'lote_notas', 'usuario_id', 'int(11)'
+        UNION ALL SELECT 'lote_notas', 'lote_id', 'int(11)'
+        UNION ALL SELECT 'lote_notas', 'fecha', 'date'
+        UNION ALL SELECT 'lote_notas', 'campania', 'varchar(50)'
+        UNION ALL SELECT 'lote_notas', 'texto', 'text'
+        UNION ALL SELECT 'lote_notas', 'creado_en', 'timestamp'
         UNION ALL SELECT 'motor_consultas_fallidas', 'id', 'int(11)'
         UNION ALL SELECT 'motor_consultas_fallidas', 'usuario_id', 'int(11)'
         UNION ALL SELECT 'motor_consultas_fallidas', 'pregunta', 'varchar(300)'

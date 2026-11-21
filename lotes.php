@@ -3,6 +3,7 @@ require_once 'config/auth.php';
 require_agricultura();
 require_once 'config/database.php';
 require_once 'includes/cultivos.php';
+require_once 'includes/lote_notas.php';
 $usuario_id = $_SESSION['usuario_id'];
 $page_title = 'Gestión de Lotes';
 
@@ -14,6 +15,21 @@ require_once 'controllers/LotesController.php';
 $controller = new LotesController($pdo, $usuario_id);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    // Libreta del lote (includes/lote_notas.php). Vuelve con la libreta abierta.
+    if (in_array($_POST['action'], ['nota_agregar', 'nota_borrar'], true)) {
+        $volver_lote = (int)($_POST['lote_id'] ?? 0);
+        if (!lote_notas_lista($pdo)) {
+            set_flash('error', 'Las notas del lote todavía no están habilitadas.');
+        } elseif ($_POST['action'] === 'nota_agregar') {
+            $err = lote_nota_agregar($pdo, $usuario_id, $volver_lote, (string)($_POST['fecha'] ?? ''), (string)($_POST['texto'] ?? ''));
+            set_flash($err ? 'error' : 'success', $err ?: 'Nota guardada.');
+        } else {
+            $volver_lote = lote_nota_borrar($pdo, $usuario_id, (int)($_POST['nota_id'] ?? 0));
+            set_flash($volver_lote ? 'success' : 'error', $volver_lote ? 'Nota eliminada.' : 'No se encontró esa nota.');
+        }
+        header('Location: lotes.php' . ($volver_lote ? '?notas=' . $volver_lote : ''));
+        exit;
+    }
     if ($_POST['action'] === 'add') {
         $controller->addLote($_POST);
         set_flash('success', 'Lote guardado exitosamente.');
@@ -73,6 +89,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 }
 
 $lotes = $controller->getAllLotes();
+$con_notas = lote_notas_lista($pdo);
+$notas_lote = lote_notas_por_lote($pdo, $usuario_id);
 require_once 'includes/header.php';
 ?>
 
@@ -144,6 +162,30 @@ require_once 'includes/header.php';
     }
     .lote-ubicacion:hover { color: var(--text-primary); }
     .btn-mi-ubicacion:hover { background: #f4f4f4; }
+
+    /* Libreta del lote */
+    .ln-btn { position: relative; color: var(--accent); background: transparent; padding: 4px; }
+    .ln-cuenta { position: absolute; top: -4px; right: -6px; min-width: 16px; height: 16px; padding: 0 4px;
+        border-radius: 8px; background: var(--accent); color: #fff; font-size: .65rem; font-weight: 700;
+        line-height: 16px; text-align: center; }
+    .ln-ultima { display: flex; gap: 5px; align-items: flex-start; margin-top: 6px; max-width: 240px;
+        background: none; border: none; padding: 0; text-align: left; cursor: pointer;
+        font: inherit; font-size: .78rem; color: var(--text-muted); line-height: 1.3; }
+    .ln-ultima i { margin-top: 2px; opacity: .7; }
+    .ln-ultima:hover span { color: var(--text-primary); text-decoration: underline; }
+    .ln-form { display: flex; flex-direction: column; gap: 8px; padding-bottom: 16px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+    .ln-form textarea, .ln-form input[type=date] { padding: 10px; border-radius: 6px; border: 1px solid var(--border);
+        background: var(--n-0); color: var(--text-primary); font: inherit; }
+    .ln-form textarea { resize: vertical; min-height: 70px; }
+    .ln-form-pie { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+    .ln-lista { display: flex; flex-direction: column; gap: 10px; max-height: 50vh; overflow-y: auto; }
+    .ln-nota { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--n-25, transparent); }
+    .ln-nota-cuerpo { flex: 1; min-width: 0; }
+    .ln-nota-meta { font-size: .78rem; color: var(--text-muted); margin-bottom: 3px; }
+    .ln-nota-texto { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .92rem; line-height: 1.4; }
+    .ln-nota form { margin: 0; }
+    .ln-nota button { background: transparent; border: none; color: var(--danger); cursor: pointer; padding: 4px 6px; }
+    .ln-vacio { text-align: center; color: var(--text-muted); padding: 18px 0; font-size: .9rem; }
     .btn-mi-ubicacion.locating { color: var(--se-warning); animation: spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 </style>
@@ -188,6 +230,13 @@ require_once 'includes/header.php';
                             <strong style="font-size: 1.05em;"><?= htmlspecialchars($lote['nombre']) ?></strong><br>
                             <span style="font-size: 0.85em; color: var(--text-muted);"><i class="fas fa-vector-square" style="width:14px; text-align:center;"></i> <?= number_format($lote['superficie'], 2, ',', '.') ?> ha</span>
                         </div>
+                        <?php if (!empty($notas_lote[(int)$lote['id']])): $ult = $notas_lote[(int)$lote['id']][0]; ?>
+                        <?php /* La última nota a la vista: tocándola se abre la libreta. */ ?>
+                        <button type="button" class="ln-ultima" onclick="verNotas(<?= (int)$lote['id'] ?>)" title="Ver las notas del lote">
+                            <i class="fas fa-note-sticky"></i>
+                            <span><?= date('d/m', strtotime($ult['fecha'])) ?> · <?= htmlspecialchars(mb_strimwidth($ult['texto'], 0, 70, '…')) ?></span>
+                        </button>
+                        <?php endif; ?>
                     </td>
                     <td data-label="Campaña & Cultivo">
                         <div style="line-height: 1.2;">
@@ -245,6 +294,12 @@ require_once 'includes/header.php';
                         <?php endif; ?>
                     </td>
                     <td data-label="Acciones">
+                        <?php if ($con_notas): $cant_notas = count($notas_lote[(int)$lote['id']] ?? []); ?>
+                        <!-- Notas del lote -->
+                        <button type="button" class="btn ln-btn" title="Notas del lote" aria-label="Notas del lote <?= htmlspecialchars($lote['nombre']) ?>" onclick="verNotas(<?= (int)$lote['id'] ?>)">
+                            <i class="fas fa-book-open"></i><?php if ($cant_notas): ?><span class="ln-cuenta"><?= $cant_notas ?></span><?php endif; ?>
+                        </button>
+                        <?php endif; ?>
                         <!-- Historial -->
                         <button type="button" class="btn" style="color: var(--accent); background: transparent; padding: 4px;" title="Historial de campañas" onclick="verHistorial(<?= $lote['id'] ?>, '<?= htmlspecialchars($lote['nombre'], ENT_QUOTES) ?>')"><i class="fas fa-history"></i></button>
                         <!-- Editar -->
@@ -1066,6 +1121,90 @@ function cerrarHistorial() {
     document.body.classList.remove('modal-open');
 }
 </script>
+
+<?php if ($con_notas): ?>
+<!-- ===== MODAL: Notas del lote (includes/lote_notas.php) ===== -->
+<div id="notasModal" class="modal-wrapper" style="display:none;">
+    <div class="glass-panel modal-panel" style="max-width: 560px; width:100%;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; gap:10px;">
+            <h2 style="margin:0; font-size:1.1rem;">
+                <i class="fas fa-book-open" style="color: var(--accent); margin-right:8px;"></i>
+                Notas de <span id="notasLoteNombre" style="color: var(--accent);"></span>
+            </h2>
+            <button type="button" onclick="cerrarNotas()" class="btn" aria-label="Cerrar" style="background:rgba(255,255,255,0.1); color:var(--text-primary); padding:4px 10px;"><i class="fas fa-times"></i></button>
+        </div>
+        <form method="POST" class="ln-form" onsubmit="const b=this.querySelector('button[type=submit]'); if(b) b.disabled=true; return true;">
+            <?php csrf_field(); ?>
+            <input type="hidden" name="action" value="nota_agregar">
+            <input type="hidden" name="lote_id" id="notasLoteId">
+            <label for="notasTexto" style="font-size:.85rem;">Nueva nota</label>
+            <textarea name="texto" id="notasTexto" maxlength="2000" required
+                placeholder="Ej: malezas en la cabecera norte; revisar la semana que viene"></textarea>
+            <div class="ln-form-pie">
+                <label style="display:flex; align-items:center; gap:6px; font-size:.85rem;">
+                    Fecha <input type="date" name="fecha" id="notasFecha" value="<?= date('Y-m-d') ?>" max="<?= date('Y-m-d') ?>">
+                </label>
+                <button type="submit" class="btn btn-primary"><i class="fas fa-plus"></i> Guardar nota</button>
+            </div>
+        </form>
+        <div id="notasLista" class="ln-lista"></div>
+    </div>
+</div>
+
+<script>
+const NOTAS_LOTE  = <?= json_encode($notas_lote, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
+const NOMBRES_LOTE = <?= json_encode(array_column($lotes, 'nombre', 'id'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
+const NOTAS_CSRF  = <?= json_encode(get_csrf_token()) ?>;
+
+function lnEsc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function verNotas(loteId) {
+    document.getElementById('notasLoteNombre').textContent = NOMBRES_LOTE[loteId] || '';
+    document.getElementById('notasLoteId').value = loteId;
+    document.getElementById('notasTexto').value = '';
+    document.getElementById('notasFecha').value = '<?= date('Y-m-d') ?>';
+    const notas = NOTAS_LOTE[loteId] || [];
+    document.getElementById('notasLista').innerHTML = notas.length ? notas.map(n => {
+        const f = new Date(n.fecha + 'T00:00:00').toLocaleDateString('es-AR');
+        return `<div class="ln-nota">
+            <div class="ln-nota-cuerpo">
+                <div class="ln-nota-meta">${f}${n.campania ? ' · campaña ' + lnEsc(n.campania) : ''}</div>
+                <div class="ln-nota-texto">${lnEsc(n.texto)}</div>
+            </div>
+            <form method="POST" onsubmit="return confirm('¿Eliminar esta nota?');">
+                <input type="hidden" name="csrf_token" value="${lnEsc(NOTAS_CSRF)}">
+                <input type="hidden" name="action" value="nota_borrar">
+                <input type="hidden" name="nota_id" value="${parseInt(n.id, 10)}">
+                <button type="submit" title="Eliminar nota" aria-label="Eliminar nota"><i class="fas fa-trash"></i></button>
+            </form>
+        </div>`;
+    }).join('') : '<div class="ln-vacio">Todavía no hay notas de este lote.</div>';
+    document.getElementById('notasModal').style.display = 'flex';
+    document.body.classList.add('modal-open');
+    setTimeout(() => document.getElementById('notasTexto').focus(), 50);
+}
+
+function cerrarNotas() {
+    document.getElementById('notasModal').style.display = 'none';
+    document.body.classList.remove('modal-open');
+}
+
+window.addEventListener('click', e => {
+    const m = document.getElementById('notasModal');
+    if (e.target === m && window.apPuedeCerrar(m)) cerrarNotas();
+});
+
+// Después de guardar o borrar una nota se vuelve con la libreta abierta (?notas=ID).
+(function () {
+    const id = new URLSearchParams(location.search).get('notas');
+    if (!id || !NOMBRES_LOTE[id]) return;
+    history.replaceState({}, '', 'lotes.php');
+    verNotas(parseInt(id, 10));
+})();
+</script>
+<?php endif; ?>
 
 <?php require_once 'includes/chat_motor.php'; ?>
 <?php require_once 'includes/footer.php'; ?>

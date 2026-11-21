@@ -553,6 +553,7 @@ $chat_voz_ia = ia_voz_disponible(isset($env) && is_array($env) ? $env : []);
             insumo:   'api/registrar_insumo.php',
             alquiler: 'api/registrar_alquiler.php',
             venta:    'api/registrar_venta.php',
+            nota:     'api/registrar_nota.php',
         };
         const url = PUERTAS[datos.que] || 'api/registrar.php';
 
@@ -580,6 +581,7 @@ $chat_voz_ia = ia_voz_disponible(isset($env) && is_array($env) ? $env : []);
                     insumo:   'Ya lo podés elegir en el formulario de Costos y Labores.',
                     alquiler: 'Ya está descontado en el margen de la campaña.',
                     venta:    'Ya suma al margen y al rinde de la campaña.',
+                    nota:     'La ves en Lotes, en las notas del lote.',
                 }[datos.que] || 'Ya está contado en el margen de la campaña.')
             });
             /* Lo que se ve detrás quedó viejo. El panel sabe refrescarse sin
